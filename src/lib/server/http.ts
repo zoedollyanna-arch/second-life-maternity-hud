@@ -26,8 +26,8 @@ export function slIdentity(request: Request): { avatarKey: string; avatarName: s
 }
 
 export function checkSecret(body: Record<string, unknown>): boolean {
-  const provided = typeof body.secret === "string" ? body.secret : "";
-  const expected = apiSecret();
+  const provided = typeof body.secret === "string" ? body.secret.trim() : "";
+  const expected = apiSecret().trim();
   if (provided.length !== expected.length) return false;
   let diff = 0;
   for (let i = 0; i < expected.length; i++) diff |= provided.charCodeAt(i) ^ expected.charCodeAt(i);

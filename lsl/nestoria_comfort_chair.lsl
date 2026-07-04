@@ -61,7 +61,7 @@ default
     {
         llSitTarget(SIT_TARGET, llEuler2Rot(SIT_ROT * DEG_TO_RAD));
         llSetClickAction(CLICK_ACTION_SIT);
-        llSetText("☁ Sit with me for 2 minutes ☁", TEXT_COLOR, 1.0);
+        llSetText("Sit with me for 2 minutes", TEXT_COLOR, 1.0);
         llResetTime();
         gRezzedAt = llGetTime();
         llSetTimerEvent(1.0);
@@ -78,8 +78,8 @@ default
                 gSitting = TRUE;
                 gSaidHalf = FALSE;
                 gSatAt = llGetTime();
-                llSay(0, "/me ✨ " + ownerName() + " sinks into the comfy chair with a happy little sigh ☁");
-                llSetText("☁ Relaxing…\n" + progressBar(0.0), TEXT_COLOR, 1.0);
+                llSay(0, "/me " + ownerName() + " sinks into the comfy chair with a happy little sigh.");
+                llSetText("Relaxing...\n" + progressBar(0.0), TEXT_COLOR, 1.0);
             }
             else
             {
@@ -91,7 +91,7 @@ default
         {
             // stood up early — timer restarts on the next sit
             gSitting = FALSE;
-            llSetText("☁ Sit with me for 2 minutes ☁", TEXT_COLOR, 1.0);
+            llSetText("Sit with me for 2 minutes", TEXT_COLOR, 1.0);
         }
     }
 
@@ -106,7 +106,7 @@ default
                 llRegionSay(comfortChannel(), "nestoria_comfort_done");
                 key sitter = seatedAvatar();
                 llSetText("", ZERO_VECTOR, 0.0);
-                llSay(0, "/me ✨ " + ownerName() + " stretches, feeling wonderfully rested ☁ ♥");
+                llSay(0, "/me " + ownerName() + " stretches, feeling wonderfully rested.");
                 if (sitter != NULL_KEY) llUnSit(sitter);
                 llSleep(1.0);
                 llDie();
@@ -116,11 +116,11 @@ default
                 if (!gSaidHalf && elapsed >= SIT_SECONDS * 0.5)
                 {
                     gSaidHalf = TRUE;
-                    llSay(0, "/me ✨ " + ownerName() + " closes her eyes for a moment, one hand resting on her bump ♥");
+                    llSay(0, "/me " + ownerName() + " closes her eyes for a moment, one hand resting on her bump.");
                 }
                 integer mins = (integer)(remaining / 60.0);
                 integer secs = (integer)remaining % 60;
-                llSetText("☁ Relaxing… " + (string)mins + ":" +
+                llSetText("Relaxing... " + (string)mins + ":" +
                     llGetSubString("0" + (string)secs, -2, -1) + " left\n" +
                     progressBar(elapsed / SIT_SECONDS),
                     TEXT_COLOR, 1.0);

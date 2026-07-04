@@ -16,6 +16,7 @@ const SL_ACTIONS = new Set([
   "food_eat",
   "rest",
   "vitamins",
+  "medicine",
   "bathroom",
   "doctor",
   "kick",

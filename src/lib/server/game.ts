@@ -55,21 +55,21 @@ const STAT_NAMES: StatName[] = [
 
 // Per-hour drift. Sickness rises (worse) early on; everything else drains.
 const DECAY_PER_HOUR: Record<StatName, number> = {
-  energy: -3,
-  hydration: -5,
-  hunger: -4,
-  bladder: -6,
-  mood: -1.5,
-  immunity: -0.5,
-  sickness: 1,
-  rest: -3,
-  vitamins: -2,
-  comfort: -2,
-  nutrition: -1.5,
-  stress: 0.8,
-  baby_wellness: -0.15,
-  baby_bond: -0.2,
-  baby_movement: -0.4,
+  energy: -2.2,
+  hydration: -3.5,
+  hunger: -3,
+  bladder: -4,
+  mood: -0.9,
+  immunity: -0.35,
+  sickness: 0.7,
+  rest: -2.2,
+  vitamins: -1.4,
+  comfort: -1.5,
+  nutrition: -1,
+  stress: 0.55,
+  baby_wellness: -0.08,
+  baby_bond: -0.12,
+  baby_movement: -0.25,
 };
 
 const clamp = (v: number) => Math.max(0, Math.min(100, v));
@@ -155,7 +155,7 @@ const FOOD_ITEMS: FoodItem[] = [
     cravingTags: ["pickle chips", "pickle", "pickles", "chips", "salty", "sour", "crunchy"],
     deltas: { hunger: 10, mood: 7, hydration: -4, sickness: -2 },
     cravingRelief: 26,
-    note: "Salty, sour and crunchy — the classic pregnancy craving.",
+    note: "Salty, sour and crunchy - the classic pregnancy craving.",
   },
   {
     key: "chocolate_bar",
@@ -164,7 +164,7 @@ const FOOD_ITEMS: FoodItem[] = [
     cravingTags: ["chocolate bar", "chocolate", "candy", "cocoa", "sweet"],
     deltas: { hunger: 8, mood: 12, energy: 5, nutrition: -1, sickness: 1 },
     cravingRelief: 28,
-    note: "Pure comfort — a little mood magic in a wrapper.",
+    note: "Pure comfort - a little mood magic in a wrapper.",
   },
 ];
 
@@ -396,13 +396,23 @@ function normalizeStats(row: Record<string, unknown>) {
 function decayStats(row: Record<string, unknown>, trimester: number, hours: number) {
   const base = normalizeStats(row);
   const updated: Record<StatName, number> = {} as Record<StatName, number>;
+  const activeHours = smartDecayHours(hours);
   for (const name of STAT_NAMES) {
     let rate = DECAY_PER_HOUR[name];
-    if (name === "sickness") rate = trimester === 1 ? 1.5 : -2;
+    if (name === "sickness") rate = trimester === 1 ? 1.1 : -1.2;
     if (name === "immunity" && Number(base.vitamins) < 20) rate = -2;
-    updated[name] = clamp(Number(base[name]) + rate * Math.min(hours, 48));
+    if (rate < 0 && Number(base[name]) < 25) rate *= 0.45;
+    if (rate > 0 && Number(base[name]) > 75) rate *= 0.45;
+    updated[name] = clamp(Number(base[name]) + rate * activeHours);
   }
   return updated;
+}
+
+function smartDecayHours(hours: number) {
+  const safeHours = Math.max(0, hours);
+  if (safeHours <= 8) return safeHours;
+  const dampedOffline = Math.sqrt(safeHours - 8) * 0.75;
+  return Math.min(18, 8 + dampedOffline);
 }
 
 async function bumpStats(userId: string, deltas: Partial<Record<StatName, number>>) {
@@ -499,6 +509,7 @@ async function ensureUltrasoundUnlocks(pregnancyId: string, momId: string, week:
   const due = ULTRASOUND_WEEKS.map((w, i) => ({ index: i + 1, week: w })).filter(
     (u) => u.week <= week,
   );
+  let announcedUltrasoundBatch = false;
   for (const u of due) {
     const inserted = await db().query(
       `insert into ultrasounds (pregnancy_id, photo_index, week)
@@ -512,9 +523,12 @@ async function ensureUltrasoundUnlocks(pregnancyId: string, momId: string, week:
         "You have a new ultrasound 📸",
         `Your week ${u.week} scan is ready — open the scrapbook to see your little one ♥`,
       );
-      await queueCommand(momId, "hud", "say", {
-        text: `📸 A new ultrasound photo is waiting on your dashboard ♥`,
-      });
+      if (!announcedUltrasoundBatch) {
+        announcedUltrasoundBatch = true;
+        await queueCommand(momId, "hud", "say", {
+          text: "[Ultrasound] New photo(s) are waiting on your dashboard.",
+        });
+      }
     }
   }
   const { rows } = await db().query(
@@ -973,7 +987,7 @@ export async function performAction(
       const progress = computeProgress(new Date(preg.conceived_at), preg.duration_days);
       const bpm = heartbeatForWeek(progress.week);
       await applyCare(momId, preg.id, action, { mood: 5, baby_bond: 4 }, "Heartbeat check");
-      await queueCommand(momId, "hud", bpm > 0 ? "heartbeat" : "chime", {
+      await queueCommand(momId, "hud", bpm > 0 ? "heartbeat" : "say", {
         text: bpm > 0 ? `Baby heartbeat: ${bpm} bpm.` : "Too early for a heartbeat moment.",
       });
       return {
@@ -1077,9 +1091,9 @@ export async function performAction(
       );
       await queueCommand(momId, "hud", "drink", {});
       await queueCommand(momId, "hud", "say", {
-        text: "You sip some refreshing water. Hydration +25 💧",
+        text: "You sip some refreshing water. Hydration +25.",
       });
-      return { ok: true, message: "You drink some water. Hydration restored 💧" };
+      return { ok: true, message: "You drink some water. Hydration restored." };
 
     case "eat":
     case "food_eat": {
@@ -1099,8 +1113,8 @@ export async function performAction(
         "Rested",
       );
       await queueCommand(momId, "hud", "rest", {});
-      await queueCommand(momId, "hud", "say", { text: "You take a peaceful rest. Energy +30 🌙" });
-      return { ok: true, message: "You take a moment to rest 🌙" };
+      await queueCommand(momId, "hud", "say", { text: "You take a peaceful rest. Energy +30." });
+      return { ok: true, message: "You take a moment to rest." };
 
     case "vitamins":
       await applyCare(
@@ -1112,9 +1126,22 @@ export async function performAction(
       );
       await queueCommand(momId, "hud", "vitamins", {});
       await queueCommand(momId, "hud", "say", {
-        text: "Prenatal vitamins taken. Immunity boosted 💊",
+        text: "Prenatal vitamins taken. Immunity boosted.",
       });
-      return { ok: true, message: "Prenatal vitamins taken 💊" };
+      return { ok: true, message: "Prenatal vitamins taken." };
+
+    case "medicine":
+      await applyCare(
+        momId,
+        preg.id,
+        action,
+        { sickness: -25, hydration: -3, comfort: 6, stress: -2 },
+        "Took nausea medicine",
+      );
+      await queueCommand(momId, "hud", "say", {
+        text: "Nausea medicine taken. Sickness eased.",
+      });
+      return { ok: true, message: "Nausea medicine taken. Sickness eased." };
 
     case "bathroom":
       await applyCare(momId, preg.id, action, { bladder: 100, comfort: 5 }, "Bathroom break");
@@ -1126,11 +1153,11 @@ export async function performAction(
       // after the wearer has sat on it for 2 minutes.
       await queueCommand(momId, "hud", "rez_chair", {});
       await queueCommand(momId, "hud", "say", {
-        text: "Your comfy chair is being set out — have a seat and relax for 2 minutes ☁️",
+        text: "Your comfy chair is being set out - have a seat and relax for 2 minutes.",
       });
       return {
         ok: true,
-        message: "Comfy chair rezzed in-world — sit on it for 2 minutes to relax ☁️",
+        message: "Comfy chair rezzed in-world - sit on it for 2 minutes to relax.",
       };
 
     case "comfort_complete":
@@ -1142,7 +1169,7 @@ export async function performAction(
         "Relaxed in the comfy chair",
       );
       await queueCommand(momId, "hud", "say", {
-        text: "So cozy. Comfort +25, stress melts away ☁️",
+        text: "So cozy. Comfort +25, stress melts away.",
       });
       return { ok: true, message: "You feel wonderfully relaxed ☁️ Comfort +25" };
 
@@ -1189,11 +1216,11 @@ export async function performAction(
     case "hug": {
       await bumpStats(momId, { mood: 10, comfort: 10 });
       await queueCommand(momId, "hud", "hearts", {});
-      await queueCommand(momId, "belly", "say", { text: "Baby feels the love ♥" });
+      await queueCommand(momId, "belly", "say", { text: "Baby feels the love." });
       if (isPartner) {
         await addPartnerActivity(preg.id, actorName, "Gave affection", 8);
-        await queueCommand(momId, "hud", "say", { text: `${actorName} wraps you in a warm hug ♥` });
-        return { ok: true, message: `You hug ${momName} tight ♥`, anim: "hug" };
+        await queueCommand(momId, "hud", "say", { text: `${actorName} wraps you in a warm hug.` });
+        return { ok: true, message: `You hug ${momName} tight.`, anim: "hug" };
       }
       await addNotification(momId, "Self care ♥", "You took a moment for yourself and baby.");
       return { ok: true, message: "You wrap your arms around your bump ♥" };
@@ -1209,7 +1236,7 @@ export async function performAction(
           "“You're doing amazing — I love you both.”",
         );
         await queueCommand(momId, "hud", "say", {
-          text: `${actorName} sends words of encouragement 💌`,
+          text: `${actorName} sends words of encouragement.`,
         });
       } else {
         await addNotification(
@@ -1219,7 +1246,7 @@ export async function performAction(
         );
         await queueCommand(momId, "hud", "chime", {});
       }
-      return { ok: true, message: "Encouragement sent 💌" };
+      return { ok: true, message: "Encouragement sent." };
     }
 
     case "ask_partner": {
@@ -1231,29 +1258,29 @@ export async function performAction(
     }
 
     case "partner_message": {
-      const note = str("note") || "Thinking of you ♥";
+      const note = str("note") || "Thinking of you.";
       await bumpStats(momId, { mood: 6 });
       await addPartnerActivity(preg.id, actorName, "Sent a sweet message", 4);
       await addNotification(momId, `Message from ${actorName}`, note);
-      await queueCommand(momId, "hud", "say", { text: `💌 ${actorName}: ${note}` });
-      return { ok: true, message: "Message delivered 💌" };
+      await queueCommand(momId, "hud", "say", { text: `${actorName}: ${note}` });
+      return { ok: true, message: "Message delivered." };
     }
 
     case "partner_water":
       await bumpStats(momId, { hydration: 20 });
       await addPartnerActivity(preg.id, actorName, "Brought a glass of water", 5);
       await queueCommand(momId, "hud", "say", {
-        text: `${actorName} brings you a glass of water 💧`,
+        text: `${actorName} brings you a glass of water.`,
       });
-      return { ok: true, message: `You bring ${momName} some water 💧` };
+      return { ok: true, message: `You bring ${momName} some water.` };
 
     case "partner_backrub":
       await bumpStats(momId, { comfort: 20, mood: 8 });
       await addPartnerActivity(preg.id, actorName, "Gave a back rub", 7);
       await queueCommand(momId, "hud", "say", {
-        text: `${actorName} gives you a gentle back rub 🌸`,
+        text: `${actorName} gives you a gentle back rub.`,
       });
-      return { ok: true, message: "A soothing back rub 🌸" };
+      return { ok: true, message: "A soothing back rub." };
 
     case "partner_appointment":
       await addPartnerActivity(preg.id, actorName, "Attended an appointment", 10);
@@ -1264,16 +1291,16 @@ export async function performAction(
         "appointment",
       );
       await queueCommand(momId, "hud", "say", {
-        text: `${actorName} joined you at your appointment 🩺`,
+        text: `${actorName} joined you at your appointment.`,
       });
-      return { ok: true, message: "Appointment attended together 🩺" };
+      return { ok: true, message: "Appointment attended together." };
 
     case "partner_status": {
       const progress = computeProgress(new Date(preg.conceived_at), preg.duration_days);
       const stats = await getStatsWithDecay(momId, progress.trimester);
       return {
         ok: true,
-        message: `${momName} — week ${progress.week}+${progress.day} (${progress.progressPct}%). Mood ${stats.mood}%, energy ${stats.energy}%, hydration ${stats.hydration}%.`,
+        message: `${momName} - week ${progress.week}+${progress.day} (${progress.progressPct}%). Mood ${stats.mood}%, energy ${stats.energy}%, hydration ${stats.hydration}%.`,
       };
     }
 
@@ -1434,6 +1461,7 @@ export async function performAction(
     case "random_event_roll": {
       const progress = computeProgress(new Date(preg.conceived_at), preg.duration_days);
       const roll = Math.random();
+      const sicknessRisk = stats.sickness > 55 || progress.trimester === 1;
       let eventType = "baby_kick";
       let title = "Tiny kick";
       let body = "You feel a tiny kick. The baby is moving around.";
@@ -1442,7 +1470,33 @@ export async function performAction(
         baby_movement: 5,
         baby_bond: 2,
       };
-      if (roll > 0.4 && roll <= 0.65) {
+      if (sicknessRisk && roll <= 0.35) {
+        const sicknessEvents = [
+          {
+            eventType: "nausea",
+            title: "Nausea wave",
+            body: "A wave of nausea rolls in. Medicine, water, a light snack, or rest can settle it.",
+            deltas: { sickness: 6, mood: -2, stress: 2 },
+          },
+          {
+            eventType: "heartburn",
+            title: "Heartburn",
+            body: "A warm burn creeps up after eating. Water and a calmer snack may help.",
+            deltas: { sickness: 4, comfort: -3, stress: 1 },
+          },
+          {
+            eventType: "dizzy",
+            title: "Dizzy spell",
+            body: "You feel a little dizzy. Sit, sip water, and take it slow.",
+            deltas: { sickness: 5, energy: -4, hydration: -3 },
+          },
+        ];
+        const event = sicknessEvents[Math.floor(Math.random() * sicknessEvents.length)];
+        eventType = event.eventType;
+        title = event.title;
+        body = event.body;
+        eventDeltas = event.deltas;
+      } else if (roll > 0.4 && roll <= 0.65) {
         eventType = stats.hydration < 45 ? "hydration" : "fatigue";
         title = stats.hydration < 45 ? "Hydration reminder" : "Fatigue";
         body =
@@ -1497,6 +1551,8 @@ export async function performAction(
         count_kick: { baby_movement: 4 },
         rest: { sickness: -5, energy: 5, rest: 8 },
         water: { hydration: 15, baby_wellness: 2 },
+        medicine: { sickness: -22, comfort: 5, stress: -2 },
+        snack: { sickness: -8, hunger: 10, mood: 2 },
         nap: { energy: 20, mood: 5, rest: 15 },
         breathe: { mood: 6, stress: -5 },
         journal: { mood: 4 },
@@ -1533,8 +1589,8 @@ export async function performAction(
       const bpm = heartbeatForWeek(progress.week);
       const heartLine =
         bpm > 0
-          ? `Baby's heartbeat: ${bpm} bpm — strong and healthy.`
-          : "Too early to hear the heartbeat yet — everything looks wonderful.";
+          ? `Baby's heartbeat: ${bpm} bpm - strong and healthy.`
+          : "Too early to hear the heartbeat yet - everything looks wonderful.";
       await bumpStats(momId, { immunity: 15, sickness: -20 });
       await addJournal(
         momId,
@@ -1542,9 +1598,9 @@ export async function performAction(
         `Week ${progress.week} check-up. ${heartLine}`,
         "appointment",
       );
-      await addNotification(momId, "Check-up complete 🩺", heartLine);
-      await queueCommand(momId, "hud", bpm > 0 ? "heartbeat" : "say", { text: `🩺 ${heartLine}` });
-      return { ok: true, message: `Check-up done 🩺 ${heartLine}` };
+      await addNotification(momId, "Check-up complete", heartLine);
+      await queueCommand(momId, "hud", bpm > 0 ? "heartbeat" : "say", { text: `[Check-up] ${heartLine}` });
+      return { ok: true, message: `Check-up done. ${heartLine}` };
     }
 
     case "kick": {
@@ -1554,7 +1610,7 @@ export async function performAction(
       ]);
       if (source !== "sl") await queueCommand(momId, "belly", "kick", {});
       await queueCommand(momId, "hud", "kick", { text: "Baby is kicking!" });
-      return { ok: true, message: "Kick logged 👶" };
+      return { ok: true, message: "Kick logged." };
     }
 
     case "belly_touch": {
@@ -1562,8 +1618,8 @@ export async function performAction(
       await bumpStats(momId, { mood: 4 });
       if (preg.partner_name && toucher.startsWith(preg.partner_name))
         await addPartnerActivity(preg.id, toucher, "Cuddled the bump", 4);
-      await queueCommand(momId, "hud", "say", { text: `${toucher} gently touches your bump ♥` });
-      return { ok: true, message: "So sweet ♥" };
+      await queueCommand(momId, "hud", "say", { text: `${toucher} gently touches your bump.` });
+      return { ok: true, message: "So sweet." };
     }
 
     // ---- journal / memory / events -----------------------------------------
@@ -1571,7 +1627,7 @@ export async function performAction(
       const title = str("title", 120) || "A beautiful moment";
       await addJournal(momId, title, str("body", 2000) || null, "memory");
       await queueCommand(momId, "hud", "chime", {});
-      return { ok: true, message: "Memory saved to your journal 📸" };
+      return { ok: true, message: "Memory saved to your journal." };
     }
 
     case "journal_add": {
@@ -1698,6 +1754,6 @@ export async function registerDevice(opts: {
     token,
     week,
     moap_url: `${appUrl()}/?token=${token}`,
-    welcome: `Welcome back, ${user.avatar_name.split(" ")[0]} ♥ Week ${week} — touch the screen to open your dashboard.`,
+    welcome: `Welcome back, ${user.avatar_name.split(" ")[0]} - Week ${week} - touch the screen to open your dashboard.`,
   };
 }

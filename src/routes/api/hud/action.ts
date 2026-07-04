@@ -9,6 +9,7 @@ const WEB_ACTIONS = new Set([
   "food_eat",
   "rest",
   "vitamins",
+  "medicine",
   "bathroom",
   "comfort",
   "hug",

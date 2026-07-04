@@ -26,7 +26,7 @@
 // ============================================================================
 
 string  API_BASE   = "https://second-life-maternity-hud.onrender.com";
-string  API_SECRET = "30bacebfb360616f0028a0f21b2df23d31686e0be344994c";  // same value as SL_API_SECRET in the server .env
+string  API_SECRET = "30bacebb8360616f0028a0f21b2df23d31686e0be344994c";  // same value as SL_API_SECRET in the server .env
 
 integer MOAP_FACE     = 4;      // face that shows the dashboard (adjust to your prim)
 integer POLL_SECONDS  = 30;     // fallback poll when push is unavailable
@@ -112,9 +112,10 @@ setMoap(string url)
         PRIM_MEDIA_AUTO_PLAY, TRUE,
         PRIM_MEDIA_AUTO_SCALE, TRUE,
         PRIM_MEDIA_PERMS_INTERACT, PRIM_MEDIA_PERM_OWNER,
-        PRIM_MEDIA_PERMS_CONTROL, PRIM_MEDIA_PERM_OWNER,
-        PRIM_MEDIA_WIDTH_PIXELS, 1024,
-        PRIM_MEDIA_HEIGHT_PIXELS, 768
+        PRIM_MEDIA_PERMS_CONTROL, PRIM_MEDIA_PERM_NONE,
+        PRIM_MEDIA_CONTROLS, PRIM_MEDIA_CONTROLS_MINI,
+        PRIM_MEDIA_WIDTH_PIXELS, 1280,
+        PRIM_MEDIA_HEIGHT_PIXELS, 720
     ]);
 }
 
@@ -160,7 +161,7 @@ rezChair()
 {
     if (llGetInventoryType("nestoria_chair") != INVENTORY_OBJECT)
     {
-        say("The comfy chair object is missing from the HUD — add \"nestoria_chair\" to its contents.");
+        say("The comfy chair object is missing from the HUD - add \"nestoria_chair\" to its contents.");
         return;
     }
     // A HUD's own pos/rot are screen coordinates — use the avatar's instead.
@@ -169,7 +170,7 @@ rezChair()
     rotation ownerRot = llList2Rot(details, 1);
     vector rezPos = ownerPos + <1.2, 0.0, 0.0> * ownerRot;
     llRezObject("nestoria_chair", rezPos, ZERO_VECTOR, ownerRot, 0);
-    say("Your comfy chair is out — sit and relax for 2 minutes ☁️");
+    say("Your comfy chair is out - sit and relax for 2 minutes.");
 }
 
 openEventDialog(string params)
@@ -249,7 +250,7 @@ runCommand(string cmd, string params)
     }
     else if (cmd == "kick")
     {
-        say("👶 " + llJsonGetValue(params, ["text"]));
+        say("[Baby] " + llJsonGetValue(params, ["text"]));
         playSoundByName("nestoria_chime");
     }
     else if (cmd == "refresh_moap")
@@ -293,7 +294,7 @@ default
         gChairChannel = comfortChannel();
         gChairListen = llListen(gChairChannel, "", NULL_KEY, "");
         requestPushUrl();
-        say("starting up…");
+        say("starting up...");
     }
 
     attach(key id)
@@ -325,7 +326,7 @@ default
         else if (method == URL_REQUEST_DENIED)
         {
             gCallbackUrl = "";
-            say("No free URLs on this parcel — using polling only.");
+            say("No free URLs on this parcel - using polling only.");
             registerWithServer();
         }
         else if (method == "POST")
@@ -348,7 +349,10 @@ default
             gRegisterReq = NULL_KEY;
             if (status != 200)
             {
-                say("Could not reach the Nestoria server (HTTP " + (string)status + "). Retrying in 60s.");
+                string err = llJsonGetValue(body, ["error"]);
+                if (err == JSON_INVALID || err == "")
+                    err = "Could not reach the Nestoria server.";
+                say(err + " (HTTP " + (string)status + "). Retrying in 60s.");
                 llSetTimerEvent(60.0);
                 return;
             }

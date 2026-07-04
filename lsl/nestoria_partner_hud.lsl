@@ -12,7 +12,7 @@
 // ============================================================================
 
 string  API_BASE   = "https://second-life-maternity-hud.onrender.com";
-string  API_SECRET = "30bacebfb360616f0028a0f21b2df23d31686e0be344994c";  // same value as SL_API_SECRET in the server .env
+string  API_SECRET = "30bacebb8360616f0028a0f21b2df23d31686e0be344994c";  // same value as SL_API_SECRET in the server .env
 
 float   VOLUME = 0.7;
 
@@ -105,7 +105,7 @@ default
                 "object_key", (string)llGetKey(),
                 "region", llGetRegionName()
             ]));
-            say("Pairing…");
+            say("Pairing...");
             return;
         }
 
@@ -138,7 +138,7 @@ default
         if (id != gHttpReq) return;
         gHttpReq = NULL_KEY;
 
-        if (status == 401) { gToken = ""; say("Pairing expired — touch to pair again."); return; }
+        if (status == 401) { gToken = ""; say("Pairing expired - touch to pair again."); return; }
         if (status != 200)
         {
             string err = llJsonGetValue(body, ["error"]);

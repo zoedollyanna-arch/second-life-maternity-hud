@@ -33,6 +33,8 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import logo from "@/assets/nestoria-logo.png";
 import pregnancyHero from "@/assets/pregnancy-hero.jpg";
@@ -57,7 +59,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useHudState, useHudAction, type HudState } from "@/lib/hud-api";
+import { useHudState, useHudAction, type HudState, type HudStats } from "@/lib/hud-api";
 import { BABY_GROWTH } from "@/lib/pregnancy";
 import { playForAction, playChime, playError, playHearts } from "@/lib/sounds";
 
@@ -93,6 +95,60 @@ const NAV: { key: NavKey; label: string; icon: React.ComponentType<{ className?:
   { key: "settings", label: "Settings", icon: Settings },
 ];
 
+const CLIENT_DECAY_PER_HOUR: Record<keyof HudStats, number> = {
+  energy: -2.2,
+  hydration: -3.5,
+  hunger: -3,
+  bladder: -4,
+  mood: -0.9,
+  immunity: -0.35,
+  sickness: 0.7,
+  rest: -2.2,
+  vitamins: -1.4,
+  comfort: -1.5,
+  nutrition: -1,
+  stress: 0.55,
+  baby_wellness: -0.08,
+  baby_bond: -0.12,
+  baby_movement: -0.25,
+};
+
+const clampStat = (value: number) => Math.max(0, Math.min(100, value));
+
+function smartDecayHours(hours: number) {
+  const safeHours = Math.max(0, hours);
+  if (safeHours <= 8) return safeHours;
+  return Math.min(18, 8 + Math.sqrt(safeHours - 8) * 0.75);
+}
+
+function useLiveStats(data: HudState) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  return useMemo(() => {
+    const serverAt = new Date(data.serverTime).getTime();
+    if (!Number.isFinite(serverAt)) return data.stats;
+
+    const elapsedHours = smartDecayHours((now - serverAt) / 3_600_000);
+    if (elapsedHours <= 0) return data.stats;
+
+    const live = {} as HudStats;
+    for (const key of Object.keys(data.stats) as (keyof HudStats)[]) {
+      let rate = CLIENT_DECAY_PER_HOUR[key];
+      if (key === "sickness") rate = data.pregnancy.trimester === 1 ? 1.1 : -1.2;
+      if (key === "immunity" && data.stats.vitamins < 20) rate = -2;
+      if (rate < 0 && data.stats[key] < 25) rate *= 0.45;
+      if (rate > 0 && data.stats[key] > 75) rate *= 0.45;
+      live[key] = clampStat(data.stats[key] + rate * elapsedHours);
+    }
+    return live;
+  }, [data.pregnancy.trimester, data.serverTime, data.stats, now]);
+}
+
 // ---------------------------------------------------------------------------
 // Shared visual primitives (unchanged design language)
 // ---------------------------------------------------------------------------
@@ -122,6 +178,7 @@ function CloudBar({
         className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
         style={{ width: `${Math.max(0, Math.min(100, value))}%`, background: gradient }}
       >
+        <div className="absolute inset-0 animate-[meterSheen_2.8s_linear_infinite] bg-[linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent)]" />
         <div className="absolute inset-0 flex items-center gap-1 px-1">
           {Array.from({ length: 8 }).map((_, i) => (
             <span key={i} className="h-3 w-3 rounded-full bg-white/60 blur-[1px]" />
@@ -166,7 +223,7 @@ function Meter({
 function Panel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
     <div
-      className={`rounded-[28px] bg-card/85 backdrop-blur-xl shadow-cloud ring-1 ring-white/60 p-6 ${className}`}
+      className={`rounded-[20px] bg-card/85 backdrop-blur-xl shadow-cloud ring-1 ring-white/60 p-4 lg:p-5 ${className}`}
     >
       {children}
     </div>
@@ -246,7 +303,8 @@ function Ambient() {
         ))}
       </div>
       <style>{`@keyframes twinkle { 0%,100%{opacity:.2;transform:scale(.8)} 50%{opacity:1;transform:scale(1.3)} }
-        @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }`}</style>
+        @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+        @keyframes meterSheen { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }`}</style>
     </>
   );
 }
@@ -363,7 +421,18 @@ function ConnectScreen() {
 
 function Dashboard({ token, data }: { token: string; data: HudState }) {
   const [active, setActive] = useState<NavKey>("home");
+  const [uiScale, setUiScale] = useState(() => {
+    if (typeof window === "undefined") return 0.9;
+    const saved = Number(window.localStorage.getItem("nestoriaHudScale") ?? 0.9);
+    return Number.isFinite(saved) ? Math.max(0.75, Math.min(1.15, saved)) : 0.9;
+  });
   const action = useHudAction(token);
+
+  const setZoom = (next: number) => {
+    const clamped = Math.max(0.75, Math.min(1.15, Number(next.toFixed(2))));
+    setUiScale(clamped);
+    if (typeof window !== "undefined") window.localStorage.setItem("nestoriaHudScale", String(clamped));
+  };
 
   const act = (name: string, params?: Record<string, unknown>, opts?: { silent?: boolean }) =>
     action.mutate(
@@ -402,7 +471,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
   }, [data.ultrasounds.length]);
 
   const preg = data.pregnancy;
-  const stats = data.stats;
+  const stats = useLiveStats(data);
   const show = (...keys: NavKey[]) => active === "home" || keys.includes(active);
 
   const dueDate = useMemo(
@@ -423,8 +492,15 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
   return (
     <Shell>
+      <div
+        className="origin-top"
+        style={{
+          transform: `scale(${uiScale})`,
+          width: `${100 / uiScale}%`,
+        }}
+      >
       {/* Header */}
-      <header className="relative z-10 mx-auto max-w-[1400px] px-6 pt-8 pb-4">
+      <header className="relative z-10 mx-auto max-w-[1320px] px-4 pt-4 pb-3">
         <div className="flex items-center justify-between gap-6">
           <div className="flex items-center gap-4">
             <img
@@ -432,11 +508,11 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
               alt="Nestoria logo"
               width={72}
               height={72}
-              className="h-16 w-16 drop-shadow-[0_4px_12px_oklch(0.55_0.15_300/0.25)]"
+              className="h-12 w-12 drop-shadow-[0_4px_12px_oklch(0.55_0.15_300/0.25)]"
               style={{ animation: "float 5s ease-in-out infinite" }}
             />
             <div>
-              <h1 className="font-display text-4xl font-semibold tracking-wide text-[color:var(--lavender-deep)]">
+              <h1 className="font-display text-3xl font-semibold tracking-wide text-[color:var(--lavender-deep)]">
                 NESTORIA
               </h1>
               <p className="font-script text-sm text-[color:var(--lavender-deep)]/70">
@@ -444,7 +520,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
               </p>
             </div>
           </div>
-          <div className="hidden md:flex items-center gap-3 rounded-full bg-card/80 backdrop-blur-md px-5 py-3 shadow-soft">
+          <div className="hidden md:flex items-center gap-2 rounded-full bg-card/80 backdrop-blur-md px-3 py-2 shadow-soft">
             <div className="h-10 w-10 rounded-full bg-[color:var(--lavender)] flex items-center justify-center">
               <Sparkles className="h-5 w-5 text-white" />
             </div>
@@ -457,6 +533,22 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
               </div>
             </div>
             <div className="ml-3 flex gap-2">
+              <button
+                onClick={() => setZoom(uiScale - 0.05)}
+                aria-label="Zoom out"
+                title="Zoom out"
+                className="h-10 w-10 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition"
+              >
+                <ZoomOut className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+              </button>
+              <button
+                onClick={() => setZoom(uiScale + 0.05)}
+                aria-label="Zoom in"
+                title="Zoom in"
+                className="h-10 w-10 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition"
+              >
+                <ZoomIn className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+              </button>
               <button
                 onClick={() => setActive("notifications")}
                 aria-label="Notifications"
@@ -481,7 +573,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto max-w-[1400px] px-6 pb-28">
+      <main className="relative z-10 mx-auto max-w-[1320px] px-4 pb-20">
         {preg.delivered && (
           <div className="mb-6 rounded-[28px] bg-card/90 p-5 text-center shadow-cloud ring-1 ring-white/60">
             <span className="font-display text-2xl text-[color:var(--lavender-deep)]">
@@ -490,10 +582,10 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
             </span>
           </div>
         )}
-        <div className="grid grid-cols-12 gap-6">
+        <div className="grid grid-cols-12 gap-4">
           {/* Sidebar */}
           <aside className="col-span-12 md:col-span-3 lg:col-span-2">
-            <Panel className="p-3">
+            <Panel className="p-2">
               <nav className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible">
                 {NAV.map(({ key, label, icon: Icon }) => {
                   const isActive = active === key;
@@ -501,14 +593,14 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                     <button
                       key={key}
                       onClick={() => setActive(key)}
-                      className={`group flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition-all whitespace-nowrap ${
+                      className={`group flex min-w-0 items-center gap-2 rounded-xl px-2.5 py-2 text-xs font-semibold transition-all whitespace-nowrap ${
                         isActive
                           ? "bg-[color:var(--lavender)] text-white shadow-soft"
                           : "text-muted-foreground hover:bg-white/70 hover:text-[color:var(--lavender-deep)]"
                       }`}
                     >
-                      <Icon className="h-4 w-4" />
-                      <span className="flex-1 text-left">{label}</span>
+                      <Icon className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
                       {key === "notifications" && data.unread > 0 && (
                         <span className="h-4 min-w-4 rounded-full bg-[color:var(--blush)] px-1 text-[9px] font-bold text-white flex items-center justify-center">
                           {data.unread}
@@ -732,6 +824,13 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       val: stats.vitamins,
                       actionLabel: "Take",
                       action: "vitamins",
+                    },
+                    {
+                      icon: Stethoscope,
+                      label: "Medicine",
+                      val: 100 - stats.sickness,
+                      actionLabel: "Take",
+                      action: "medicine",
                     },
                     {
                       icon: Heart,
@@ -1016,6 +1115,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                   <QuickAction icon={Heart} label="Hug" onClick={() => act("hug")} />
                   <QuickAction icon={Droplet} label="Water" onClick={() => act("drink_water")} />
                   <QuickAction icon={Pill} label="Vitamins" onClick={() => act("vitamins")} />
+                  <QuickAction icon={Stethoscope} label="Medicine" onClick={() => act("medicine")} />
                   <QuickAction icon={Moon} label="Rest" onClick={() => act("rest")} />
                   <QuickAction
                     icon={MessageCircle}
@@ -1048,8 +1148,9 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
       <footer className="relative z-10 pb-6 text-center text-xs text-muted-foreground">
         <p className="font-script text-lg text-[color:var(--lavender-deep)]">Nestoria</p>
-        <p>Where every family journey begins · Pregnancy & Family HUD for Second Life</p>
+        <p>Where every family journey begins - Pregnancy & Family HUD for Second Life</p>
       </footer>
+      </div>
       <Toaster position="top-center" />
     </Shell>
   );
@@ -1291,6 +1392,7 @@ function ActionConsole({
         { icon: Moon, label: "Rest", action: "rest" },
         { icon: Droplet, label: "Water", action: "drink_water" },
         { icon: Pill, label: "Vitamins", action: "vitamins" },
+        { icon: Stethoscope, label: "Medicine", action: "medicine" },
         { icon: Waves, label: "Breathe", action: "breathe" },
         { icon: Heart, label: "Comfort", action: "comfort" },
         { icon: Sparkles, label: "Bath", action: "warm_bath" },
@@ -1328,6 +1430,18 @@ function ActionConsole({
           params: { request: `${data.user.name} could use a little support.` },
         },
         { icon: Bell, label: "Roll Event", action: "random_event_roll" },
+        {
+          icon: Stethoscope,
+          label: "Medicine",
+          action: "random_event_choice",
+          params: { eventType, choice: "medicine" },
+        },
+        {
+          icon: Apple,
+          label: "Snack",
+          action: "random_event_choice",
+          params: { eventType, choice: "snack" },
+        },
         {
           icon: HandHeart,
           label: "Rub Belly",

@@ -14,7 +14,7 @@
 // ============================================================================
 
 string  API_BASE   = "https://second-life-maternity-hud.onrender.com";
-string  API_SECRET = "30bacebfb360616f0028a0f21b2df23d31686e0be344994c";  // same value as SL_API_SECRET in the server .env
+string  API_SECRET = "30bacebb8360616f0028a0f21b2df23d31686e0be344994c";  // same value as SL_API_SECRET in the server .env
 
 integer POLL_SECONDS = 60;
 float   VOLUME     = 0.6;
@@ -86,7 +86,7 @@ sendEvent(string type, string extraKey, string extraVal)
 doKick()
 {
     playSoundByName("nestoria_kick");
-    llOwnerSay("👶 Your baby is kicking!");
+    llOwnerSay("[Baby] Your baby is kicking!");
     sendEvent("kick", "", "");
 }
 
@@ -127,7 +127,14 @@ default
         if (id == gRegisterReq)
         {
             gRegisterReq = NULL_KEY;
-            if (status != 200) return;
+            if (status != 200)
+            {
+                string err = llJsonGetValue(body, ["error"]);
+                if (err == JSON_INVALID || err == "")
+                    err = "Could not reach the Nestoria server.";
+                llOwnerSay("♥ Nestoria Belly: " + err + " (HTTP " + (string)status + ").");
+                return;
+            }
             gToken = llJsonGetValue(body, ["token"]);
             string week = llJsonGetValue(body, ["week"]);
             if (week != JSON_INVALID) applyWeek((integer)week);
@@ -168,7 +175,7 @@ default
         key toucher = llDetectedKey(0);
         if (toucher == llGetOwner())
         {
-            llOwnerSay("♥ Week " + (string)gWeek + " — your little one is growing beautifully.");
+            llOwnerSay("♥ Week " + (string)gWeek + " - your little one is growing beautifully.");
             playSoundByName("nestoria_heartbeat");
         }
         else

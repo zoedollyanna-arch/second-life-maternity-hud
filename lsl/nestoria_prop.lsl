@@ -75,9 +75,9 @@ loadConfig()
 
 string emojiFor()
 {
-    if (gAnimType == "drink") return "💧";
-    if (gAnimType == "hold")  return "💊";
-    return "🍓";
+    if (gAnimType == "drink") return "[Water]";
+    if (gAnimType == "hold")  return "[Vitamins]";
+    return "[Food]";
 }
 
 string verbFor()
@@ -106,26 +106,26 @@ sayLine(integer pct)
     string line = "";
     if (gAnimType == "drink")
     {
-        if (pct == 25) line = who + " takes a long, refreshing sip of " + gItemName + " 💧";
-        else if (pct == 50) line = who + " sips slowly — staying hydrated for two ♥";
+        if (pct == 25) line = who + " takes a long, refreshing sip of " + gItemName + ".";
+        else if (pct == 50) line = who + " sips slowly - staying hydrated for two.";
         else if (pct == 75) line = who + " tips the " + gItemName + " back for the last drops.";
-        else line = who + " finishes the " + gItemName + " with a happy sigh. Ahh, much better! 💧";
+        else line = who + " finishes the " + gItemName + " with a happy sigh. Ahh, much better!";
     }
     else if (gAnimType == "hold")
     {
         if (pct == 25) line = who + " shakes a " + gItemName + " into her palm.";
-        else if (pct == 50) line = who + " takes her " + gItemName + " like a champ 💊";
+        else if (pct == 50) line = who + " takes her " + gItemName + " like a champ.";
         else if (pct == 75) line = who + " washes it down with a little water.";
-        else line = who + " is all done — baby says thank you! ♥";
+        else line = who + " is all done - baby says thank you!";
     }
     else
     {
-        if (pct == 25) line = who + " takes a happy little bite of " + gItemName + " 🍓";
-        else if (pct == 50) line = who + " is really enjoying this " + gItemName + " — baby approves!";
+        if (pct == 25) line = who + " takes a happy little bite of " + gItemName + ".";
+        else if (pct == 50) line = who + " is really enjoying this " + gItemName + " - baby approves!";
         else if (pct == 75) line = who + " savors every last bite of the " + gItemName + ".";
         else line = who + " finishes the " + gItemName + " and pats her tummy. So good! ♥";
     }
-    llSay(0, "/me ✨ " + line);
+    llSay(0, "/me " + line);
 }
 
 startAnim()
