@@ -421,17 +421,20 @@ function ConnectScreen() {
 
 function Dashboard({ token, data }: { token: string; data: HudState }) {
   const [active, setActive] = useState<NavKey>("home");
+  const defaultHudScale = 1.2;
   const [uiScale, setUiScale] = useState(() => {
-    if (typeof window === "undefined") return 1.0;
-    const saved = Number(window.localStorage.getItem("nestoriaHudScale") ?? 1.0);
-    return Number.isFinite(saved) ? Math.max(0.75, Math.min(1.5, saved)) : 1.0;
+    if (typeof window === "undefined") return defaultHudScale;
+    const saved = Number(window.localStorage.getItem("nestoriaHudScaleV2") ?? defaultHudScale);
+    return Number.isFinite(saved) ? Math.max(0.05, saved) : defaultHudScale;
   });
   const action = useHudAction(token);
 
   const setZoom = (next: number) => {
-    const clamped = Math.max(0.75, Math.min(1.15, Number(next.toFixed(2))));
+    const clamped = Math.max(0.05, Number(next.toFixed(2)));
     setUiScale(clamped);
-    if (typeof window !== "undefined") window.localStorage.setItem("nestoriaHudScale", String(clamped));
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("nestoriaHudScaleV2", String(clamped));
+    }
   };
 
   const act = (name: string, params?: Record<string, unknown>, opts?: { silent?: boolean }) =>
@@ -500,7 +503,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
         }}
       >
       {/* Header */}
-      <header className="relative z-10 mx-auto max-w-[1320px] px-4 pt-4 pb-3">
+      <header className="relative z-10 mx-auto max-w-[1680px] px-6 pt-4 pb-3">
         <div className="flex items-center justify-between gap-6">
           <div className="flex items-center gap-4">
             <img
@@ -573,7 +576,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto max-w-[1320px] px-4 pb-20">
+      <main className="relative z-10 mx-auto max-w-[1680px] px-6 pb-20">
         {preg.delivered && (
           <div className="mb-6 rounded-[28px] bg-card/90 p-5 text-center shadow-cloud ring-1 ring-white/60">
             <span className="font-display text-2xl text-[color:var(--lavender-deep)]">
