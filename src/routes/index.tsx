@@ -1,21 +1,40 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   Home, Heart, Baby, Users, BookHeart, Bell, Settings, Activity,
   Droplet, Pill, Moon, Utensils, Zap, Smile, Footprints, Calendar,
-  Camera, Sparkles, ChevronRight, Plus, MessageCircle, Stethoscope,
+  Camera, Sparkles, Plus, MessageCircle, Stethoscope, Copy, Check, Loader2,
+  Waves, Apple, Mic, HandHeart, RefreshCw,
 } from "lucide-react";
 import logo from "@/assets/nestoria-logo.png";
 import pregnancyHero from "@/assets/pregnancy-hero.jpg";
 import babyHero from "@/assets/baby-hero.jpg";
+import { Toaster } from "@/components/ui/sonner";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { useHudState, useHudAction, type HudState } from "@/lib/hud-api";
+import { BABY_GROWTH } from "@/lib/pregnancy";
+import { playForAction, playChime, playError } from "@/lib/sounds";
 
 export const Route = createFileRoute("/")({
+  validateSearch: (search: Record<string, unknown>): { token?: string } => ({
+    token: typeof search.token === "string" ? search.token : undefined,
+  }),
   component: Index,
 });
 
 type NavKey =
   | "home" | "pregnancy" | "health" | "baby" | "care" | "partner"
-  | "journal" | "notifications" | "settings";
+  | "journal" | "nutrition" | "notifications" | "settings";
 
 const NAV: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: "home", label: "Home", icon: Home },
@@ -25,9 +44,14 @@ const NAV: { key: NavKey; label: string; icon: React.ComponentType<{ className?:
   { key: "care", label: "Care & Comfort", icon: Moon },
   { key: "partner", label: "Partner", icon: Users },
   { key: "journal", label: "Journal", icon: BookHeart },
+  { key: "nutrition", label: "Nutrition", icon: Apple },
   { key: "notifications", label: "Notifications", icon: Bell },
   { key: "settings", label: "Settings", icon: Settings },
 ];
+
+// ---------------------------------------------------------------------------
+// Shared visual primitives (unchanged design language)
+// ---------------------------------------------------------------------------
 
 function CloudBar({ value, tone = "lavender" }: { value: number; tone?: "lavender" | "blush" | "cream" }) {
   const gradient =
@@ -42,8 +66,7 @@ function CloudBar({ value, tone = "lavender" }: { value: number; tone?: "lavende
       boxShadow: "inset 0 2px 4px oklch(0.55 0.15 300 / 0.15)",
     }}>
       <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
-        style={{ width: `${value}%`, background: gradient }}>
-        {/* cloud bumps */}
+        style={{ width: `${Math.max(0, Math.min(100, value))}%`, background: gradient }}>
         <div className="absolute inset-0 flex items-center gap-1 px-1">
           {Array.from({ length: 8 }).map((_, i) => (
             <span key={i} className="h-3 w-3 rounded-full bg-white/60 blur-[1px]" />
@@ -63,7 +86,7 @@ function Meter({ icon: Icon, label, value, tone = "lavender" }: { icon: React.Co
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center justify-between">
           <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</span>
-          <span className="text-xs font-semibold text-[color:var(--lavender-deep)]">{value}%</span>
+          <span className="text-xs font-semibold text-[color:var(--lavender-deep)]">{Math.round(value)}%</span>
         </div>
         <CloudBar value={value} tone={tone} />
       </div>
@@ -89,12 +112,28 @@ function PanelHeader({ eyebrow, title, subtitle }: { eyebrow?: string; title: st
   );
 }
 
-function Index() {
-  const [active, setActive] = useState<NavKey>("home");
-
+function PrimaryButton({ children, onClick, disabled }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean }) {
   return (
-    <div className="min-h-screen w-full">
-      {/* Ambient sparkles background */}
+    <button onClick={onClick} disabled={disabled}
+      className="mt-5 w-full rounded-full py-2.5 font-medium text-white shadow-soft transition hover:brightness-105 disabled:opacity-60"
+      style={{ background: "var(--gradient-lavender)" }}>
+      {children}
+    </button>
+  );
+}
+
+function Row({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between rounded-xl bg-white/60 px-3 py-2">
+      <span className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">{icon}{label}</span>
+      <span className="text-sm font-semibold text-foreground">{value}</span>
+    </div>
+  );
+}
+
+function Ambient() {
+  return (
+    <>
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         {Array.from({ length: 24 }).map((_, i) => (
           <span key={i}
@@ -109,7 +148,138 @@ function Index() {
       </div>
       <style>{`@keyframes twinkle { 0%,100%{opacity:.2;transform:scale(.8)} 50%{opacity:1;transform:scale(1.3)} }
         @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }`}</style>
+    </>
+  );
+}
 
+// ---------------------------------------------------------------------------
+// Entry
+// ---------------------------------------------------------------------------
+
+function Index() {
+  const { token } = Route.useSearch();
+  const state = useHudState(token ?? null);
+
+  if (!token) return <ConnectScreen />;
+  if (state.isLoading) {
+    return (
+      <Shell>
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="mx-auto h-10 w-10 animate-spin text-[color:var(--lavender-deep)]" />
+            <p className="mt-4 font-display text-xl text-[color:var(--lavender-deep)]">Opening your nursery…</p>
+          </div>
+        </div>
+      </Shell>
+    );
+  }
+  if (state.isError || !state.data || state.data.error) {
+    return (
+      <Shell>
+        <div className="flex min-h-[60vh] items-center justify-center px-6">
+          <Panel className="max-w-md text-center">
+            <PanelHeader eyebrow="Session" title="Your session has expired" />
+            <p className="text-sm text-muted-foreground">
+              Touch your Nestoria HUD in Second Life and choose <b>Sync</b> — it will refresh this screen with a new session.
+            </p>
+          </Panel>
+        </div>
+      </Shell>
+    );
+  }
+  return <Dashboard token={token} data={state.data} />;
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen w-full">
+      <Ambient />
+      {children}
+    </div>
+  );
+}
+
+function ConnectScreen() {
+  const [starting, setStarting] = useState(false);
+  const startDemo = async () => {
+    setStarting(true);
+    try {
+      const res = await fetch("/api/hud/demo", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.token) throw new Error(data.error ?? "Demo unavailable");
+      window.location.search = `?token=${data.token}`;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Demo unavailable");
+      setStarting(false);
+    }
+  };
+  return (
+    <Shell>
+      <div className="flex min-h-screen items-center justify-center px-6">
+        <Panel className="max-w-lg text-center">
+          <img src={logo} alt="Nestoria logo" width={96} height={96} className="mx-auto h-20 w-20"
+            style={{ animation: "float 5s ease-in-out infinite" }} />
+          <h1 className="mt-3 font-display text-4xl font-semibold tracking-wide text-[color:var(--lavender-deep)]">NESTORIA</h1>
+          <p className="font-script text-lg text-[color:var(--lavender-deep)]/70">where every family journey begins</p>
+          <div className="mt-6 space-y-3 text-left text-sm text-muted-foreground">
+            <p className="font-semibold text-foreground">To open your dashboard:</p>
+            <p>1. Wear the <b>Nestoria HUD</b> in Second Life.</p>
+            <p>2. It registers automatically and loads this dashboard on its screen.</p>
+            <p>3. Make sure media is enabled: <i>Preferences → Sound &amp; Media → Media</i>.</p>
+            <p>Partners: wear the <b>Partner HUD</b> and enter the pairing code from her Partner panel.</p>
+          </div>
+          <PrimaryButton onClick={startDemo} disabled={starting}>
+            {starting ? "Starting demo…" : "Preview a demo dashboard"}
+          </PrimaryButton>
+        </Panel>
+      </div>
+      <Toaster position="top-center" />
+    </Shell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------------------
+
+function Dashboard({ token, data }: { token: string; data: HudState }) {
+  const [active, setActive] = useState<NavKey>("home");
+  const action = useHudAction(token);
+
+  const act = (name: string, params?: Record<string, unknown>) =>
+    action.mutate({ action: name, params }, {
+      onSuccess: (res) => {
+        toast.success(res.message);
+        playForAction(name);
+      },
+      onError: (err) => {
+        toast.error(err.message);
+        playError();
+      },
+    });
+
+  // Chime when new notifications arrive (heard in SL through the media screen)
+  const unreadRef = useRef(data.unread);
+  useEffect(() => {
+    if (data.unread > unreadRef.current) playChime();
+    unreadRef.current = data.unread;
+  }, [data.unread]);
+
+  const preg = data.pregnancy;
+  const stats = data.stats;
+  const show = (...keys: NavKey[]) => active === "home" || keys.includes(active);
+
+  const dueDate = useMemo(
+    () => new Date(preg.dueDate).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }),
+    [preg.dueDate],
+  );
+  const firstName = data.user.name.split(" ")[0];
+  if (!preg.setupComplete && data.user.role === "mom") {
+    return <SetupWizard token={token} data={data} onSave={(params) => act("setup_update", params)} />;
+  }
+
+  return (
+    <Shell>
       {/* Header */}
       <header className="relative z-10 mx-auto max-w-[1400px] px-6 pt-8 pb-4">
         <div className="flex items-center justify-between gap-6">
@@ -132,14 +302,18 @@ function Index() {
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Welcome back</div>
-              <div className="font-display text-lg leading-none">Aria <span className="text-[color:var(--blush)]">♥</span></div>
+              <div className="font-display text-lg leading-none">{firstName} <span className="text-[color:var(--blush)]">♥</span></div>
             </div>
             <div className="ml-3 flex gap-2">
-              <button className="relative h-10 w-10 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition">
+              <button onClick={() => setActive("notifications")} aria-label="Notifications"
+                className="relative h-10 w-10 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition">
                 <Bell className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-                <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-[color:var(--blush)] text-[9px] font-bold text-white flex items-center justify-center">3</span>
+                {data.unread > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-[color:var(--blush)] text-[9px] font-bold text-white flex items-center justify-center">{data.unread}</span>
+                )}
               </button>
-              <button className="h-10 w-10 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition">
+              <button onClick={() => setActive("settings")} aria-label="Settings"
+                className="h-10 w-10 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition">
                 <Settings className="h-4 w-4 text-[color:var(--lavender-deep)]" />
               </button>
             </div>
@@ -147,8 +321,14 @@ function Index() {
         </div>
       </header>
 
-      {/* Main dashboard */}
       <main className="relative z-10 mx-auto max-w-[1400px] px-6 pb-28">
+        {preg.delivered && (
+          <div className="mb-6 rounded-[28px] bg-card/90 p-5 text-center shadow-cloud ring-1 ring-white/60">
+            <span className="font-display text-2xl text-[color:var(--lavender-deep)]">
+              🎉 Your little one has arrived! Congratulations{preg.babyName ? ` on ${preg.babyName}` : ""} ♥
+            </span>
+          </div>
+        )}
         <div className="grid grid-cols-12 gap-6">
           {/* Sidebar */}
           <aside className="col-span-12 md:col-span-3 lg:col-span-2">
@@ -164,7 +344,10 @@ function Index() {
                           : "text-muted-foreground hover:bg-white/70 hover:text-[color:var(--lavender-deep)]"
                       }`}>
                       <Icon className="h-4 w-4" />
-                      <span>{label}</span>
+                      <span className="flex-1 text-left">{label}</span>
+                      {key === "notifications" && data.unread > 0 && (
+                        <span className="h-4 min-w-4 rounded-full bg-[color:var(--blush)] px-1 text-[9px] font-bold text-white flex items-center justify-center">{data.unread}</span>
+                      )}
                     </button>
                   );
                 })}
@@ -172,298 +355,358 @@ function Index() {
             </Panel>
           </aside>
 
-          {/* Center: Pregnancy hero card */}
-          <section className="col-span-12 md:col-span-9 lg:col-span-6">
-            <Panel className="relative overflow-hidden">
-              <PanelHeader eyebrow="Pregnancy" title="Your beautiful journey" subtitle="every day is a step closer to meeting your little one" />
-
-              <div className="grid grid-cols-2 gap-6 items-center">
-                <div className="relative">
-                  <div className="aspect-square rounded-full overflow-hidden ring-4 ring-white/70 shadow-cloud"
-                    style={{ background: "var(--gradient-lavender)" }}>
-                    <img src={pregnancyHero} alt="Pregnancy" width={512} height={512} className="h-full w-full object-cover" loading="lazy" />
+          {/* Pregnancy hero */}
+          {show("pregnancy") && (
+            <section className="col-span-12 md:col-span-9 lg:col-span-6">
+              <Panel className="relative overflow-hidden">
+                <PanelHeader eyebrow="Pregnancy" title="Your beautiful journey" subtitle="every day is a step closer to meeting your little one" />
+                <div className="grid grid-cols-2 gap-6 items-center">
+                  <div className="relative">
+                    <div className="aspect-square rounded-full overflow-hidden ring-4 ring-white/70 shadow-cloud"
+                      style={{ background: "var(--gradient-lavender)" }}>
+                      <img src={pregnancyHero} alt="Pregnancy" width={512} height={512} className="h-full w-full object-cover" loading="lazy" />
+                    </div>
+                    <div className="absolute -bottom-2 -right-2 rounded-full bg-white px-3 py-1.5 shadow-soft text-xs font-semibold text-[color:var(--lavender-deep)]">
+                      {preg.trimester === 1 ? "1st" : preg.trimester === 2 ? "2nd" : "3rd"} Trimester
+                    </div>
                   </div>
-                  <div className="absolute -bottom-2 -right-2 rounded-full bg-white px-3 py-1.5 shadow-soft text-xs font-semibold text-[color:var(--lavender-deep)]">
-                    2nd Trimester
+                  <div className="space-y-4">
+                    <div>
+                      <div className="font-display text-4xl font-semibold text-[color:var(--lavender-deep)] leading-tight">
+                        {preg.week} <span className="text-2xl font-normal text-muted-foreground">weeks</span> + {preg.day} <span className="text-2xl font-normal text-muted-foreground">days</span>
+                      </div>
+                      <p className="text-xs italic text-muted-foreground mt-1">Due: {dueDate} · {preg.daysToGo} days to go</p>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-xs mb-1.5">
+                        <span className="uppercase tracking-widest text-muted-foreground">Progress</span>
+                        <span className="font-semibold text-[color:var(--lavender-deep)]">{preg.progressPct}%</span>
+                      </div>
+                      <CloudBar value={preg.progressPct} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-2xl bg-white/70 p-3 text-center">
+                        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Baby size</div>
+                        <div className="font-display text-lg text-foreground">{preg.baby.size}</div>
+                        <div className="text-[10px] text-muted-foreground">{preg.baby.lengthCm} cm · {preg.baby.weightG} g</div>
+                      </div>
+                      <div className="rounded-2xl bg-white/70 p-3 text-center">
+                        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Baby kicks</div>
+                        <div className="font-display text-lg text-foreground">{preg.baby.kicksToday} today</div>
+                        <div className="text-[10px] text-muted-foreground">{preg.baby.movement} <Footprints className="inline h-3 w-3" /></div>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div className="space-y-4">
-                  <div>
-                    <div className="font-display text-4xl font-semibold text-[color:var(--lavender-deep)] leading-tight">
-                      24 <span className="text-2xl font-normal text-muted-foreground">weeks</span> + 3 <span className="text-2xl font-normal text-muted-foreground">days</span>
-                    </div>
-                    <p className="text-xs italic text-muted-foreground mt-1">Due: August 25, 2024 · 102 days to go</p>
-                  </div>
-                  <div>
-                    <div className="flex justify-between text-xs mb-1.5">
-                      <span className="uppercase tracking-widest text-muted-foreground">Progress</span>
-                      <span className="font-semibold text-[color:var(--lavender-deep)]">61%</span>
-                    </div>
-                    <CloudBar value={61} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-2xl bg-white/70 p-3 text-center">
-                      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Baby size</div>
-                      <div className="font-display text-lg text-foreground">Cantaloupe</div>
-                      <div className="text-[10px] text-muted-foreground">30.1 cm · 650 g</div>
-                    </div>
-                    <div className="rounded-2xl bg-white/70 p-3 text-center">
-                      <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Baby kicks</div>
-                      <div className="font-display text-lg text-foreground">12 today</div>
-                      <div className="text-[10px] text-muted-foreground">Very active <Footprints className="inline h-3 w-3" /></div>
-                    </div>
-                  </div>
+                <TimelineDialog currentWeek={preg.week} />
+              </Panel>
+            </section>
+          )}
+
+          {/* Baby */}
+          {show("baby", "pregnancy") && (
+            <section className="col-span-12 lg:col-span-4">
+              <Panel>
+                <PanelHeader eyebrow="Baby" title={preg.babyName ? `All about ${preg.babyName}` : "All about your little one"} />
+                <div className="relative mx-auto aspect-square w-44 rounded-full overflow-hidden ring-4 ring-white/70 shadow-cloud mb-4">
+                  <img src={babyHero} alt="Baby" width={400} height={400} className="h-full w-full object-cover" loading="lazy" />
                 </div>
-              </div>
-
-              <button className="mt-6 w-full rounded-full py-3 font-medium text-white shadow-soft transition hover:brightness-105"
-                style={{ background: "var(--gradient-lavender)" }}>
-                View Pregnancy Timeline
-              </button>
-            </Panel>
-          </section>
-
-          {/* Right: Baby card */}
-          <section className="col-span-12 lg:col-span-4">
-            <Panel>
-              <PanelHeader eyebrow="Baby" title="All about your little one" />
-              <div className="relative mx-auto aspect-square w-44 rounded-full overflow-hidden ring-4 ring-white/70 shadow-cloud mb-4">
-                <img src={babyHero} alt="Baby" width={400} height={400} className="h-full w-full object-cover" loading="lazy" />
-              </div>
-              <div className="space-y-2.5 text-sm">
-                <Row label="Heartbeat" value="142 bpm" icon={<Heart className="h-3.5 w-3.5 text-[color:var(--blush)]" />} />
-                <Row label="Movement" value="Very Active" />
-                <Row label="Position" value="Head Down" />
-                <Row label="Weight" value="1.5 lbs" />
-                <Row label="Length" value="11.8 in" />
-              </div>
-            </Panel>
-          </section>
+                <div className="space-y-2.5 text-sm">
+                  <Row label="Heartbeat" value={preg.baby.heartbeat ? `${preg.baby.heartbeat} bpm` : "Too early"} icon={<Heart className="h-3.5 w-3.5 text-[color:var(--blush)]" />} />
+                  <Row label="Movement" value={preg.baby.movement} />
+                  <Row label="Position" value={preg.baby.position} />
+                  <Row label="Weight" value={`${(preg.baby.weightG / 453.6).toFixed(1)} lbs`} />
+                  <Row label="Length" value={`${(preg.baby.lengthCm / 2.54).toFixed(1)} in`} />
+                </div>
+                <p className="mt-3 text-center text-xs italic text-muted-foreground">{preg.baby.note}</p>
+                <PrimaryButton onClick={() => act("kick")}>
+                  Log a kick 👶
+                </PrimaryButton>
+              </Panel>
+            </section>
+          )}
 
           {/* Health */}
-          <section className="col-span-12 md:col-span-6 lg:col-span-4">
-            <Panel>
-              <PanelHeader eyebrow="Health" title="Monitor your well-being" />
-              <div className="space-y-4">
-                <Meter icon={Zap} label="Energy" value={78} />
-                <Meter icon={Activity} label="Immunity" value={65} />
-                <Meter icon={Smile} label="Mood" value={82} tone="blush" />
-                <Meter icon={Droplet} label="Hydration" value={60} />
-              </div>
-              <div className="mt-5 rounded-2xl bg-white/60 px-4 py-3 flex items-start gap-3">
-                <div className="h-8 w-8 rounded-full bg-[color:var(--lavender)] flex items-center justify-center shrink-0">
-                  <Sparkles className="h-4 w-4 text-white" />
+          {show("health")  && (
+            <section className="col-span-12 md:col-span-6 lg:col-span-4">
+              <Panel>
+                <PanelHeader eyebrow="Health" title="Monitor your well-being" />
+                <div className="space-y-4">
+                  <Meter icon={Zap} label="Energy" value={stats.energy} />
+                  <Meter icon={Activity} label="Immunity" value={stats.immunity} />
+                  <Meter icon={Smile} label="Mood" value={stats.mood} tone="blush" />
+                  <Meter icon={Droplet} label="Hydration" value={stats.hydration} />
                 </div>
-                <p className="text-xs italic text-muted-foreground">You're doing great! Keep taking care of yourself. <span className="text-[color:var(--blush)]">♥</span></p>
-              </div>
-            </Panel>
-          </section>
+                <div className="mt-5 rounded-2xl bg-white/60 px-4 py-3 flex items-start gap-3">
+                  <div className="h-8 w-8 rounded-full bg-[color:var(--lavender)] flex items-center justify-center shrink-0">
+                    <Sparkles className="h-4 w-4 text-white" />
+                  </div>
+                  <p className="text-xs italic text-muted-foreground">
+                    {data.wellness >= 75 ? "You're doing great! Keep taking care of yourself."
+                      : data.wellness >= 50 ? "A little self-care would feel lovely right now."
+                      : "Baby needs you rested — drink, eat and take a break."} <span className="text-[color:var(--blush)]">♥</span>
+                  </p>
+                </div>
+                <PrimaryButton onClick={() => act("doctor")}>
+                  <span className="inline-flex items-center gap-2"><Stethoscope className="h-4 w-4" /> Visit the doctor</span>
+                </PrimaryButton>
+              </Panel>
+            </section>
+          )}
 
           {/* Symptoms */}
-          <section className="col-span-12 md:col-span-6 lg:col-span-4">
-            <Panel>
-              <PanelHeader eyebrow="Symptoms" title="Track how you feel" />
-              <div className="space-y-3">
-                {[
-                  { name: "Nausea", level: "Mild", val: 30 },
-                  { name: "Fatigue", level: "Moderate", val: 55 },
-                  { name: "Back Pain", level: "Mild", val: 25 },
-                  { name: "Headache", level: "None", val: 5 },
-                  { name: "Heartburn", level: "Mild", val: 20 },
-                ].map((s) => (
-                  <div key={s.name}>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="font-medium text-foreground">{s.name}</span>
-                      <span className="text-muted-foreground italic">{s.level}</span>
+          {show("health") && (
+            <section className="col-span-12 md:col-span-6 lg:col-span-4">
+              <Panel>
+                <PanelHeader eyebrow="Symptoms" title="Track how you feel" />
+                <div className="space-y-3">
+                  {data.symptoms.map((s) => (
+                    <div key={s.name}>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="font-medium text-foreground">{s.name}</span>
+                        <span className="text-muted-foreground italic">{s.label}</span>
+                      </div>
+                      <CloudBar value={s.severity} tone="blush" />
                     </div>
-                    <CloudBar value={s.val} tone="blush" />
-                  </div>
-                ))}
-              </div>
-              <button className="mt-5 w-full rounded-full py-2.5 text-sm font-medium text-[color:var(--lavender-deep)] bg-white/70 hover:bg-white transition">
-                View all symptoms
-              </button>
-            </Panel>
-          </section>
+                  ))}
+                </div>
+                <SymptomsDialog symptoms={data.symptoms} onSave={(name, severity) => act("symptom_log", { name, severity })} />
+              </Panel>
+            </section>
+          )}
 
           {/* Care & Comfort */}
-          <section className="col-span-12 md:col-span-6 lg:col-span-4">
-            <Panel>
-              <PanelHeader eyebrow="Care & Comfort" title="Take care of your needs" />
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { icon: Moon, label: "Rest", val: 70, action: "Rest" },
-                  { icon: Droplet, label: "Water", val: 60, action: "Drink" },
-                  { icon: Pill, label: "Vitamins", val: 80, action: "Take" },
-                  { icon: Heart, label: "Comfort", val: 65, action: "Use" },
-                ].map(({ icon: Icon, label, val, action }) => (
-                  <div key={label} className="rounded-2xl bg-white/70 p-3">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="h-8 w-8 rounded-full bg-[color:var(--lavender)]/30 flex items-center justify-center">
-                        <Icon className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+          {show("care") && (
+            <section className="col-span-12 md:col-span-6 lg:col-span-4">
+              <Panel>
+                <PanelHeader eyebrow="Care & Comfort" title="Take care of your needs" />
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { icon: Moon, label: "Rest", val: stats.rest, actionLabel: "Rest", action: "rest" },
+                    { icon: Droplet, label: "Water", val: stats.hydration, actionLabel: "Drink", action: "drink_water" },
+                    { icon: Pill, label: "Vitamins", val: stats.vitamins, actionLabel: "Take", action: "vitamins" },
+                    { icon: Heart, label: "Comfort", val: stats.comfort, actionLabel: "Cozy up", action: "comfort" },
+                  ].map(({ icon: Icon, label, val, actionLabel, action: name }) => (
+                    <div key={label} className="rounded-2xl bg-white/70 p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="h-8 w-8 rounded-full bg-[color:var(--lavender)]/30 flex items-center justify-center">
+                          <Icon className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-xs font-semibold">{label}</div>
+                          <div className="text-[10px] text-muted-foreground">{Math.round(val)}%</div>
+                        </div>
                       </div>
-                      <div className="flex-1">
-                        <div className="text-xs font-semibold">{label}</div>
-                        <div className="text-[10px] text-muted-foreground">{val}%</div>
-                      </div>
+                      <CloudBar value={val} />
+                      <button onClick={() => act(name)} disabled={action.isPending}
+                        className="mt-2 w-full rounded-full py-1 text-[10px] font-medium bg-[color:var(--lavender)]/20 text-[color:var(--lavender-deep)] hover:bg-[color:var(--lavender)]/40 transition disabled:opacity-50">
+                        {actionLabel}
+                      </button>
                     </div>
-                    <CloudBar value={val} />
-                    <button className="mt-2 w-full rounded-full py-1 text-[10px] font-medium bg-[color:var(--lavender)]/20 text-[color:var(--lavender-deep)] hover:bg-[color:var(--lavender)]/40 transition">
-                      {action}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-          </section>
+                  ))}
+                </div>
+              </Panel>
+            </section>
+          )}
 
           {/* Partner */}
-          <section className="col-span-12 md:col-span-6 lg:col-span-5">
-            <Panel>
-              <PanelHeader eyebrow="Partner" title="Stronger together" />
-              <div className="rounded-2xl bg-white/70 p-4 mb-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Partner Support</div>
-                    <div className="font-display text-lg text-foreground">Alex Parker <span className="text-[color:var(--blush)] text-xs">● Online</span></div>
+          {show("partner") && (
+            <section className="col-span-12 md:col-span-6 lg:col-span-5">
+              <Panel>
+                <PanelHeader eyebrow="Partner" title="Stronger together" />
+                {data.partner.linked ? (
+                  <>
+                    <div className="rounded-2xl bg-white/70 p-4 mb-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Partner Support</div>
+                          <div className="font-display text-lg text-foreground">{data.partner.name}</div>
+                        </div>
+                        <div className="text-2xl font-display text-[color:var(--lavender-deep)]">{data.partner.support}%</div>
+                      </div>
+                      <CloudBar value={data.partner.support} />
+                    </div>
+                    <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Recent activities</div>
+                    <ul className="space-y-2">
+                      {data.partner.activities.length === 0 && (
+                        <li className="rounded-xl bg-white/50 px-3 py-2 text-sm text-muted-foreground italic">
+                          No activities yet — they'll appear when your partner uses their HUD.
+                        </li>
+                      )}
+                      {data.partner.activities.map((a, i) => (
+                        <li key={i} className="flex items-center justify-between rounded-xl bg-white/50 px-3 py-2 text-sm">
+                          <span className="flex items-center gap-2"><Heart className="h-3.5 w-3.5 text-[color:var(--blush)]" /> {a.activity}</span>
+                          <span className="text-xs text-muted-foreground italic">
+                            {new Date(a.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <PrimaryButton onClick={() => act("hug")}>Send a hug in-world ♥</PrimaryButton>
+                  </>
+                ) : (
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Give this pairing code to your partner. They enter it in their <b>Nestoria Partner HUD</b> to join your journey.
+                    </p>
+                    <PairingCode code={data.partner.code} />
+                    <p className="mt-4 text-xs italic text-muted-foreground">
+                      Once linked, their hugs, water runs and sweet messages show up here — and reach you in-world.
+                    </p>
                   </div>
-                  <div className="text-2xl font-display text-[color:var(--lavender-deep)]">82%</div>
-                </div>
-                <CloudBar value={82} />
-              </div>
-              <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Recent activities</div>
-              <ul className="space-y-2">
-                {[
-                  ["Gave affection", "Today"],
-                  ["Went to appointment", "May 15"],
-                  ["Helped with chores", "May 15"],
-                  ["Spent quality time", "May 14"],
-                ].map(([act, when]) => (
-                  <li key={act} className="flex items-center justify-between rounded-xl bg-white/50 px-3 py-2 text-sm">
-                    <span className="flex items-center gap-2"><Heart className="h-3.5 w-3.5 text-[color:var(--blush)]" /> {act}</span>
-                    <span className="text-xs text-muted-foreground italic">{when}</span>
-                  </li>
-                ))}
-              </ul>
-              <button className="mt-5 w-full rounded-full py-2.5 font-medium text-white shadow-soft transition hover:brightness-105"
-                style={{ background: "var(--gradient-lavender)" }}>
-                Open Partner Hub
-              </button>
-            </Panel>
-          </section>
+                )}
+              </Panel>
+            </section>
+          )}
 
           {/* Journal */}
-          <section className="col-span-12 md:col-span-6 lg:col-span-4">
-            <Panel>
-              <PanelHeader eyebrow="Journal" title="Capture every moment" />
-              <div className="space-y-2.5">
-                {[
-                  { icon: Sparkles, title: "First Sickness", date: "April 10, 2024", done: true },
-                  { icon: Footprints, title: "First Baby Kick", date: "May 02, 2024", done: true },
-                  { icon: Heart, title: "Gender Reveal", date: "June 15, 2024", done: false },
-                  { icon: Baby, title: "Baby Shower", date: "July 20, 2024", done: false },
-                ].map((m) => (
-                  <div key={m.title} className="flex items-center gap-3 rounded-2xl bg-white/60 px-3 py-2.5">
-                    <div className="h-9 w-9 rounded-full bg-[color:var(--lavender)]/30 flex items-center justify-center">
-                      <m.icon className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold truncate">{m.title}</div>
-                      <div className="text-[11px] text-muted-foreground italic">{m.date}</div>
-                    </div>
-                    <div className={`h-5 w-5 rounded-full flex items-center justify-center text-[10px] ${m.done ? "bg-[color:var(--lavender)] text-white" : "border border-[color:var(--lavender)]/50"}`}>
-                      {m.done ? "✓" : ""}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <button className="mt-4 w-full rounded-full py-2.5 text-sm font-medium text-[color:var(--lavender-deep)] bg-white/70 hover:bg-white transition flex items-center justify-center gap-2">
-                <Plus className="h-4 w-4" /> New Journal Entry
-              </button>
-            </Panel>
-          </section>
+          {show("journal") && (
+            <section className="col-span-12 md:col-span-6 lg:col-span-4">
+              <Panel>
+                <PanelHeader eyebrow="Journal" title="Capture every moment" />
+                <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                  {data.journal.length === 0 && (
+                    <p className="text-center text-sm italic text-muted-foreground">Your story starts here — add your first entry.</p>
+                  )}
+                  {data.journal.map((m) => {
+                    const Icon = m.kind === "milestone" ? Sparkles : m.kind === "memory" ? Camera : m.kind === "appointment" ? Stethoscope : BookHeart;
+                    return (
+                      <div key={m.id} className="flex items-center gap-3 rounded-2xl bg-white/60 px-3 py-2.5">
+                        <div className="h-9 w-9 shrink-0 rounded-full bg-[color:var(--lavender)]/30 flex items-center justify-center">
+                          <Icon className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold truncate">{m.title}</div>
+                          <div className="text-[11px] text-muted-foreground italic">
+                            {new Date(m.created_at).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}
+                          </div>
+                        </div>
+                        <div className={`h-5 w-5 shrink-0 rounded-full flex items-center justify-center text-[10px] ${m.completed ? "bg-[color:var(--lavender)] text-white" : "border border-[color:var(--lavender)]/50"}`}>
+                          {m.completed ? "✓" : ""}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <JournalDialog onSave={(entry) => act("journal_add", entry)} />
+              </Panel>
+            </section>
+          )}
 
           {/* Nutrition */}
-          <section className="col-span-12 md:col-span-6 lg:col-span-3">
-            <Panel>
-              <PanelHeader eyebrow="Nutrition" title="Eat well, feel well" />
-              <div className="flex flex-col items-center mb-4">
-                <div className="relative h-28 w-28">
-                  <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
-                    <circle cx="50" cy="50" r="42" stroke="oklch(0.94 0.02 305)" strokeWidth="10" fill="none" />
-                    <circle cx="50" cy="50" r="42" stroke="oklch(0.72 0.12 300)" strokeWidth="10" fill="none"
-                      strokeDasharray={`${(72 / 100) * 264} 264`} strokeLinecap="round" />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <div className="font-display text-2xl font-semibold text-[color:var(--lavender-deep)]">72%</div>
-                    <div className="text-[10px] text-muted-foreground uppercase tracking-widest">Good</div>
-                  </div>
+          {show("health", "care", "nutrition") && (
+            <section className="col-span-12 md:col-span-6 lg:col-span-3">
+              <Panel>
+                <PanelHeader eyebrow="Nutrition" title="Eat well, feel well" />
+                <NutritionRing value={Math.round((stats.hunger + stats.hydration + stats.vitamins) / 3)} />
+                <div className="space-y-2 text-xs">
+                  {([["Meals", stats.hunger], ["Water", stats.hydration], ["Vitamins", stats.vitamins]] as const).map(([n, v]) => (
+                    <div key={n}>
+                      <div className="flex justify-between mb-0.5"><span className="font-medium">{n}</span><span className="text-muted-foreground">{Math.round(v)}%</span></div>
+                      <div className="h-2 rounded-full bg-white/60 overflow-hidden">
+                        <div className="h-full rounded-full" style={{ width: `${v}%`, background: "var(--gradient-lavender)" }} />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-              <div className="space-y-2 text-xs">
-                {[["Protein", 85], ["Fruits", 70], ["Vegetables", 65], ["Grains", 60], ["Water", 75]].map(([n, v]) => (
-                  <div key={n as string}>
-                    <div className="flex justify-between mb-0.5"><span className="font-medium">{n}</span><span className="text-muted-foreground">{v}%</span></div>
-                    <div className="h-2 rounded-full bg-white/60 overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${v}%`, background: "var(--gradient-lavender)" }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-          </section>
+                <PrimaryButton onClick={() => act("eat")}>
+                  <span className="inline-flex items-center gap-2"><Utensils className="h-4 w-4" /> Eat a healthy meal</span>
+                </PrimaryButton>
+              </Panel>
+            </section>
+          )}
 
-          {/* Quick actions ribbon */}
-          <section className="col-span-12">
-            <Panel>
-              <PanelHeader eyebrow="Meters in context" title="Today's well-being" />
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                <Meter icon={Utensils} label="Hunger" value={60} />
-                <Meter icon={Droplet} label="Bladder" value={35} />
-                <Meter icon={Heart} label="Sickness" value={20} tone="blush" />
-                <Meter icon={Zap} label="Energy" value={78} />
-                <Meter icon={Smile} label="Mood" value={82} tone="blush" />
-                <Meter icon={Droplet} label="Hydration" value={60} />
-              </div>
-            </Panel>
-          </section>
-
-          {/* Quick actions bar */}
-          <section className="col-span-12 md:col-span-8">
-            <Panel>
-              <div className="flex items-center gap-6 flex-wrap justify-center">
-                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Quick Actions</div>
-                {[
-                  { icon: Heart, label: "Hug" },
-                  { icon: Droplet, label: "Water" },
-                  { icon: Pill, label: "Vitamins" },
-                  { icon: Moon, label: "Rest" },
-                  { icon: MessageCircle, label: "Support" },
-                  { icon: Stethoscope, label: "Doctor" },
-                  { icon: Camera, label: "Memory" },
-                  { icon: Calendar, label: "Event" },
-                ].map(({ icon: Icon, label }) => (
-                  <button key={label} className="flex flex-col items-center gap-1.5 group">
-                    <div className="h-12 w-12 rounded-2xl bg-white/80 shadow-soft flex items-center justify-center group-hover:scale-105 group-hover:bg-white transition-transform">
-                      <Icon className="h-5 w-5 text-[color:var(--lavender-deep)]" />
-                    </div>
-                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</span>
+          {/* Today's well-being */}
+          {show("care", "health") && (
+            <section className="col-span-12">
+              <Panel>
+                <PanelHeader eyebrow="Meters in context" title="Today's well-being" />
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                  <Meter icon={Utensils} label="Hunger" value={stats.hunger} />
+                  <Meter icon={Droplet} label="Bladder" value={stats.bladder} />
+                  <Meter icon={Heart} label="Sickness" value={stats.sickness} tone="blush" />
+                  <Meter icon={Zap} label="Energy" value={stats.energy} />
+                  <Meter icon={Smile} label="Mood" value={stats.mood} tone="blush" />
+                  <Meter icon={Droplet} label="Hydration" value={stats.hydration} />
+                </div>
+                {stats.bladder < 30 && (
+                  <button onClick={() => act("bathroom")}
+                    className="mx-auto mt-4 block rounded-full bg-white/70 px-5 py-2 text-sm font-medium text-[color:var(--lavender-deep)] hover:bg-white transition">
+                    🚻 Quick bathroom break
                   </button>
-                ))}
-              </div>
-            </Panel>
-          </section>
+                )}
+              </Panel>
+            </section>
+          )}
 
-          <section className="col-span-12 md:col-span-4">
-            <Panel className="h-full flex flex-col justify-center text-center">
-              <div className="font-display italic text-lg text-[color:var(--lavender-deep)] leading-snug">
-                “Small steps today,<br /> beautiful moments forever.”
-              </div>
-              <div className="mt-3 flex items-center justify-center gap-1 text-xs text-muted-foreground">
-                <Sparkles className="h-3 w-3" /> Nestoria HUD v1.0
-              </div>
-            </Panel>
-          </section>
+          {/* Notifications */}
+          {active === "notifications" && (
+            <section className="col-span-12 md:col-span-9 lg:col-span-6">
+              <Panel>
+                <PanelHeader eyebrow="Notifications" title="Little updates" />
+                <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                  {data.notifications.length === 0 && (
+                    <p className="text-center text-sm italic text-muted-foreground">All quiet for now ♥</p>
+                  )}
+                  {data.notifications.map((n) => (
+                    <div key={n.id} className={`rounded-2xl px-4 py-3 ${n.read ? "bg-white/40" : "bg-white/80 ring-1 ring-[color:var(--lavender)]/40"}`}>
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-semibold">{n.title}</div>
+                        <div className="text-[10px] text-muted-foreground italic">
+                          {new Date(n.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                        </div>
+                      </div>
+                      {n.body && <p className="mt-0.5 text-xs text-muted-foreground">{n.body}</p>}
+                    </div>
+                  ))}
+                </div>
+                {data.unread > 0 && (
+                  <PrimaryButton onClick={() => act("notifications_read")}>Mark all as read</PrimaryButton>
+                )}
+              </Panel>
+            </section>
+          )}
+
+          {/* Settings */}
+          {active === "settings" && (
+            <SettingsPanel key={preg.id + preg.babyGender + (preg.babyName ?? "") + preg.durationDays} data={data} onSave={(params) => act("settings_update", params)} />
+          )}
+
+          {show("pregnancy", "care", "baby", "partner", "journal", "health", "nutrition") && (
+            <ActionConsole data={data} onAction={act} />
+          )}
+
+          {/* Quick actions */}
+          {show("pregnancy", "care", "baby", "partner", "journal", "health") && (
+            <section className="col-span-12 md:col-span-8">
+              <Panel>
+                <div className="flex items-center gap-6 flex-wrap justify-center">
+                  <div className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Quick Actions</div>
+                  <QuickAction icon={Heart} label="Hug" onClick={() => act("hug")} />
+                  <QuickAction icon={Droplet} label="Water" onClick={() => act("drink_water")} />
+                  <QuickAction icon={Pill} label="Vitamins" onClick={() => act("vitamins")} />
+                  <QuickAction icon={Moon} label="Rest" onClick={() => act("rest")} />
+                  <QuickAction icon={MessageCircle} label="Support" onClick={() => act("support")} />
+                  <QuickAction icon={Stethoscope} label="Doctor" onClick={() => act("doctor")} />
+                  <MemoryDialog onSave={(entry) => act("memory", entry)} />
+                  <EventDialog onSave={(entry) => act("event", entry)} />
+                </div>
+              </Panel>
+            </section>
+          )}
+
+          {show("pregnancy", "care", "baby", "partner", "journal", "health") && (
+            <section className="col-span-12 md:col-span-4">
+              <Panel className="h-full flex flex-col justify-center text-center">
+                <div className="font-display italic text-lg text-[color:var(--lavender-deep)] leading-snug">
+                  “Small steps today,<br /> beautiful moments forever.”
+                </div>
+                <div className="mt-3 flex items-center justify-center gap-1 text-xs text-muted-foreground">
+                  <Sparkles className="h-3 w-3" /> Nestoria HUD v1.0
+                </div>
+              </Panel>
+            </section>
+          )}
         </div>
       </main>
 
@@ -471,15 +714,550 @@ function Index() {
         <p className="font-script text-lg text-[color:var(--lavender-deep)]">Nestoria</p>
         <p>Where every family journey begins · Pregnancy & Family HUD for Second Life</p>
       </footer>
+      <Toaster position="top-center" />
+    </Shell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pieces
+// ---------------------------------------------------------------------------
+
+function SetupWizard({ data, onSave }: { token: string; data: HudState; onSave: (params: Record<string, unknown>) => void }) {
+  const [momName, setMomName] = useState(data.user.name.split(" ")[0] ?? "");
+  const [week, setWeek] = useState(Math.max(1, data.pregnancy.week || 1));
+  const [day, setDay] = useState(data.pregnancy.day || 0);
+  const [babyCount, setBabyCount] = useState(String(data.pregnancy.babyCount || 1));
+  const [babyGender, setBabyGender] = useState(data.pregnancy.babyGender || "surprise");
+  const [babyName, setBabyName] = useState(data.pregnancy.babyName ?? "");
+  const [privacyMode, setPrivacyMode] = useState(data.pregnancy.privacyMode || "partner");
+  const [popupFrequencyMinutes, setPopupFrequencyMinutes] = useState(String(data.popupFrequencyMinutes || 20));
+
+  return (
+    <Shell>
+      <div className="mx-auto flex min-h-screen max-w-4xl items-center justify-center px-4 py-8">
+        <Panel className="w-full">
+          <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="flex flex-col justify-between rounded-3xl bg-white/65 p-5">
+              <div>
+                <img src={logo} alt="Nestoria logo" width={88} height={88} className="h-16 w-16" />
+                <h1 className="mt-3 font-display text-4xl font-semibold text-[color:var(--lavender-deep)]">Welcome to Nestoria</h1>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Create the pregnancy profile that this MOAP HUD will sync with Render, Postgres, and your Second Life attachment.
+                </p>
+              </div>
+              <div className="mt-6 rounded-2xl bg-white/70 p-4 text-sm">
+                <div className="font-semibold text-foreground">Profile Summary</div>
+                <div className="mt-2 space-y-1 text-muted-foreground">
+                  <div>Mom: {momName || "Not set"}</div>
+                  <div>Pregnancy: {week} weeks + {day} days</div>
+                  <div>Baby: {babyCount === "1" ? "One baby" : babyCount === "2" ? "Twins" : "Triplets"}</div>
+                  <div>Events: {popupFrequencyMinutes === "0" ? "Manual only" : `Every ${popupFrequencyMinutes} minutes`}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <PanelHeader eyebrow="First Attach Setup" title="Your journey details" subtitle="you can edit these later from Settings" />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Mom name</Label>
+                  <Input value={momName} onChange={(e) => setMomName(e.target.value)} placeholder="Zoedollyanna" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Baby name or nickname</Label>
+                  <Input value={babyName} onChange={(e) => setBabyName(e.target.value)} placeholder="Decide later" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Week</Label>
+                  <Input type="number" min={1} max={42} value={week} onChange={(e) => setWeek(Number(e.target.value))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Day</Label>
+                  <Input type="number" min={0} max={6} value={day} onChange={(e) => setDay(Number(e.target.value))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Baby count</Label>
+                  <Select value={babyCount} onValueChange={setBabyCount}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">One baby</SelectItem>
+                      <SelectItem value="2">Twins</SelectItem>
+                      <SelectItem value="3">Triplets</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Gender</Label>
+                  <Select value={babyGender} onValueChange={setBabyGender}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="girl">Girl</SelectItem>
+                      <SelectItem value="boy">Boy</SelectItem>
+                      <SelectItem value="twins">Twins mixed</SelectItem>
+                      <SelectItem value="surprise">Surprise later</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Privacy</Label>
+                  <Select value={privacyMode} onValueChange={setPrivacyMode}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="private">Only me</SelectItem>
+                      <SelectItem value="partner">Partner only</SelectItem>
+                      <SelectItem value="partner_doctor">Partner + doctor</SelectItem>
+                      <SelectItem value="public_rp">Public RP emotes</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>RP event popups</Label>
+                  <Select value={popupFrequencyMinutes} onValueChange={setPopupFrequencyMinutes}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="20">Every 20 minutes</SelectItem>
+                      <SelectItem value="30">Every 30 minutes</SelectItem>
+                      <SelectItem value="60">Every hour</SelectItem>
+                      <SelectItem value="0">Only manual</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <PrimaryButton onClick={() => onSave({
+                momName,
+                week,
+                day,
+                babyCount: Number(babyCount),
+                babyGender,
+                babyNames: babyName.trim() ? [babyName.trim()] : [],
+                privacyMode,
+                popupFrequencyMinutes: Number(popupFrequencyMinutes),
+              })}>
+                Confirm profile
+              </PrimaryButton>
+            </div>
+          </div>
+        </Panel>
+      </div>
+      <Toaster position="top-center" />
+    </Shell>
+  );
+}
+
+function ActionConsole({ data, onAction }: { data: HudState; onAction: (name: string, params?: Record<string, unknown>) => void }) {
+  const craving = data.currentCraving?.craving ?? "Ham sub";
+  const eventType = data.recentEvents[0]?.event_type ?? "baby_kick";
+  const foodItems = data.foods.map((food) => ({
+    icon: Utensils,
+    label: food.name,
+    action: "food_eat",
+    params: { food: food.key },
+  }));
+  const actionGroups = [
+    {
+      title: "Home",
+      items: [
+        { icon: RefreshCw, label: "Sync", action: "daily_checkin" },
+        { icon: HandHeart, label: "Hold Belly", action: "hold_belly" },
+      ],
+    },
+    {
+      title: "Pregnancy",
+      items: [
+        { icon: Calendar, label: "Timeline", action: "baby_size" },
+        { icon: Camera, label: "Ultrasound", action: "ultrasound" },
+        { icon: Stethoscope, label: "Appointment", action: "appointment" },
+        { icon: Sparkles, label: "Due Date", action: "set_due_date", params: { dueDate: data.pregnancy.dueDate } },
+      ],
+    },
+    {
+      title: "Baby",
+      items: [
+        { icon: Heart, label: "Heartbeat", action: "heartbeat" },
+        { icon: Footprints, label: "Kicks", action: "kick" },
+        { icon: Mic, label: "Talk", action: "talk_to_baby" },
+        { icon: Baby, label: "Position", action: "baby_position" },
+      ],
+    },
+    {
+      title: "Care",
+      items: [
+        { icon: Moon, label: "Rest", action: "rest" },
+        { icon: Droplet, label: "Water", action: "drink_water" },
+        { icon: Pill, label: "Vitamins", action: "vitamins" },
+        { icon: Waves, label: "Breathe", action: "breathe" },
+        { icon: Heart, label: "Comfort", action: "comfort" },
+        { icon: Sparkles, label: "Bath", action: "warm_bath" },
+      ],
+    },
+    {
+      title: "Nutrition",
+      items: [
+        { icon: Utensils, label: "Meal", action: "eat" },
+        { icon: Apple, label: "Snack", action: "snack" },
+        { icon: Sparkles, label: "Craving", action: "craving_roll" },
+        { icon: Utensils, label: "Eat Craving", action: "craving_choice", params: { choice: "eat" } },
+        { icon: Check, label: "Swap", action: "craving_choice", params: { choice: "healthy" } },
+        { icon: Users, label: "Ask", action: "craving_choice", params: { choice: "ask_partner" } },
+        { icon: BookHeart, label: "Save", action: "craving_choice", params: { choice: "journal" } },
+        { icon: Bell, label: "Ignore", action: "craving_choice", params: { choice: "ignore" } },
+      ],
+    },
+    {
+      title: "Food Items",
+      items: foodItems,
+    },
+    {
+      title: "Partner / Events",
+      items: [
+        { icon: Users, label: "Support", action: "ask_partner", params: { request: `${data.user.name} could use a little support.` } },
+        { icon: Bell, label: "Roll Event", action: "random_event_roll" },
+        { icon: HandHeart, label: "Rub Belly", action: "random_event_choice", params: { eventType, choice: "rub_belly" } },
+        { icon: BookHeart, label: "Journal", action: "random_event_choice", params: { eventType, choice: "journal" } },
+      ],
+    },
+  ];
+
+  return (
+    <section className="col-span-12">
+      <Panel>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[color:var(--lavender-deep)]/70">MOAP Action Console</div>
+            <h2 className="font-display text-2xl font-semibold text-foreground">Production buttons</h2>
+          </div>
+          <div className="rounded-2xl bg-white/70 px-4 py-2 text-xs text-muted-foreground">
+            Current craving: <span className="font-semibold text-foreground">{craving}</span>
+          </div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {actionGroups.map((group) => (
+            <div key={group.title} className="rounded-2xl bg-white/60 p-3">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">{group.title}</div>
+              <div className="grid grid-cols-3 gap-2">
+                {group.items.map(({ icon: Icon, label, action, params }) => (
+                  <button
+                    key={`${group.title}-${label}`}
+                    onClick={() => onAction(action, params)}
+                    className="flex h-20 flex-col items-center justify-center gap-1 rounded-2xl bg-white/75 px-2 text-center text-[11px] font-semibold leading-tight text-[color:var(--lavender-deep)] shadow-soft transition hover:bg-white">
+                    <Icon className="h-4 w-4" />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+    </section>
+  );
+}
+
+function QuickAction({ icon: Icon, label, onClick }: { icon: React.ComponentType<{ className?: string }>; label: string; onClick?: () => void }) {
+  return (
+    <button onClick={onClick} className="flex flex-col items-center gap-1.5 group">
+      <div className="h-12 w-12 rounded-2xl bg-white/80 shadow-soft flex items-center justify-center group-hover:scale-105 group-hover:bg-white transition-transform">
+        <Icon className="h-5 w-5 text-[color:var(--lavender-deep)]" />
+      </div>
+      <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</span>
+    </button>
+  );
+}
+
+function NutritionRing({ value }: { value: number }) {
+  return (
+    <div className="flex flex-col items-center mb-4">
+      <div className="relative h-28 w-28">
+        <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
+          <circle cx="50" cy="50" r="42" stroke="oklch(0.94 0.02 305)" strokeWidth="10" fill="none" />
+          <circle cx="50" cy="50" r="42" stroke="oklch(0.72 0.12 300)" strokeWidth="10" fill="none"
+            strokeDasharray={`${(value / 100) * 264} 264`} strokeLinecap="round" />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <div className="font-display text-2xl font-semibold text-[color:var(--lavender-deep)]">{value}%</div>
+          <div className="text-[10px] text-muted-foreground uppercase tracking-widest">
+            {value >= 70 ? "Good" : value >= 40 ? "Okay" : "Low"}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-function Row({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
+function PairingCode({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
   return (
-    <div className="flex items-center justify-between rounded-xl bg-white/60 px-3 py-2">
-      <span className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">{icon}{label}</span>
-      <span className="text-sm font-semibold text-foreground">{value}</span>
-    </div>
+    <button
+      onClick={() => {
+        void navigator.clipboard?.writeText(code).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+      className="mx-auto flex items-center gap-3 rounded-2xl bg-white/80 px-6 py-4 shadow-soft hover:bg-white transition">
+      <span className="font-display text-3xl font-semibold tracking-[0.3em] text-[color:var(--lavender-deep)]">{code}</span>
+      {copied ? <Check className="h-4 w-4 text-[color:var(--lavender-deep)]" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
+    </button>
+  );
+}
+
+function TimelineDialog({ currentWeek }: { currentWeek: number }) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button className="mt-6 w-full rounded-full py-3 font-medium text-white shadow-soft transition hover:brightness-105"
+          style={{ background: "var(--gradient-lavender)" }}>
+          View Pregnancy Timeline
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[80vh] overflow-y-auto rounded-[28px]">
+        <DialogHeader>
+          <DialogTitle className="font-display text-2xl text-[color:var(--lavender-deep)]">Your pregnancy timeline</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2">
+          {BABY_GROWTH.map((m) => {
+            const current = m.week <= currentWeek &&
+              (BABY_GROWTH.find((x) => x.week > m.week)?.week ?? 99) > currentWeek;
+            return (
+              <div key={m.week}
+                className={`flex items-center gap-3 rounded-2xl px-4 py-2.5 ${current ? "bg-[color:var(--lavender)]/25 ring-1 ring-[color:var(--lavender)]" : m.week <= currentWeek ? "bg-white/70" : "bg-white/30 opacity-60"}`}>
+                <div className="w-14 shrink-0 text-center">
+                  <div className="font-display text-lg font-semibold text-[color:var(--lavender-deep)]">W{m.week}</div>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold">{m.size}</div>
+                  <div className="text-xs text-muted-foreground">{m.note}</div>
+                </div>
+                {m.week <= currentWeek && <Check className="h-4 w-4 shrink-0 text-[color:var(--lavender-deep)]" />}
+              </div>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function JournalDialog({ onSave }: { onSave: (entry: { title: string; body: string; kind: string }) => void }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [kind, setKind] = useState("note");
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button className="mt-4 w-full rounded-full py-2.5 text-sm font-medium text-[color:var(--lavender-deep)] bg-white/70 hover:bg-white transition flex items-center justify-center gap-2">
+          <Plus className="h-4 w-4" /> New Journal Entry
+        </button>
+      </DialogTrigger>
+      <DialogContent className="rounded-[28px]">
+        <DialogHeader>
+          <DialogTitle className="font-display text-2xl text-[color:var(--lavender-deep)]">New journal entry</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="j-title">Title</Label>
+            <Input id="j-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="First baby kick!" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <Select value={kind} onValueChange={setKind}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="note">Note</SelectItem>
+                <SelectItem value="milestone">Milestone</SelectItem>
+                <SelectItem value="memory">Memory</SelectItem>
+                <SelectItem value="appointment">Appointment</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="j-body">Details</Label>
+            <Textarea id="j-body" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Write it down before it fades…" rows={4} />
+          </div>
+        </div>
+        <DialogFooter>
+          <button
+            onClick={() => {
+              if (!title.trim()) { toast.error("Give your entry a title ♥"); return; }
+              onSave({ title, body, kind });
+              setTitle(""); setBody(""); setKind("note"); setOpen(false);
+            }}
+            className="w-full rounded-full py-2.5 font-medium text-white shadow-soft transition hover:brightness-105"
+            style={{ background: "var(--gradient-lavender)" }}>
+            Save entry
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MemoryDialog({ onSave }: { onSave: (entry: { title: string; body: string }) => void }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button className="flex flex-col items-center gap-1.5 group">
+          <div className="h-12 w-12 rounded-2xl bg-white/80 shadow-soft flex items-center justify-center group-hover:scale-105 group-hover:bg-white transition-transform">
+            <Camera className="h-5 w-5 text-[color:var(--lavender-deep)]" />
+          </div>
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Memory</span>
+        </button>
+      </DialogTrigger>
+      <DialogContent className="rounded-[28px]">
+        <DialogHeader>
+          <DialogTitle className="font-display text-2xl text-[color:var(--lavender-deep)]">Capture a memory</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What happened?" />
+          <Textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="A few words to remember it by…" rows={3} />
+        </div>
+        <DialogFooter>
+          <button
+            onClick={() => {
+              if (!title.trim()) { toast.error("Give your memory a title ♥"); return; }
+              onSave({ title, body });
+              setTitle(""); setBody(""); setOpen(false);
+            }}
+            className="w-full rounded-full py-2.5 font-medium text-white shadow-soft transition hover:brightness-105"
+            style={{ background: "var(--gradient-lavender)" }}>
+            Save memory 📸
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EventDialog({ onSave }: { onSave: (entry: { title: string; body: string }) => void }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button className="flex flex-col items-center gap-1.5 group">
+          <div className="h-12 w-12 rounded-2xl bg-white/80 shadow-soft flex items-center justify-center group-hover:scale-105 group-hover:bg-white transition-transform">
+            <Calendar className="h-5 w-5 text-[color:var(--lavender-deep)]" />
+          </div>
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Event</span>
+        </button>
+      </DialogTrigger>
+      <DialogContent className="rounded-[28px]">
+        <DialogHeader>
+          <DialogTitle className="font-display text-2xl text-[color:var(--lavender-deep)]">Plan an event</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Baby shower, gender reveal…" />
+          <Textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="When and where?" rows={3} />
+        </div>
+        <DialogFooter>
+          <button
+            onClick={() => {
+              if (!title.trim()) { toast.error("Name your event ♥"); return; }
+              onSave({ title, body });
+              setTitle(""); setBody(""); setOpen(false);
+            }}
+            className="w-full rounded-full py-2.5 font-medium text-white shadow-soft transition hover:brightness-105"
+            style={{ background: "var(--gradient-lavender)" }}>
+            Add event 📅
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SymptomsDialog({ symptoms, onSave }: {
+  symptoms: { name: string; severity: number }[];
+  onSave: (name: string, severity: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [values, setValues] = useState<Record<string, number>>({});
+  const current = (name: string, fallback: number) => values[name] ?? fallback;
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) setValues({}); }}>
+      <DialogTrigger asChild>
+        <button className="mt-5 w-full rounded-full py-2.5 text-sm font-medium text-[color:var(--lavender-deep)] bg-white/70 hover:bg-white transition">
+          Update symptoms
+        </button>
+      </DialogTrigger>
+      <DialogContent className="rounded-[28px]">
+        <DialogHeader>
+          <DialogTitle className="font-display text-2xl text-[color:var(--lavender-deep)]">How are you feeling?</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-5 py-2">
+          {symptoms.map((s) => (
+            <div key={s.name} className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="font-medium">{s.name}</span>
+                <span className="text-muted-foreground">{current(s.name, s.severity)}%</span>
+              </div>
+              <Slider value={[current(s.name, s.severity)]} max={100} step={5}
+                onValueChange={([v]) => setValues((prev) => ({ ...prev, [s.name]: v }))} />
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          <button
+            onClick={() => {
+              const changed = Object.entries(values);
+              if (!changed.length) { setOpen(false); return; }
+              for (const [name, severity] of changed) onSave(name, severity);
+              setOpen(false);
+            }}
+            className="w-full rounded-full py-2.5 font-medium text-white shadow-soft transition hover:brightness-105"
+            style={{ background: "var(--gradient-lavender)" }}>
+            Save changes
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SettingsPanel({ data, onSave }: { data: HudState; onSave: (params: Record<string, unknown>) => void }) {
+  const [babyName, setBabyName] = useState(data.pregnancy.babyName ?? "");
+  const [babyGender, setBabyGender] = useState(data.pregnancy.babyGender);
+  const [durationDays, setDurationDays] = useState(String(data.pregnancy.durationDays));
+  return (
+    <section className="col-span-12 md:col-span-9 lg:col-span-6">
+      <Panel>
+        <PanelHeader eyebrow="Settings" title="Your journey, your way" />
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="s-name">Baby name</Label>
+            <Input id="s-name" value={babyName} onChange={(e) => setBabyName(e.target.value)} placeholder="Still deciding…" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>We're expecting…</Label>
+            <Select value={babyGender} onValueChange={setBabyGender}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="surprise">It's a surprise ✨</SelectItem>
+                <SelectItem value="girl">A little girl 🎀</SelectItem>
+                <SelectItem value="boy">A little boy 💙</SelectItem>
+                <SelectItem value="twins">Twins!</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="s-days">Pregnancy length (real days, 1–280)</Label>
+            <Input id="s-days" type="number" min={1} max={280} value={durationDays}
+              onChange={(e) => setDurationDays(e.target.value)} />
+            <p className="text-xs text-muted-foreground">
+              How many real-life days the full 40 weeks take. Most Second Life pregnancies run 14–45 days.
+            </p>
+          </div>
+        </div>
+        <PrimaryButton onClick={() => onSave({ babyName, babyGender, durationDays: Number(durationDays) })}>
+          Save settings
+        </PrimaryButton>
+      </Panel>
+    </section>
   );
 }

@@ -10,33 +10,141 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiSlRegisterRouteImport } from './routes/api/sl/register'
+import { Route as ApiSlPollRouteImport } from './routes/api/sl/poll'
+import { Route as ApiSlPartnerLinkRouteImport } from './routes/api/sl/partner-link'
+import { Route as ApiSlEventRouteImport } from './routes/api/sl/event'
+import { Route as ApiSlActionRouteImport } from './routes/api/sl/action'
+import { Route as ApiHudStateRouteImport } from './routes/api/hud/state'
+import { Route as ApiHudDemoRouteImport } from './routes/api/hud/demo'
+import { Route as ApiHudActionRouteImport } from './routes/api/hud/action'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSlRegisterRoute = ApiSlRegisterRouteImport.update({
+  id: '/api/sl/register',
+  path: '/api/sl/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSlPollRoute = ApiSlPollRouteImport.update({
+  id: '/api/sl/poll',
+  path: '/api/sl/poll',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSlPartnerLinkRoute = ApiSlPartnerLinkRouteImport.update({
+  id: '/api/sl/partner-link',
+  path: '/api/sl/partner-link',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSlEventRoute = ApiSlEventRouteImport.update({
+  id: '/api/sl/event',
+  path: '/api/sl/event',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSlActionRoute = ApiSlActionRouteImport.update({
+  id: '/api/sl/action',
+  path: '/api/sl/action',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHudStateRoute = ApiHudStateRouteImport.update({
+  id: '/api/hud/state',
+  path: '/api/hud/state',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHudDemoRoute = ApiHudDemoRouteImport.update({
+  id: '/api/hud/demo',
+  path: '/api/hud/demo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHudActionRoute = ApiHudActionRouteImport.update({
+  id: '/api/hud/action',
+  path: '/api/hud/action',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/hud/action': typeof ApiHudActionRoute
+  '/api/hud/demo': typeof ApiHudDemoRoute
+  '/api/hud/state': typeof ApiHudStateRoute
+  '/api/sl/action': typeof ApiSlActionRoute
+  '/api/sl/event': typeof ApiSlEventRoute
+  '/api/sl/partner-link': typeof ApiSlPartnerLinkRoute
+  '/api/sl/poll': typeof ApiSlPollRoute
+  '/api/sl/register': typeof ApiSlRegisterRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/hud/action': typeof ApiHudActionRoute
+  '/api/hud/demo': typeof ApiHudDemoRoute
+  '/api/hud/state': typeof ApiHudStateRoute
+  '/api/sl/action': typeof ApiSlActionRoute
+  '/api/sl/event': typeof ApiSlEventRoute
+  '/api/sl/partner-link': typeof ApiSlPartnerLinkRoute
+  '/api/sl/poll': typeof ApiSlPollRoute
+  '/api/sl/register': typeof ApiSlRegisterRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/hud/action': typeof ApiHudActionRoute
+  '/api/hud/demo': typeof ApiHudDemoRoute
+  '/api/hud/state': typeof ApiHudStateRoute
+  '/api/sl/action': typeof ApiSlActionRoute
+  '/api/sl/event': typeof ApiSlEventRoute
+  '/api/sl/partner-link': typeof ApiSlPartnerLinkRoute
+  '/api/sl/poll': typeof ApiSlPollRoute
+  '/api/sl/register': typeof ApiSlRegisterRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/api/hud/action'
+    | '/api/hud/demo'
+    | '/api/hud/state'
+    | '/api/sl/action'
+    | '/api/sl/event'
+    | '/api/sl/partner-link'
+    | '/api/sl/poll'
+    | '/api/sl/register'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/api/hud/action'
+    | '/api/hud/demo'
+    | '/api/hud/state'
+    | '/api/sl/action'
+    | '/api/sl/event'
+    | '/api/sl/partner-link'
+    | '/api/sl/poll'
+    | '/api/sl/register'
+  id:
+    | '__root__'
+    | '/'
+    | '/api/hud/action'
+    | '/api/hud/demo'
+    | '/api/hud/state'
+    | '/api/sl/action'
+    | '/api/sl/event'
+    | '/api/sl/partner-link'
+    | '/api/sl/poll'
+    | '/api/sl/register'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiHudActionRoute: typeof ApiHudActionRoute
+  ApiHudDemoRoute: typeof ApiHudDemoRoute
+  ApiHudStateRoute: typeof ApiHudStateRoute
+  ApiSlActionRoute: typeof ApiSlActionRoute
+  ApiSlEventRoute: typeof ApiSlEventRoute
+  ApiSlPartnerLinkRoute: typeof ApiSlPartnerLinkRoute
+  ApiSlPollRoute: typeof ApiSlPollRoute
+  ApiSlRegisterRoute: typeof ApiSlRegisterRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,12 +156,86 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/sl/register': {
+      id: '/api/sl/register'
+      path: '/api/sl/register'
+      fullPath: '/api/sl/register'
+      preLoaderRoute: typeof ApiSlRegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/sl/poll': {
+      id: '/api/sl/poll'
+      path: '/api/sl/poll'
+      fullPath: '/api/sl/poll'
+      preLoaderRoute: typeof ApiSlPollRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/sl/partner-link': {
+      id: '/api/sl/partner-link'
+      path: '/api/sl/partner-link'
+      fullPath: '/api/sl/partner-link'
+      preLoaderRoute: typeof ApiSlPartnerLinkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/sl/event': {
+      id: '/api/sl/event'
+      path: '/api/sl/event'
+      fullPath: '/api/sl/event'
+      preLoaderRoute: typeof ApiSlEventRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/sl/action': {
+      id: '/api/sl/action'
+      path: '/api/sl/action'
+      fullPath: '/api/sl/action'
+      preLoaderRoute: typeof ApiSlActionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/hud/state': {
+      id: '/api/hud/state'
+      path: '/api/hud/state'
+      fullPath: '/api/hud/state'
+      preLoaderRoute: typeof ApiHudStateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/hud/demo': {
+      id: '/api/hud/demo'
+      path: '/api/hud/demo'
+      fullPath: '/api/hud/demo'
+      preLoaderRoute: typeof ApiHudDemoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/hud/action': {
+      id: '/api/hud/action'
+      path: '/api/hud/action'
+      fullPath: '/api/hud/action'
+      preLoaderRoute: typeof ApiHudActionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiHudActionRoute: ApiHudActionRoute,
+  ApiHudDemoRoute: ApiHudDemoRoute,
+  ApiHudStateRoute: ApiHudStateRoute,
+  ApiSlActionRoute: ApiSlActionRoute,
+  ApiSlEventRoute: ApiSlEventRoute,
+  ApiSlPartnerLinkRoute: ApiSlPartnerLinkRoute,
+  ApiSlPollRoute: ApiSlPollRoute,
+  ApiSlRegisterRoute: ApiSlRegisterRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

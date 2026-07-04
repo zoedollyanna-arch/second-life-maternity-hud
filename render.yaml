@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: nestoria-pregnancy-hud
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: APP_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      # Must match the API_SECRET constant in the LSL scripts — set it
+      # manually in the Render dashboard, don't auto-generate.
+      - key: SL_API_SECRET
+        sync: false
+      - key: DISABLE_DEMO
+        value: "1"
