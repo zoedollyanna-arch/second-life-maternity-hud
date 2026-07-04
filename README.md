@@ -44,12 +44,12 @@ pregnancy length in real days).
 
 Copy `.env.example` to `.env` and set:
 
-| Variable | Meaning |
-| --- | --- |
-| `DATABASE_URL` | Postgres connection string (Supabase pooler works) |
+| Variable        | Meaning                                                      |
+| --------------- | ------------------------------------------------------------ |
+| `DATABASE_URL`  | Postgres connection string (Supabase pooler works)           |
 | `SL_API_SECRET` | Shared secret; must match `API_SECRET` in each `.lsl` script |
-| `APP_URL` | Public URL of this deployment (used to build the MOAP URL) |
-| `DISABLE_DEMO` | Optional. Set `1` to disable the "Preview a demo" button |
+| `APP_URL`       | Public URL of this deployment (used to build the MOAP URL)   |
+| `DISABLE_DEMO`  | Optional. Set `1` to disable the "Preview a demo" button     |
 
 ### 2. Database
 
@@ -79,12 +79,12 @@ Render URL onto its media face with `llSetPrimMediaParams`.
 Use the included [`render.yaml`](render.yaml) as a Render Blueprint, or create a
 Web Service manually with:
 
-| Render setting | Value |
-| --- | --- |
-| Runtime | Node |
-| Build command | `npm install && npm run build` |
-| Start command | `npm start` |
-| Health check path | `/` |
+| Render setting    | Value                          |
+| ----------------- | ------------------------------ |
+| Runtime           | Node                           |
+| Build command     | `npm install && npm run build` |
+| Start command     | `npm start`                    |
+| Health check path | `/`                            |
 
 Set `DATABASE_URL`, `SL_API_SECRET`, `APP_URL`, and `DISABLE_DEMO=1` in Render.
 After the first deploy, run `npm run migrate` from Render Shell or locally
@@ -116,16 +116,16 @@ the dashboard on the HUD and hear its sounds.
 
 ## API summary
 
-| Endpoint | Caller | Purpose |
-| --- | --- | --- |
-| `POST /api/sl/register` | HUD / belly scripts | Register device, get session token + MOAP URL |
-| `GET /api/sl/poll` | scripts | Fetch queued in-world commands + current week |
-| `POST /api/sl/event` | belly | Kicks, belly touches |
-| `POST /api/sl/action` | partner HUD | Support actions from in-world menus |
-| `POST /api/sl/partner-link` | partner HUD | Redeem pairing code |
-| `GET /api/hud/state` | dashboard | Full dashboard state (token auth) |
-| `POST /api/hud/action` | dashboard | All web buttons (token auth) |
-| `POST /api/hud/demo` | browser | Throwaway demo session (disable with `DISABLE_DEMO=1`) |
+| Endpoint                    | Caller              | Purpose                                                |
+| --------------------------- | ------------------- | ------------------------------------------------------ |
+| `POST /api/sl/register`     | HUD / belly scripts | Register device, get session token + MOAP URL          |
+| `GET /api/sl/poll`          | scripts             | Fetch queued in-world commands + current week          |
+| `POST /api/sl/event`        | belly               | Kicks, belly touches                                   |
+| `POST /api/sl/action`       | partner HUD         | Support actions from in-world menus                    |
+| `POST /api/sl/partner-link` | partner HUD         | Redeem pairing code                                    |
+| `GET /api/hud/state`        | dashboard           | Full dashboard state (token auth)                      |
+| `POST /api/hud/action`      | dashboard           | All web buttons (token auth)                           |
+| `POST /api/hud/demo`        | browser             | Throwaway demo session (disable with `DISABLE_DEMO=1`) |
 
 ## Production behavior
 

@@ -74,10 +74,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Nestoria — Pregnancy & Family HUD for Second Life" },
-      { name: "description", content: "A beautiful, immersive Second Life MOAP pregnancy HUD. Track pregnancy, health, baby, partner and journal in one elegant dashboard." },
+      {
+        name: "description",
+        content:
+          "A beautiful, immersive Second Life MOAP pregnancy HUD. Track pregnancy, health, baby, partner and journal in one elegant dashboard.",
+      },
       { name: "author", content: "Nestoria" },
       { property: "og:title", content: "Nestoria — Pregnancy & Family HUD" },
-      { property: "og:description", content: "Where every family journey begins. A dreamy pregnancy HUD for Second Life." },
+      {
+        property: "og:description",
+        content: "Where every family journey begins. A dreamy pregnancy HUD for Second Life.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -89,7 +96,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Dancing+Script:wght@500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Dancing+Script:wght@500;600;700&family=Quicksand:wght@400;500;600;700&display=swap",
+      },
     ],
   }),
   shellComponent: RootShell,

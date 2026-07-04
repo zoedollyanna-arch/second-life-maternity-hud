@@ -4,10 +4,27 @@ import { performAction } from "@/lib/server/game";
 
 // Actions the in-world scripts (mainly the partner HUD) may trigger.
 const SL_ACTIONS = new Set([
-  "hug", "support", "partner_message", "partner_water", "partner_backrub",
-  "partner_appointment", "partner_status", "drink_water", "eat", "food_eat", "rest",
-  "vitamins", "bathroom", "doctor", "kick", "heartbeat", "hold_belly",
-  "talk_to_baby", "craving_choice", "random_event_choice", "comfort_complete",
+  "hug",
+  "support",
+  "partner_message",
+  "partner_water",
+  "partner_backrub",
+  "partner_appointment",
+  "partner_status",
+  "drink_water",
+  "eat",
+  "food_eat",
+  "rest",
+  "vitamins",
+  "bathroom",
+  "doctor",
+  "kick",
+  "heartbeat",
+  "hold_belly",
+  "talk_to_baby",
+  "craving_choice",
+  "random_event_choice",
+  "comfort_complete",
 ]);
 
 export const Route = createFileRoute("/api/sl/action")({

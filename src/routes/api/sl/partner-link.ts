@@ -14,13 +14,15 @@ export const Route = createFileRoute("/api/sl/partner-link")({
     handlers: {
       POST: async ({ request }) => {
         const body = await readJson(request);
-        if (!checkSecret(body)) return json({ error: "Bad secret — update API_SECRET in the LSL script." }, 403);
+        if (!checkSecret(body))
+          return json({ error: "Bad secret — update API_SECRET in the LSL script." }, 403);
 
         const identity = slIdentity(request);
         if (!identity) return json({ error: "Second Life objects only." }, 403);
 
         const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
-        if (!/^[A-Z0-9]{6}$/.test(code)) return json({ error: "That code doesn't look right — it's 6 letters/numbers." }, 400);
+        if (!/^[A-Z0-9]{6}$/.test(code))
+          return json({ error: "That code doesn't look right — it's 6 letters/numbers." }, 400);
 
         const { rows } = await db().query(
           `select p.*, u.avatar_key as mom_key, u.avatar_name as mom_name
@@ -41,15 +43,24 @@ export const Route = createFileRoute("/api/sl/partner-link")({
         );
 
         const objectKey = typeof body.object_key === "string" ? body.object_key : preg.id;
-        await upsertDevice(partner.id, "partner", objectKey, null,
-          typeof body.region === "string" ? body.region : null);
+        await upsertDevice(
+          partner.id,
+          "partner",
+          objectKey,
+          null,
+          typeof body.region === "string" ? body.region : null,
+        );
         const token = await createSession(partner.id);
 
-        await addNotification(preg.user_id, "Partner linked ♥",
-          `${identity.avatarName} is now supporting you on this journey.`);
+        await addNotification(
+          preg.user_id,
+          "Partner linked ♥",
+          `${identity.avatarName} is now supporting you on this journey.`,
+        );
         await queueCommand(preg.user_id, "hud", "hearts", {});
-        await queueCommand(preg.user_id, "hud", "say",
-          { text: `${identity.avatarName} linked their Partner HUD to your pregnancy ♥` });
+        await queueCommand(preg.user_id, "hud", "say", {
+          text: `${identity.avatarName} linked their Partner HUD to your pregnancy ♥`,
+        });
 
         return json({
           token,

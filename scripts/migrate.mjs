@@ -5,7 +5,12 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import pg from "pg";
 
-const migrationsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "db", "migrations");
+const migrationsDir = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "db",
+  "migrations",
+);
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {

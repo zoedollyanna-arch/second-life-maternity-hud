@@ -16,10 +16,12 @@ export const Route = createFileRoute("/api/hud/demo")({
 
         const user = await getOrCreateUser(randomUUID(), "Demo Resident", "mom");
         const preg = await ensureActivePregnancy(user.id);
-        // Drop the demo mid-pregnancy so the dashboard has something to show
+        // Drop the demo mid-pregnancy so the dashboard has something to show,
+        // and skip the first-attach wizard
         await db().query(
           `update pregnancies
-           set conceived_at = now() - (duration_days * interval '1 day') * 0.6
+           set conceived_at = now() - (duration_days * interval '1 day') * 0.6,
+               setup_complete = true
            where id = $1`,
           [preg.id],
         );

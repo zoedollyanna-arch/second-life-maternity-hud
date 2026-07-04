@@ -4,10 +4,21 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 export interface HudStats {
-  energy: number; hydration: number; hunger: number; bladder: number;
-  mood: number; immunity: number; sickness: number; rest: number;
-  vitamins: number; comfort: number; nutrition: number; stress: number;
-  baby_wellness: number; baby_bond: number; baby_movement: number;
+  energy: number;
+  hydration: number;
+  hunger: number;
+  bladder: number;
+  mood: number;
+  immunity: number;
+  sickness: number;
+  rest: number;
+  vitamins: number;
+  comfort: number;
+  nutrition: number;
+  stress: number;
+  baby_wellness: number;
+  baby_bond: number;
+  baby_movement: number;
 }
 
 export interface JournalEntry {
@@ -43,9 +54,17 @@ export interface HudState {
     babyNames: string[];
     privacyMode: string;
     baby: {
-      size: string; lengthCm: number; weightG: number; note: string;
-      heartbeat: number; kicksToday: number; position: string; movement: string;
-      wellness: number; bond: number; movementScore: number;
+      size: string;
+      lengthCm: number;
+      weightG: number;
+      note: string;
+      heartbeat: number;
+      kicksToday: number;
+      position: string;
+      movement: string;
+      wellness: number;
+      bond: number;
+      movementScore: number;
     };
   };
   stats: HudStats;
@@ -59,11 +78,22 @@ export interface HudState {
     support: number;
     activities: { actor_name: string; activity: string; created_at: string }[];
   };
-  notifications: { id: string; title: string; body: string | null; read: boolean; created_at: string }[];
+  notifications: {
+    id: string;
+    title: string;
+    body: string | null;
+    read: boolean;
+    created_at: string;
+  }[];
   unread: number;
   currentCraving: {
-    id: string; craving: string; category: string; intensity: number;
-    relief: number; sweets_streak: number; updated_at: string;
+    id: string;
+    craving: string;
+    category: string;
+    intensity: number;
+    relief: number;
+    sweets_streak: number;
+    updated_at: string;
   } | null;
   ultrasounds: { index: number; week: number; seen: boolean; unlockedAt: string; url: string }[];
   newUltrasounds: number;
@@ -75,7 +105,13 @@ export interface HudState {
     note: string;
     deltas: Record<string, number>;
   }[];
-  recentEvents: { event_type: string; title: string; body: string | null; choice: string | null; created_at: string }[];
+  recentEvents: {
+    event_type: string;
+    title: string;
+    body: string | null;
+    choice: string | null;
+    created_at: string;
+  }[];
   popupFrequencyMinutes: number;
   nextEventAt: string | null;
   settings: Record<string, unknown>;
@@ -92,8 +128,14 @@ export function useHudState(token: string | null) {
     queryKey: ["hud-state", token],
     enabled: !!token,
     refetchInterval: 15_000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    staleTime: 2_000,
+    retry: 2,
     queryFn: async () => {
-      const res = await fetch(`/api/hud/state?token=${encodeURIComponent(token!)}`);
+      if (!token) throw new Error("missing token");
+      const res = await fetch(`/api/hud/state?token=${encodeURIComponent(token)}`);
       if (res.status === 401) throw new Error("unauthorized");
       if (!res.ok) throw new Error("Failed to load dashboard");
       return res.json();

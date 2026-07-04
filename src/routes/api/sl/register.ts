@@ -7,10 +7,15 @@ export const Route = createFileRoute("/api/sl/register")({
     handlers: {
       POST: async ({ request }) => {
         const body = await readJson(request);
-        if (!checkSecret(body)) return json({ error: "Bad secret — update API_SECRET in the LSL script." }, 403);
+        if (!checkSecret(body))
+          return json({ error: "Bad secret — update API_SECRET in the LSL script." }, 403);
 
         const identity = slIdentity(request);
-        if (!identity) return json({ error: "This endpoint only accepts requests from Second Life objects." }, 403);
+        if (!identity)
+          return json(
+            { error: "This endpoint only accepts requests from Second Life objects." },
+            403,
+          );
 
         const kind = body.kind === "belly" || body.kind === "partner" ? body.kind : "hud";
         const objectKey = typeof body.object_key === "string" ? body.object_key : "";
@@ -21,7 +26,8 @@ export const Route = createFileRoute("/api/sl/register")({
           avatarName: identity.avatarName,
           kind,
           objectKey,
-          callbackUrl: typeof body.callback_url === "string" && body.callback_url ? body.callback_url : null,
+          callbackUrl:
+            typeof body.callback_url === "string" && body.callback_url ? body.callback_url : null,
           region: typeof body.region === "string" ? body.region : null,
         });
         return json(result);

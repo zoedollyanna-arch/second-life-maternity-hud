@@ -10,7 +10,9 @@ let ctx: AudioContext | null = null;
 function audio(): AudioContext | null {
   if (typeof window === "undefined") return null;
   if (!ctx) {
-    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    const Ctor =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return null;
     ctx = new Ctor();
   }
@@ -20,7 +22,14 @@ function audio(): AudioContext | null {
 
 function tone(
   ac: AudioContext,
-  opts: { freq: number; at: number; dur: number; type?: OscillatorType; gain?: number; glideTo?: number },
+  opts: {
+    freq: number;
+    at: number;
+    dur: number;
+    type?: OscillatorType;
+    gain?: number;
+    glideTo?: number;
+  },
 ) {
   const osc = ac.createOscillator();
   const g = ac.createGain();
@@ -39,7 +48,14 @@ function tone(
 
 function noise(
   ac: AudioContext,
-  opts: { at: number; dur: number; filterFreq: number; filterQ?: number; gain?: number; sweepTo?: number },
+  opts: {
+    at: number;
+    dur: number;
+    filterFreq: number;
+    filterQ?: number;
+    gain?: number;
+    sweepTo?: number;
+  },
 ) {
   const t0 = ac.currentTime + opts.at;
   const frames = Math.ceil(ac.sampleRate * opts.dur);
