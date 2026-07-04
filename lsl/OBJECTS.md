@@ -53,17 +53,45 @@ Sounds (optional): `nestoria_kick`, `nestoria_heartbeat`
 Optional: `nestoria_chime` sound, couple hug animation (extend the script's
 `Hug` branch with `llRequestPermissions` + `llStartAnimation` if you add one).
 
-## 5. Nice-to-have extras (not scripted yet)
+## 5. Hand-held props — foods, water bottle, vitamins (recommended)
+
+One universal script, `nestoria_prop.lsl`, powers every hand-held prop:
+cute hovertext with a ♥♥♥♡♡ progress bar, sweet RP lines in local chat,
+an eat/drink/hold animation, and automatic server credit through the Main
+HUD when finished (props never need the API secret).
+
+| Item | Prop description field |
+| --- | --- |
+| Ham sub | `food_eat\|ham_sub\|eat\|35\|Ham Sub` |
+| Spaghetti | `food_eat\|spaghetti\|eat\|40\|Spaghetti` |
+| Chicken bacon burger | `food_eat\|chicken_bacon_burger\|eat\|35\|Chicken Bacon Burger` |
+| Lasagna | `food_eat\|lasagna\|eat\|40\|Lasagna` |
+| Jam toast | `food_eat\|jam_toast\|eat\|20\|Jam Toast` |
+| Cheeseburger | `food_eat\|cheeseburger\|eat\|30\|Cheeseburger` |
+| French toast | `food_eat\|french_toast\|eat\|25\|French Toast` |
+| Pickle chips | `food_eat\|pickle_chips\|eat\|30\|Pickle Chips` |
+| Chocolate bar | `food_eat\|chocolate_bar\|eat\|25\|Chocolate Bar` |
+| Water bottle | `drink_water\|\|drink\|20\|Water Bottle` |
+| Vitamin bottle | `vitamins\|\|hold\|12\|Prenatal Vitamins` |
+
+Setup per prop: full-perm mesh food/bottle → drop in `nestoria_prop.lsl` →
+paste the description line → (optional) add a full-perm animation named
+`nestoria_eat`, `nestoria_drink` or `nestoria_hold`. Worn from inventory it
+plays the whole scene and detaches itself when done.
+
+## 6. Ultrasound scrapbook (no objects needed)
+
+The 10 ultrasound photos ship inside the web app (`public/ultrasounds/`).
+They unlock automatically at weeks 6, 9, 12, 16, 20, 24, 28, 32, 36 and 39 —
+the wearer gets a toast + notification, and collected scans are browsable in
+the polaroid-style scrapbook on the Baby panel. Nothing to build in-world.
+
+## 7. Nice-to-have extras (not scripted yet)
 
 - Particle textures: heart + sparkle (the scripts currently use default
   particle dots tinted pink/lavender; a custom heart texture upgrade is a
   one-line change in `heartsBurst()`)
-- Food props for the integrated foods — ham sub, spaghetti, chicken bacon
-  burger, lasagna, jam toast, cheeseburger, french toast, pickle chips,
-  chocolate bar. The foods already work as MOAP nutrition/craving items;
-  props are cosmetic hand-helds only.
-- Water bottle / vitamin bottle props, doctor clipboard, stethoscope,
-  ultrasound photo texture
+- Doctor/checkup clipboard, stethoscope props
 - Boxed product: box mesh, landmark, notecard with the setup steps from
   `README.md`
 

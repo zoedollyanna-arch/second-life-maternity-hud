@@ -5,7 +5,7 @@ import {
   Home, Heart, Baby, Users, BookHeart, Bell, Settings, Activity,
   Droplet, Pill, Moon, Utensils, Zap, Smile, Footprints, Calendar,
   Camera, Sparkles, Plus, MessageCircle, Stethoscope, Copy, Check, Loader2,
-  Waves, Apple, Mic, HandHeart, RefreshCw,
+  Waves, Apple, Mic, HandHeart, RefreshCw, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import logo from "@/assets/nestoria-logo.png";
 import pregnancyHero from "@/assets/pregnancy-hero.jpg";
@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/select";
 import { useHudState, useHudAction, type HudState } from "@/lib/hud-api";
 import { BABY_GROWTH } from "@/lib/pregnancy";
-import { playForAction, playChime, playError } from "@/lib/sounds";
+import { playForAction, playChime, playError, playHearts } from "@/lib/sounds";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>): { token?: string } => ({
@@ -246,13 +246,15 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
   const [active, setActive] = useState<NavKey>("home");
   const action = useHudAction(token);
 
-  const act = (name: string, params?: Record<string, unknown>) =>
+  const act = (name: string, params?: Record<string, unknown>, opts?: { silent?: boolean }) =>
     action.mutate({ action: name, params }, {
       onSuccess: (res) => {
+        if (opts?.silent) return;
         toast.success(res.message);
         playForAction(name);
       },
       onError: (err) => {
+        if (opts?.silent) return;
         toast.error(err.message);
         playError();
       },
@@ -264,6 +266,18 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
     if (data.unread > unreadRef.current) playChime();
     unreadRef.current = data.unread;
   }, [data.unread]);
+
+  // Celebrate freshly unlocked ultrasound photos
+  const scanCountRef = useRef(data.ultrasounds.length);
+  useEffect(() => {
+    if (data.ultrasounds.length > scanCountRef.current) {
+      toast("📸 You have a new ultrasound ♥", {
+        description: "Open your scrapbook on the Baby panel to see it.",
+      });
+      playHearts();
+    }
+    scanCountRef.current = data.ultrasounds.length;
+  }, [data.ultrasounds.length]);
 
   const preg = data.pregnancy;
   const stats = data.stats;
@@ -422,6 +436,14 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                 <PrimaryButton onClick={() => act("kick")}>
                   Log a kick 👶
                 </PrimaryButton>
+                <ScrapbookDialog
+                  ultrasounds={data.ultrasounds}
+                  newCount={data.newUltrasounds}
+                  babyName={preg.babyName}
+                  onOpened={() => {
+                    if (data.newUltrasounds > 0) act("ultrasound_seen", undefined, { silent: true });
+                  }}
+                />
               </Panel>
             </section>
           )}
@@ -1259,5 +1281,144 @@ function SettingsPanel({ data, onSave }: { data: HudState; onSave: (params: Reco
         </PrimaryButton>
       </Panel>
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Ultrasound scrapbook
+// ---------------------------------------------------------------------------
+
+interface UltrasoundPhoto {
+  index: number;
+  week: number;
+  seen: boolean;
+  unlockedAt: string;
+  url: string;
+}
+
+function ScrapbookDialog({ ultrasounds, newCount, babyName, onOpened }: {
+  ultrasounds: UltrasoundPhoto[];
+  newCount: number;
+  babyName: string | null;
+  onOpened: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [page, setPage] = useState(0);
+  const photos = ultrasounds;
+  const current = photos[page];
+
+  const openChange = (o: boolean) => {
+    setOpen(o);
+    if (o) {
+      setPage(Math.max(0, photos.length - 1)); // newest scan first
+      onOpened();
+    }
+  };
+
+  const tape = (extra: string) => (
+    <span
+      className={`pointer-events-none absolute h-6 w-16 rounded-sm opacity-80 ${extra}`}
+      style={{ background: "linear-gradient(135deg, oklch(0.88 0.07 355 / 0.85), oklch(0.85 0.08 300 / 0.85))" }}
+    />
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={openChange}>
+      <DialogTrigger asChild>
+        <button className="relative mt-2.5 w-full rounded-full py-2.5 text-sm font-medium text-[color:var(--lavender-deep)] bg-white/70 hover:bg-white transition flex items-center justify-center gap-2">
+          <Camera className="h-4 w-4" /> Baby's scrapbook
+          {newCount > 0 && (
+            <span className="absolute -top-1.5 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[color:var(--blush)] px-1.5 text-[10px] font-bold text-white shadow-soft">
+              {newCount} new
+            </span>
+          )}
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-w-xl rounded-[28px]"
+        style={{ background: "linear-gradient(160deg, oklch(0.97 0.03 80) 0%, oklch(0.95 0.03 320) 100%)" }}>
+        <DialogHeader>
+          <DialogTitle className="text-center">
+            <span className="font-script text-3xl text-[color:var(--lavender-deep)]">
+              {babyName ? `${babyName}'s scrapbook` : "Baby's first scrapbook"}
+            </span>
+          </DialogTitle>
+        </DialogHeader>
+
+        {photos.length === 0 ? (
+          <div className="py-10 text-center">
+            <Camera className="mx-auto h-10 w-10 text-[color:var(--lavender)]" />
+            <p className="mt-4 font-display text-xl text-[color:var(--lavender-deep)]">No scans yet</p>
+            <p className="mt-1 text-sm italic text-muted-foreground">
+              Your first ultrasound arrives around week 6 — we'll let you know the moment it's ready ♥
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center">
+            {/* Polaroid */}
+            <div className="relative mx-auto my-3 w-full max-w-sm">
+              <div
+                className="relative rounded-md bg-white p-3 pb-12 shadow-cloud transition-transform duration-500"
+                style={{ transform: `rotate(${current.index % 2 === 0 ? 1.6 : -1.8}deg)` }}
+              >
+                {tape("-top-3 left-6 -rotate-6")}
+                {tape("-top-3 right-6 rotate-6")}
+                <img
+                  src={current.url}
+                  alt={`Week ${current.week} ultrasound`}
+                  className="aspect-[4/3] w-full rounded-sm object-cover"
+                />
+                {!current.seen && (
+                  <span className="absolute right-4 top-4 rounded-full bg-[color:var(--blush)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-white shadow-soft">
+                    New
+                  </span>
+                )}
+                <div className="absolute inset-x-0 bottom-2.5 text-center">
+                  <span className="font-script text-xl text-[color:var(--lavender-deep)]">
+                    Week {current.week} ♥{" "}
+                    <span className="text-sm text-muted-foreground">
+                      {new Date(current.unlockedAt).toLocaleDateString(undefined, { month: "long", day: "numeric" })}
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Navigation */}
+            <div className="mt-1 flex items-center gap-4">
+              <button
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={page === 0}
+                aria-label="Previous scan"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/80 shadow-soft transition hover:bg-white disabled:opacity-35"
+              >
+                <ChevronLeft className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+              </button>
+              <div className="flex items-center gap-1.5">
+                {photos.map((p, i) => (
+                  <button
+                    key={p.index}
+                    onClick={() => setPage(i)}
+                    aria-label={`Scan ${i + 1}`}
+                    className={`h-2 rounded-full transition-all ${i === page ? "w-5 bg-[color:var(--lavender-deep)]" : "w-2 bg-[color:var(--lavender)]/50 hover:bg-[color:var(--lavender)]"}`}
+                  />
+                ))}
+              </div>
+              <button
+                onClick={() => setPage((p) => Math.min(photos.length - 1, p + 1))}
+                disabled={page >= photos.length - 1}
+                aria-label="Next scan"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/80 shadow-soft transition hover:bg-white disabled:opacity-35"
+              >
+                <ChevronRight className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+              </button>
+            </div>
+
+            <p className="mt-3 text-xs italic text-muted-foreground">
+              {photos.length} of 10 little moments collected <Sparkles className="inline h-3 w-3" />
+            </p>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

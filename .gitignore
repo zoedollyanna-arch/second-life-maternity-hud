@@ -33,3 +33,7 @@ dist-ssr
 
 # Environment secrets
 .env
+
+# Local-only: original ultrasound masters (optimized copies live in public/ultrasounds) and local dev config
+ultrasounds pictures/
+.claude/

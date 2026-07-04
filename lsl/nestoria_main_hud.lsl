@@ -390,9 +390,29 @@ default
     {
         if (channel == gChairChannel)
         {
-            // Only trust objects we own (the rezzed comfort chair)
-            if (llGetOwnerKey(id) == llGetOwner() && message == "nestoria_comfort_done")
+            // Only trust objects we own (the comfort chair & worn props)
+            if (llGetOwnerKey(id) != llGetOwner()) return;
+
+            if (message == "nestoria_comfort_done")
+            {
                 postAction("comfort_complete", "{}");
+            }
+            else if (llSubStringIndex(message, "nestoria_prop_done|") == 0)
+            {
+                // "nestoria_prop_done|<action>|<param>|<Display Name>"
+                list parts = llParseStringKeepNulls(message, ["|"], []);
+                string propAction = llList2String(parts, 1);
+                string propParam = llList2String(parts, 2);
+                // props may only trigger these gentle self-care actions
+                if (propAction == "food_eat" || propAction == "drink_water"
+                    || propAction == "vitamins" || propAction == "eat" || propAction == "snack")
+                {
+                    string propParams = "{}";
+                    if (propParam != "")
+                        propParams = llList2Json(JSON_OBJECT, ["food", propParam]);
+                    postAction(propAction, propParams);
+                }
+            }
             return;
         }
 

@@ -17,7 +17,10 @@ float   EXPIRE_SECONDS = 600.0; // auto-clean after 10 minutes
 vector  SIT_TARGET    = <0.0, 0.0, 0.45>;
 vector  SIT_ROT       = <0.0, 0.0, 0.0>;   // Euler degrees
 
+vector  TEXT_COLOR = <1.0, 0.78, 0.88>;
+
 integer gSitting = FALSE;
+integer gSaidHalf = FALSE;
 float   gSatAt;
 float   gRezzedAt;
 
@@ -32,13 +35,33 @@ key seatedAvatar()
     return llAvatarOnSitTarget();
 }
 
+string ownerName()
+{
+    string n = llGetDisplayName(llGetOwner());
+    if (n == "" || n == "???") n = llKey2Name(llGetOwner());
+    return n;
+}
+
+string progressBar(float frac)
+{
+    integer filled = (integer)(frac * 8.0 + 0.5);
+    string bar = "";
+    integer i;
+    for (i = 0; i < 8; i++)
+    {
+        if (i < filled) bar += "♥";
+        else bar += "♡";
+    }
+    return bar + "  " + (string)((integer)(frac * 100.0)) + "%";
+}
+
 default
 {
     state_entry()
     {
         llSitTarget(SIT_TARGET, llEuler2Rot(SIT_ROT * DEG_TO_RAD));
         llSetClickAction(CLICK_ACTION_SIT);
-        llSetText("☁ Sit with me for 2 minutes ☁", <0.85, 0.7, 1.0>, 1.0);
+        llSetText("☁ Sit with me for 2 minutes ☁", TEXT_COLOR, 1.0);
         llResetTime();
         gRezzedAt = llGetTime();
         llSetTimerEvent(1.0);
@@ -53,8 +76,10 @@ default
             if (sitter == llGetOwner())
             {
                 gSitting = TRUE;
+                gSaidHalf = FALSE;
                 gSatAt = llGetTime();
-                llSetText("☁ Relaxing… stay seated ☁", <0.85, 0.7, 1.0>, 1.0);
+                llSay(0, "/me ✨ " + ownerName() + " sinks into the comfy chair with a happy little sigh ☁");
+                llSetText("☁ Relaxing…\n" + progressBar(0.0), TEXT_COLOR, 1.0);
             }
             else
             {
@@ -66,7 +91,7 @@ default
         {
             // stood up early — timer restarts on the next sit
             gSitting = FALSE;
-            llSetText("☁ Sit with me for 2 minutes ☁", <0.85, 0.7, 1.0>, 1.0);
+            llSetText("☁ Sit with me for 2 minutes ☁", TEXT_COLOR, 1.0);
         }
     }
 
@@ -74,24 +99,31 @@ default
     {
         if (gSitting)
         {
-            float remaining = SIT_SECONDS - (llGetTime() - gSatAt);
+            float elapsed = llGetTime() - gSatAt;
+            float remaining = SIT_SECONDS - elapsed;
             if (remaining <= 0.0)
             {
                 llRegionSay(comfortChannel(), "nestoria_comfort_done");
                 key sitter = seatedAvatar();
                 llSetText("", ZERO_VECTOR, 0.0);
-                llWhisper(0, "You feel wonderfully rested ☁");
+                llSay(0, "/me ✨ " + ownerName() + " stretches, feeling wonderfully rested ☁ ♥");
                 if (sitter != NULL_KEY) llUnSit(sitter);
                 llSleep(1.0);
                 llDie();
             }
             else
             {
+                if (!gSaidHalf && elapsed >= SIT_SECONDS * 0.5)
+                {
+                    gSaidHalf = TRUE;
+                    llSay(0, "/me ✨ " + ownerName() + " closes her eyes for a moment, one hand resting on her bump ♥");
+                }
                 integer mins = (integer)(remaining / 60.0);
                 integer secs = (integer)remaining % 60;
                 llSetText("☁ Relaxing… " + (string)mins + ":" +
-                    llGetSubString("0" + (string)secs, -2, -1) + " ☁",
-                    <0.85, 0.7, 1.0>, 1.0);
+                    llGetSubString("0" + (string)secs, -2, -1) + " left\n" +
+                    progressBar(elapsed / SIT_SECONDS),
+                    TEXT_COLOR, 1.0);
             }
         }
         else if (llGetTime() - gRezzedAt > EXPIRE_SECONDS)

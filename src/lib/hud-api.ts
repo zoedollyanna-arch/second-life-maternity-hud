@@ -65,6 +65,8 @@ export interface HudState {
     id: string; craving: string; category: string; intensity: number;
     relief: number; sweets_streak: number; updated_at: string;
   } | null;
+  ultrasounds: { index: number; week: number; seen: boolean; unlockedAt: string; url: string }[];
+  newUltrasounds: number;
   foods: {
     key: string;
     name: string;

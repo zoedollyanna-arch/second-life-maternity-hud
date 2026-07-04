@@ -12,6 +12,7 @@ const WEB_ACTIONS = new Set([
   "snack", "craving_roll", "craving_choice", "craving_set",
   "random_event_roll", "random_event_choice", "setup_update",
   "update_week", "set_due_date", "ask_partner", "comfort_complete",
+  "ultrasound_seen",
 ]);
 
 export const Route = createFileRoute("/api/hud/action")({

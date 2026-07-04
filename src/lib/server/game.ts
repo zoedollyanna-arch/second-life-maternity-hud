@@ -413,6 +413,45 @@ async function ensureCraving(pregnancyId: string, trimester: number) {
   return rows[0];
 }
 
+// ---------------------------------------------------------------------------
+// Ultrasound scrapbook — photos unlock as the pregnancy reaches each scan week
+// ---------------------------------------------------------------------------
+
+// photo_index 1..10 → the week each scan becomes available
+export const ULTRASOUND_WEEKS = [6, 9, 12, 16, 20, 24, 28, 32, 36, 39];
+
+async function ensureUltrasoundUnlocks(pregnancyId: string, momId: string, week: number) {
+  const due = ULTRASOUND_WEEKS
+    .map((w, i) => ({ index: i + 1, week: w }))
+    .filter((u) => u.week <= week);
+  for (const u of due) {
+    const inserted = await db().query(
+      `insert into ultrasounds (pregnancy_id, photo_index, week)
+       values ($1, $2, $3) on conflict (pregnancy_id, photo_index) do nothing
+       returning id`,
+      [pregnancyId, u.index, u.week],
+    );
+    if (inserted.rowCount) {
+      await addNotification(momId, "You have a new ultrasound 📸",
+        `Your week ${u.week} scan is ready — open the scrapbook to see your little one ♥`);
+      await queueCommand(momId, "hud", "say",
+        { text: `📸 A new ultrasound photo is waiting on your dashboard ♥` });
+    }
+  }
+  const { rows } = await db().query(
+    `select photo_index, week, seen, unlocked_at from ultrasounds
+     where pregnancy_id = $1 order by photo_index`,
+    [pregnancyId],
+  );
+  return rows.map((r) => ({
+    index: r.photo_index as number,
+    week: r.week as number,
+    seen: r.seen as boolean,
+    unlockedAt: r.unlocked_at as string,
+    url: `/ultrasounds/ultrasound-${String(r.photo_index).padStart(2, "0")}.jpg`,
+  }));
+}
+
 async function recordEvent(
   pregnancyId: string,
   userId: string,
@@ -575,6 +614,7 @@ export async function getDashboardState(user: HudUser) {
     (stats.energy + stats.hydration + stats.hunger + stats.mood + stats.immunity + stats.nutrition + (100 - stats.sickness) + (100 - stats.stress)) / 8,
   );
   const popupFrequencyMinutes = Number(settings.rows[0]?.settings?.popupFrequencyMinutes ?? 20);
+  const ultrasounds = await ensureUltrasoundUnlocks(preg.id, momId, progress.week);
 
   return {
     user: {
@@ -637,6 +677,8 @@ export async function getDashboardState(user: HudUser) {
     notifications: notifications.rows,
     unread: notifications.rows.filter((n) => !n.read).length,
     currentCraving: craving ?? null,
+    ultrasounds,
+    newUltrasounds: ultrasounds.filter((u) => !u.seen).length,
     foods: FOOD_ITEMS.map(foodSummary),
     recentEvents: events.rows,
     popupFrequencyMinutes,
@@ -798,6 +840,13 @@ export async function performAction(
       await queueCommand(momId, "hud", "heartbeat", { text: `Ultrasound: baby is about the size of a ${milestone.size}.` });
       return { ok: true, message: "Ultrasound memory saved." };
     }
+
+    case "ultrasound_seen":
+      await db().query(
+        `update ultrasounds set seen = true where pregnancy_id = $1 and seen = false`,
+        [preg.id],
+      );
+      return { ok: true, message: "Scrapbook updated." };
 
     case "appointment":
       await applyCare(momId, preg.id, action, { immunity: 10, stress: -8, baby_wellness: 5 }, "Appointment scheduled");
