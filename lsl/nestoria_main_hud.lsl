@@ -25,8 +25,8 @@
 // Missing items are skipped gracefully.
 // ============================================================================
 
-string  API_BASE   = "http://localhost:3000";
-string  API_SECRET = "PASTE-YOUR-SL_API_SECRET-HERE";  // same value as SL_API_SECRET in the server .env
+string  API_BASE   = "https://second-life-maternity-hud.onrender.com";
+string  API_SECRET = "30bacebfb360616f0028a0f21b2df23d31686e0be344994c";  // same value as SL_API_SECRET in the server .env
 
 integer MOAP_FACE     = 4;      // face that shows the dashboard (adjust to your prim)
 integer POLL_SECONDS  = 30;     // fallback poll when push is unavailable

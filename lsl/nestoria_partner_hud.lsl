@@ -11,8 +11,8 @@
 // Optional inventory: sound "nestoria_chime", anim "nestoria_hug".
 // ============================================================================
 
-string  API_BASE   = "http://localhost:3000";
-string  API_SECRET = "PASTE-YOUR-SL_API_SECRET-HERE";  // same value as SL_API_SECRET in the server .env
+string  API_BASE   = "https://second-life-maternity-hud.onrender.com";
+string  API_SECRET = "30bacebfb360616f0028a0f21b2df23d31686e0be344994c";  // same value as SL_API_SECRET in the server .env
 
 float   VOLUME = 0.7;
 
