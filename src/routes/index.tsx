@@ -422,9 +422,9 @@ function ConnectScreen() {
 function Dashboard({ token, data }: { token: string; data: HudState }) {
   const [active, setActive] = useState<NavKey>("home");
   const [uiScale, setUiScale] = useState(() => {
-    if (typeof window === "undefined") return 0.9;
-    const saved = Number(window.localStorage.getItem("nestoriaHudScale") ?? 0.9);
-    return Number.isFinite(saved) ? Math.max(0.75, Math.min(1.15, saved)) : 0.9;
+    if (typeof window === "undefined") return 1.0;
+    const saved = Number(window.localStorage.getItem("nestoriaHudScale") ?? 1.0);
+    return Number.isFinite(saved) ? Math.max(0.75, Math.min(1.5, saved)) : 1.0;
   });
   const action = useHudAction(token);
 
@@ -496,7 +496,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
         className="origin-top"
         style={{
           transform: `scale(${uiScale})`,
-          width: `${100 / uiScale}%`,
+          transformOrigin: "top center",
         }}
       >
       {/* Header */}
