@@ -12,7 +12,7 @@
 // ============================================================================
 
 string  API_BASE   = "https://second-life-maternity-hud.onrender.com";
-string  API_SECRET = "30bacebb8360616f0028a0f21b2df23d31686e0be344994c";  // same value as SL_API_SECRET in the server .env
+string  API_SECRET = "2175039403870ed15116d0dcf330095af3f6a398e83bca01";  // same value as SL_API_SECRET in the server .env
 
 float   VOLUME = 0.7;
 
