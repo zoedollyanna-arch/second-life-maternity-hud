@@ -171,6 +171,17 @@
     border-color: var(--color-border);
   }
 
+  /*
+   * The HUD renders on a fixed-size SL media surface. Reserving the scrollbar
+   * gutter permanently keeps the usable width constant, so the scaled frame
+   * (ScaledFrame in routes/index.tsx) never has to re-fit — and never spills
+   * underneath the scrollbar — when content grows past one screenful.
+   */
+  html {
+    overflow-y: scroll;
+    overflow-x: hidden;
+  }
+
   body {
     color: var(--color-foreground);
     background: var(--gradient-sky);

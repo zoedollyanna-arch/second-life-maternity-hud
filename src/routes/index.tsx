@@ -115,6 +115,27 @@ const CLIENT_DECAY_PER_HOUR: Record<keyof HudStats, number> = {
 
 const clampStat = (value: number) => Math.max(0, Math.min(100, value));
 
+// ---------------------------------------------------------------------------
+// HUD scaling
+//
+// The SL media face is a fixed pixel surface (1280x720, see
+// lsl/nestoria_main_hud.lsl). The dashboard is authored for a wider desktop
+// canvas, so it renders at a virtual width and is scaled down to whatever the
+// media surface actually gives us. Scaling with `transform` alone does not
+// change layout size, which is why zooming used to cut content off at both
+// edges — ScaledFrame below also counter-sizes its width and reports the
+// scaled height back to the document, keeping everything on screen.
+// ---------------------------------------------------------------------------
+
+const HUD_DESIGN_WIDTH = 1440;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 1.75;
+const ZOOM_STEP = 0.1;
+const ZOOM_STORAGE_KEY = "nestoriaHudZoomV3";
+
+const clampZoom = (value: number) =>
+  Math.round(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value)) * 100) / 100;
+
 function smartDecayHours(hours: number) {
   const safeHours = Math.max(0, hours);
   if (safeHours <= 8) return safeHours;
@@ -285,6 +306,132 @@ function Row({ label, value, icon }: { label: string; value: string; icon?: Reac
   );
 }
 
+/**
+ * Renders `children` on a virtual canvas that is always exactly as wide as the
+ * media surface, then scales it. `zoom` multiplies the auto-fit scale, so
+ * zooming behaves like browser zoom: everything grows or shrinks together and
+ * nothing ever falls outside the frame horizontally.
+ */
+function ScaledFrame({ zoom, children }: { zoom: number; children: React.ReactNode }) {
+  const outerRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  // Both null until mounted so the server render and the first client render
+  // agree; scaling is applied on the first client effect.
+  const [availableWidth, setAvailableWidth] = useState<number | null>(null);
+  const [contentHeight, setContentHeight] = useState<number | null>(null);
+
+  // Measured off the wrapper rather than the window: clientWidth already
+  // excludes the scrollbar, so the frame can't spill underneath it. The
+  // `overflow-y: scroll` rule in styles.css keeps that width from flip-flopping
+  // as content grows past a screenful.
+  useEffect(() => {
+    const el = outerRef.current;
+    if (!el) return;
+    const measure = () => setAvailableWidth(el.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    window.addEventListener("resize", measure);
+    window.addEventListener("orientationchange", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("orientationchange", measure);
+    };
+  }, []);
+
+  // offsetHeight / ResizeObserver report the *layout* box, which the transform
+  // does not touch — so this can't feed back into itself.
+  useEffect(() => {
+    const el = innerRef.current;
+    if (!el) return;
+    const sync = () => setContentHeight(el.offsetHeight);
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const scaled = availableWidth !== null && availableWidth > 0;
+  const fitScale = scaled ? Math.min(1, availableWidth / HUD_DESIGN_WIDTH) : 1;
+  const scale = fitScale * zoom;
+
+  return (
+    <div
+      ref={outerRef}
+      style={{
+        height: scaled && contentHeight !== null ? contentHeight * scale : undefined,
+        // Clips both axes: the transform shrinks the frame visually but leaves
+        // its layout box full size, so without this the wrapper grows its own
+        // scrollbars and eats into the width we just fitted to.
+        overflow: "hidden",
+      }}
+    >
+      {/*
+        `@container` makes the dashboard's responsive classes key off this
+        virtual canvas instead of the real viewport — otherwise zooming in keeps
+        the desktop column counts and squeezes every panel.
+      */}
+      <div
+        ref={innerRef}
+        className="@container"
+        style={
+          scaled
+            ? {
+                width: availableWidth / scale,
+                transform: `scale(${scale})`,
+                transformOrigin: "top left",
+              }
+            : undefined
+        }
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ZoomControls({
+  zoom,
+  onZoom,
+  onReset,
+}: {
+  zoom: number;
+  onZoom: (next: number) => void;
+  onReset: () => void;
+}) {
+  return (
+    <div className="fixed bottom-4 right-4 z-50 flex items-center gap-1 rounded-full bg-card/90 backdrop-blur-md px-2 py-1.5 shadow-cloud ring-1 ring-white/60">
+      <button
+        onClick={() => onZoom(zoom - ZOOM_STEP)}
+        disabled={zoom <= MIN_ZOOM}
+        aria-label="Zoom out"
+        title="Zoom out"
+        className="h-9 w-9 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition disabled:opacity-40"
+      >
+        <ZoomOut className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+      </button>
+      <button
+        onClick={onReset}
+        aria-label="Reset zoom to fit"
+        title="Reset zoom to fit"
+        className="min-w-14 rounded-full px-2 py-1 text-xs font-semibold text-[color:var(--lavender-deep)] hover:bg-white/70 transition"
+      >
+        {Math.round(zoom * 100)}%
+      </button>
+      <button
+        onClick={() => onZoom(zoom + ZOOM_STEP)}
+        disabled={zoom >= MAX_ZOOM}
+        aria-label="Zoom in"
+        title="Zoom in"
+        className="h-9 w-9 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition disabled:opacity-40"
+      >
+        <ZoomIn className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+      </button>
+    </div>
+  );
+}
+
 function Ambient() {
   return (
     <>
@@ -421,19 +568,21 @@ function ConnectScreen() {
 
 function Dashboard({ token, data }: { token: string; data: HudState }) {
   const [active, setActive] = useState<NavKey>("home");
-  const defaultHudScale = 1.2;
-  const [uiScale, setUiScale] = useState(() => {
-    if (typeof window === "undefined") return defaultHudScale;
-    const saved = Number(window.localStorage.getItem("nestoriaHudScaleV2") ?? defaultHudScale);
-    return Number.isFinite(saved) ? Math.max(0.05, saved) : defaultHudScale;
-  });
+  // Starts at 1 on both server and client; the saved preference is applied
+  // after mount so hydration stays in sync.
+  const [zoom, setZoomState] = useState(1);
   const action = useHudAction(token);
 
+  useEffect(() => {
+    const saved = Number(window.localStorage.getItem(ZOOM_STORAGE_KEY));
+    if (Number.isFinite(saved) && saved > 0) setZoomState(clampZoom(saved));
+  }, []);
+
   const setZoom = (next: number) => {
-    const clamped = Math.max(0.05, Number(next.toFixed(2)));
-    setUiScale(clamped);
+    const clamped = clampZoom(next);
+    setZoomState(clamped);
     if (typeof window !== "undefined") {
-      window.localStorage.setItem("nestoriaHudScaleV2", String(clamped));
+      window.localStorage.setItem(ZOOM_STORAGE_KEY, String(clamped));
     }
   };
 
@@ -495,13 +644,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
   return (
     <Shell>
-      <div
-        className="origin-top"
-        style={{
-          transform: `scale(${uiScale})`,
-          transformOrigin: "top center",
-        }}
-      >
+      <ScaledFrame zoom={zoom}>
       {/* Header */}
       <header className="relative z-10 mx-auto max-w-[1680px] px-6 pt-4 pb-3">
         <div className="flex items-center justify-between gap-6">
@@ -523,7 +666,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
               </p>
             </div>
           </div>
-          <div className="hidden md:flex items-center gap-2 rounded-full bg-card/80 backdrop-blur-md px-3 py-2 shadow-soft">
+          <div className="hidden @min-[768px]:flex items-center gap-2 rounded-full bg-card/80 backdrop-blur-md px-3 py-2 shadow-soft">
             <div className="h-10 w-10 rounded-full bg-[color:var(--lavender)] flex items-center justify-center">
               <Sparkles className="h-5 w-5 text-white" />
             </div>
@@ -536,22 +679,6 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
               </div>
             </div>
             <div className="ml-3 flex gap-2">
-              <button
-                onClick={() => setZoom(uiScale - 0.05)}
-                aria-label="Zoom out"
-                title="Zoom out"
-                className="h-10 w-10 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition"
-              >
-                <ZoomOut className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-              </button>
-              <button
-                onClick={() => setZoom(uiScale + 0.05)}
-                aria-label="Zoom in"
-                title="Zoom in"
-                className="h-10 w-10 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition"
-              >
-                <ZoomIn className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-              </button>
               <button
                 onClick={() => setActive("notifications")}
                 aria-label="Notifications"
@@ -587,9 +714,9 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
         )}
         <div className="grid grid-cols-12 gap-4">
           {/* Sidebar */}
-          <aside className="col-span-12 md:col-span-3 lg:col-span-2">
+          <aside className="col-span-12 @min-[768px]:col-span-3 @min-[1024px]:col-span-2">
             <Panel className="p-2">
-              <nav className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible">
+              <nav className="flex @min-[768px]:flex-col gap-1 overflow-x-auto @min-[768px]:overflow-visible">
                 {NAV.map(({ key, label, icon: Icon }) => {
                   const isActive = active === key;
                   return (
@@ -618,7 +745,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
           {/* Pregnancy hero */}
           {show("pregnancy") && (
-            <section className="col-span-12 md:col-span-9 lg:col-span-6">
+            <section className="col-span-12 @min-[768px]:col-span-9 @min-[1024px]:col-span-6">
               <Panel className="relative overflow-hidden">
                 <PanelHeader
                   eyebrow="Pregnancy"
@@ -699,7 +826,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
           {/* Baby */}
           {show("baby", "pregnancy") && (
-            <section className="col-span-12 lg:col-span-4">
+            <section className="col-span-12 @min-[1024px]:col-span-4">
               <Panel>
                 <PanelHeader
                   eyebrow="Baby"
@@ -745,7 +872,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
           {/* Health */}
           {show("health") && (
-            <section className="col-span-12 md:col-span-6 lg:col-span-4">
+            <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
               <Panel>
                 <PanelHeader eyebrow="Health" title="Monitor your well-being" />
                 <div className="space-y-4">
@@ -778,7 +905,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
           {/* Symptoms */}
           {show("health") && (
-            <section className="col-span-12 md:col-span-6 lg:col-span-4">
+            <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
               <Panel>
                 <PanelHeader eyebrow="Symptoms" title="Track how you feel" />
                 <div className="space-y-3">
@@ -802,7 +929,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
           {/* Care & Comfort */}
           {show("care") && (
-            <section className="col-span-12 md:col-span-6 lg:col-span-4">
+            <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
               <Panel>
                 <PanelHeader eyebrow="Care & Comfort" title="Take care of your needs" />
                 <div className="grid grid-cols-2 gap-3">
@@ -872,7 +999,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
           {/* Partner */}
           {show("partner") && (
-            <section className="col-span-12 md:col-span-6 lg:col-span-5">
+            <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-5">
               <Panel>
                 <PanelHeader eyebrow="Partner" title="Stronger together" />
                 {data.partner.linked ? (
@@ -940,7 +1067,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
           {/* Journal */}
           {show("journal") && (
-            <section className="col-span-12 md:col-span-6 lg:col-span-4">
+            <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
               <Panel>
                 <PanelHeader eyebrow="Journal" title="Capture every moment" />
                 <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
@@ -992,7 +1119,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
           {/* Nutrition */}
           {show("health", "care", "nutrition") && (
-            <section className="col-span-12 md:col-span-6 lg:col-span-3">
+            <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-3">
               <Panel>
                 <PanelHeader eyebrow="Nutrition" title="Eat well, feel well" />
                 <NutritionRing
@@ -1034,7 +1161,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
             <section className="col-span-12">
               <Panel>
                 <PanelHeader eyebrow="Meters in context" title="Today's well-being" />
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                <div className="grid grid-cols-2 @min-[640px]:grid-cols-3 @min-[1024px]:grid-cols-6 gap-4">
                   <Meter icon={Utensils} label="Hunger" value={stats.hunger} />
                   <Meter icon={Droplet} label="Bladder" value={stats.bladder} />
                   <Meter icon={Heart} label="Sickness" value={stats.sickness} tone="blush" />
@@ -1056,7 +1183,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
           {/* Notifications */}
           {active === "notifications" && (
-            <section className="col-span-12 md:col-span-9 lg:col-span-6">
+            <section className="col-span-12 @min-[768px]:col-span-9 @min-[1024px]:col-span-6">
               <Panel>
                 <PanelHeader eyebrow="Notifications" title="Little updates" />
                 <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
@@ -1109,7 +1236,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
           {/* Quick actions */}
           {show("pregnancy", "care", "baby", "partner", "journal", "health") && (
-            <section className="col-span-12 md:col-span-8">
+            <section className="col-span-12 @min-[768px]:col-span-8">
               <Panel>
                 <div className="flex items-center gap-6 flex-wrap justify-center">
                   <div className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
@@ -1134,7 +1261,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
           )}
 
           {show("pregnancy", "care", "baby", "partner", "journal", "health") && (
-            <section className="col-span-12 md:col-span-4">
+            <section className="col-span-12 @min-[768px]:col-span-4">
               <Panel className="h-full flex flex-col justify-center text-center">
                 <div className="font-display italic text-lg text-[color:var(--lavender-deep)] leading-snug">
                   “Small steps today,
@@ -1153,7 +1280,8 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
         <p className="font-script text-lg text-[color:var(--lavender-deep)]">Nestoria</p>
         <p>Where every family journey begins - Pregnancy & Family HUD for Second Life</p>
       </footer>
-      </div>
+      </ScaledFrame>
+      <ZoomControls zoom={zoom} onZoom={setZoom} onReset={() => setZoom(1)} />
       <Toaster position="top-center" />
     </Shell>
   );
@@ -1477,7 +1605,7 @@ function ActionConsole({
             Current craving: <span className="font-semibold text-foreground">{craving}</span>
           </div>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3 @min-[768px]:grid-cols-2 @min-[1280px]:grid-cols-3">
           {actionGroups.map((group) => (
             <div key={group.title} className="rounded-2xl bg-white/60 p-3">
               <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
@@ -1904,7 +2032,7 @@ function SettingsPanel({
   const [babyGender, setBabyGender] = useState(data.pregnancy.babyGender);
   const [durationDays, setDurationDays] = useState(String(data.pregnancy.durationDays));
   return (
-    <section className="col-span-12 md:col-span-9 lg:col-span-6">
+    <section className="col-span-12 @min-[768px]:col-span-9 @min-[1024px]:col-span-6">
       <Panel>
         <PanelHeader eyebrow="Settings" title="Your journey, your way" />
         <div className="space-y-4">
