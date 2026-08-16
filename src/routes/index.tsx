@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Home,
@@ -33,6 +33,7 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
+  Maximize2,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -118,16 +119,23 @@ const clampStat = (value: number) => Math.max(0, Math.min(100, value));
 // ---------------------------------------------------------------------------
 // HUD scaling
 //
-// The SL media face is a fixed pixel surface (1280x720, see
-// lsl/nestoria_main_hud.lsl). The dashboard is authored for a wider desktop
-// canvas, so it renders at a virtual width and is scaled down to whatever the
-// media surface actually gives us. Scaling with `transform` alone does not
-// change layout size, which is why zooming used to cut content off at both
-// edges — ScaledFrame below also counter-sizes its width and reports the
-// scaled height back to the document, keeping everything on screen.
+// The SL media face is a fixed pixel surface — 1280x720, set by
+// lsl/nestoria_main_hud.lsl with PRIM_MEDIA_AUTO_SCALE off so those numbers are
+// the browser viewport every wearer gets, rather than whatever size the viewer
+// felt like allocating for the face on screen.
+//
+// The design width matches that surface on purpose. It used to be 1440, which
+// meant the dashboard was permanently drawn at 89% and every wearer read 14px
+// text where 16px was intended. At parity the fit scale is 1 and the page
+// renders pixel-for-pixel; `zoom` multiplies from there.
+//
+// Scaling with `transform` alone does not change layout size, which is why
+// zooming used to cut content off at both edges — ScaledFrame below also
+// counter-sizes its width and reports the scaled height back to the document,
+// keeping everything on screen.
 // ---------------------------------------------------------------------------
 
-const HUD_DESIGN_WIDTH = 1440;
+const HUD_DESIGN_WIDTH = 1280;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 1.75;
 const ZOOM_STEP = 0.1;
@@ -312,7 +320,15 @@ function Row({ label, value, icon }: { label: string; value: string; icon?: Reac
  * zooming behaves like browser zoom: everything grows or shrinks together and
  * nothing ever falls outside the frame horizontally.
  */
-function ScaledFrame({ zoom, children }: { zoom: number; children: React.ReactNode }) {
+function ScaledFrame({
+  zoom,
+  onMetrics,
+  children,
+}: {
+  zoom: number;
+  onMetrics?: (metrics: { renderedHeight: number; viewportHeight: number }) => void;
+  children: React.ReactNode;
+}) {
   const outerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   // Both null until mounted so the server render and the first client render
@@ -356,6 +372,18 @@ function ScaledFrame({ zoom, children }: { zoom: number; children: React.ReactNo
   const fitScale = scaled ? Math.min(1, availableWidth / HUD_DESIGN_WIDTH) : 1;
   const scale = fitScale * zoom;
 
+  // Report how tall the frame actually draws, so "Fit" can work out the zoom
+  // that brings the whole thing onto the surface. Reported rather than acted on
+  // here: scaling to fit height from inside would change the layout that
+  // produced the measurement, and the two would chase each other forever.
+  useEffect(() => {
+    if (!onMetrics || contentHeight === null || !scaled) return;
+    onMetrics({
+      renderedHeight: contentHeight * scale,
+      viewportHeight: window.innerHeight,
+    });
+  }, [onMetrics, contentHeight, scale, scaled]);
+
   return (
     <div
       ref={outerRef}
@@ -395,10 +423,12 @@ function ZoomControls({
   zoom,
   onZoom,
   onReset,
+  onFit,
 }: {
   zoom: number;
   onZoom: (next: number) => void;
   onReset: () => void;
+  onFit: () => void;
 }) {
   return (
     <div className="fixed bottom-4 right-4 z-50 flex items-center gap-1 rounded-full bg-card/90 backdrop-blur-md px-2 py-1.5 shadow-cloud ring-1 ring-white/60">
@@ -413,8 +443,8 @@ function ZoomControls({
       </button>
       <button
         onClick={onReset}
-        aria-label="Reset zoom to fit"
-        title="Reset zoom to fit"
+        aria-label="Reset zoom to 100%"
+        title="Reset zoom to 100%"
         className="min-w-14 rounded-full px-2 py-1 text-xs font-semibold text-[color:var(--lavender-deep)] hover:bg-white/70 transition"
       >
         {Math.round(zoom * 100)}%
@@ -428,7 +458,79 @@ function ZoomControls({
       >
         <ZoomIn className="h-4 w-4 text-[color:var(--lavender-deep)]" />
       </button>
+      <button
+        onClick={onFit}
+        aria-label="Fit the whole screen"
+        title="Fit the whole screen"
+        className="h-9 w-9 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition"
+      >
+        <Maximize2 className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+      </button>
     </div>
+  );
+}
+
+/**
+ * Zoom preference, shared by every screen the HUD can show.
+ *
+ * It lives in one hook rather than in the dashboard because the setup wizard
+ * and the connect screen are what a wearer sees *first*, and they used to
+ * render outside the scaled frame entirely: no zoom controls, no fitting, sized
+ * against the raw viewport. Someone whose media surface came back small had no
+ * way to make the first screen readable.
+ */
+function useHudZoom() {
+  // Starts at 1 on both server and client; the saved preference is applied
+  // after mount so hydration stays in sync.
+  const [zoom, setZoomState] = useState(1);
+  const metrics = useRef<{ renderedHeight: number; viewportHeight: number } | null>(null);
+
+  useEffect(() => {
+    const saved = Number(window.localStorage.getItem(ZOOM_STORAGE_KEY));
+    if (Number.isFinite(saved) && saved > 0) setZoomState(clampZoom(saved));
+  }, []);
+
+  const setZoom = useCallback((next: number) => {
+    const clamped = clampZoom(next);
+    setZoomState(clamped);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(ZOOM_STORAGE_KEY, String(clamped));
+    }
+    return clamped;
+  }, []);
+
+  const onMetrics = useCallback((next: { renderedHeight: number; viewportHeight: number }) => {
+    metrics.current = next;
+  }, []);
+
+  // Shrink until the whole frame is on the surface. Uses the height the frame
+  // last reported, so one press is one calculation — no loop between the fit
+  // and the layout it changes.
+  const fit = useCallback(() => {
+    const current = metrics.current;
+    if (!current || current.renderedHeight <= 0) return setZoom(1);
+    if (current.renderedHeight <= current.viewportHeight) return setZoom(1);
+    return setZoom((zoom * current.viewportHeight) / current.renderedHeight);
+  }, [setZoom, zoom]);
+
+  return { zoom, setZoom, onMetrics, fit };
+}
+
+/** A screen that scales to the media surface and carries its own zoom controls. */
+function HudFrame({
+  zoom,
+  setZoom,
+  onMetrics,
+  fit,
+  children,
+}: ReturnType<typeof useHudZoom> & { children: React.ReactNode }) {
+  return (
+    <>
+      <ScaledFrame zoom={zoom} onMetrics={onMetrics}>
+        {children}
+      </ScaledFrame>
+      <ZoomControls zoom={zoom} onZoom={setZoom} onReset={() => setZoom(1)} onFit={fit} />
+    </>
   );
 }
 
@@ -507,6 +609,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 function ConnectScreen() {
+  const hudZoom = useHudZoom();
   const [starting, setStarting] = useState(false);
   const startDemo = async () => {
     setStarting(true);
@@ -522,6 +625,7 @@ function ConnectScreen() {
   };
   return (
     <Shell>
+      <HudFrame {...hudZoom}>
       <div className="flex min-h-screen items-center justify-center px-6">
         <Panel className="max-w-lg text-center">
           <img
@@ -557,6 +661,7 @@ function ConnectScreen() {
           </PrimaryButton>
         </Panel>
       </div>
+      </HudFrame>
       <Toaster position="top-center" />
     </Shell>
   );
@@ -568,23 +673,8 @@ function ConnectScreen() {
 
 function Dashboard({ token, data }: { token: string; data: HudState }) {
   const [active, setActive] = useState<NavKey>("home");
-  // Starts at 1 on both server and client; the saved preference is applied
-  // after mount so hydration stays in sync.
-  const [zoom, setZoomState] = useState(1);
+  const hudZoom = useHudZoom();
   const action = useHudAction(token);
-
-  useEffect(() => {
-    const saved = Number(window.localStorage.getItem(ZOOM_STORAGE_KEY));
-    if (Number.isFinite(saved) && saved > 0) setZoomState(clampZoom(saved));
-  }, []);
-
-  const setZoom = (next: number) => {
-    const clamped = clampZoom(next);
-    setZoomState(clamped);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(ZOOM_STORAGE_KEY, String(clamped));
-    }
-  };
 
   const act = (name: string, params?: Record<string, unknown>, opts?: { silent?: boolean }) =>
     action.mutate(
@@ -644,7 +734,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
   return (
     <Shell>
-      <ScaledFrame zoom={zoom}>
+      <HudFrame {...hudZoom}>
       {/* Header */}
       <header className="relative z-10 mx-auto max-w-[1680px] px-6 pt-4 pb-3">
         <div className="flex items-center justify-between gap-6">
@@ -1280,8 +1370,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
         <p className="font-script text-lg text-[color:var(--lavender-deep)]">Nestoria</p>
         <p>Where every family journey begins - Pregnancy & Family HUD for Second Life</p>
       </footer>
-      </ScaledFrame>
-      <ZoomControls zoom={zoom} onZoom={setZoom} onReset={() => setZoom(1)} />
+      </HudFrame>
       <Toaster position="top-center" />
     </Shell>
   );
@@ -1299,6 +1388,7 @@ function SetupWizard({
   data: HudState;
   onSave: (params: Record<string, unknown>) => void;
 }) {
+  const hudZoom = useHudZoom();
   const [momName, setMomName] = useState(data.user.name.split(" ")[0] ?? "");
   const [week, setWeek] = useState(Math.max(1, data.pregnancy.week || 1));
   const [day, setDay] = useState(data.pregnancy.day || 0);
@@ -1312,9 +1402,15 @@ function SetupWizard({
 
   return (
     <Shell>
+      <HudFrame {...hudZoom}>
       <div className="mx-auto flex min-h-screen max-w-4xl items-center justify-center px-4 py-8">
         <Panel className="w-full">
-          <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+          {/*
+            Container queries, not `lg:` — inside the frame the breakpoints have
+            to key off the scaled canvas, or zooming in keeps the two-column
+            layout and squeezes both halves.
+          */}
+          <div className="grid gap-6 @min-[1024px]:grid-cols-[0.9fr_1.1fr]">
             <div className="flex flex-col justify-between rounded-3xl bg-white/65 p-5">
               <div>
                 <img src={logo} alt="Nestoria logo" width={88} height={88} className="h-16 w-16" />
@@ -1466,6 +1562,7 @@ function SetupWizard({
           </div>
         </Panel>
       </div>
+      </HudFrame>
       <Toaster position="top-center" />
     </Shell>
   );

@@ -25,7 +25,7 @@
 // Missing items are skipped gracefully.
 // ============================================================================
 
-string  API_BASE   = "https://second-life-maternity-hud.onrender.com";
+string  API_BASE   = "https://second-life-maternity-hud-t3vv.onrender.com";
 string  API_SECRET = "2175039403870ed15116d0dcf330095af3f6a398e83bca01";  // same value as SL_API_SECRET in the server .env
 
 integer MOAP_FACE     = 4;      // face that shows the dashboard (adjust to your prim)
@@ -98,9 +98,18 @@ heartsBurst()
         PSYS_PART_START_ALPHA, 0.9,
         PSYS_PART_END_ALPHA, 0.0
     ]);
-    llSleep(1.6);
-    llParticleSystem([]);
+    // No llSleep here. PSYS_SRC_MAX_AGE above already stops the emitter after
+    // 1.5s, and llSleep suspends the whole script — including the http_request
+    // handler this runs inside, so a pushed batch containing several hearts
+    // commands stalled the HUD for seconds at a time and could overflow the
+    // event queue. The burst ends itself.
 }
+
+// The screen's resolution. The dashboard is authored against exactly this
+// width (HUD_DESIGN_WIDTH in src/routes/index.tsx) — keep the two in step or
+// the whole page renders permanently scaled down.
+integer SCREEN_WIDTH  = 1280;
+integer SCREEN_HEIGHT = 720;
 
 setMoap(string url)
 {
@@ -110,12 +119,21 @@ setMoap(string url)
         PRIM_MEDIA_CURRENT_URL, url,
         PRIM_MEDIA_HOME_URL, url,
         PRIM_MEDIA_AUTO_PLAY, TRUE,
-        PRIM_MEDIA_AUTO_SCALE, TRUE,
+
+        // OFF, deliberately. With auto-scale on, the viewer ignores the pixel
+        // size below and hands the page whatever resolution it felt like
+        // allocating for however large the face happened to look on screen —
+        // so the dashboard got a different CSS viewport on every machine, at
+        // every camera distance, and the layout landed somewhere different for
+        // each wearer. That is the whole "scaling is broken in-world" problem.
+        // Off, the size below is the browser viewport, the same for everyone.
+        PRIM_MEDIA_AUTO_SCALE, FALSE,
+
         PRIM_MEDIA_PERMS_INTERACT, PRIM_MEDIA_PERM_OWNER,
         PRIM_MEDIA_PERMS_CONTROL, PRIM_MEDIA_PERM_NONE,
         PRIM_MEDIA_CONTROLS, PRIM_MEDIA_CONTROLS_MINI,
-        PRIM_MEDIA_WIDTH_PIXELS, 1280,
-        PRIM_MEDIA_HEIGHT_PIXELS, 720
+        PRIM_MEDIA_WIDTH_PIXELS, SCREEN_WIDTH,
+        PRIM_MEDIA_HEIGHT_PIXELS, SCREEN_HEIGHT
     ]);
 }
 
@@ -137,7 +155,12 @@ registerWithServer()
 
 pollServer()
 {
-    if (gToken == "") return;
+    // No token means registration never succeeded. Retry it here rather than
+    // returning: the timer is the only thing that runs on its own, so bailing
+    // out left a HUD whose first register failed dead until somebody touched
+    // it — and one cold start on the server is enough to lose that first
+    // attempt. nestoria_belly.lsl has always done it this way.
+    if (gToken == "") { registerWithServer(); return; }
     gPollReq = llHTTPRequest(
         API_BASE + "/api/sl/poll?token=" + gToken + "&kind=hud", [
         HTTP_METHOD, "GET",
