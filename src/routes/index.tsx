@@ -626,41 +626,41 @@ function ConnectScreen() {
   return (
     <Shell>
       <HudFrame {...hudZoom}>
-      <div className="flex min-h-screen items-center justify-center px-6">
-        <Panel className="max-w-lg text-center">
-          <img
-            src={logo}
-            alt="Nestoria logo"
-            width={96}
-            height={96}
-            className="mx-auto h-20 w-20"
-            style={{ animation: "float 5s ease-in-out infinite" }}
-          />
-          <h1 className="mt-3 font-display text-4xl font-semibold tracking-wide text-[color:var(--lavender-deep)]">
-            NESTORIA
-          </h1>
-          <p className="font-script text-lg text-[color:var(--lavender-deep)]/70">
-            where every family journey begins
-          </p>
-          <div className="mt-6 space-y-3 text-left text-sm text-muted-foreground">
-            <p className="font-semibold text-foreground">To open your dashboard:</p>
-            <p>
-              1. Wear the <b>Nestoria HUD</b> in Second Life.
+        <div className="flex min-h-screen items-center justify-center px-6">
+          <Panel className="max-w-lg text-center">
+            <img
+              src={logo}
+              alt="Nestoria logo"
+              width={96}
+              height={96}
+              className="mx-auto h-20 w-20"
+              style={{ animation: "float 5s ease-in-out infinite" }}
+            />
+            <h1 className="mt-3 font-display text-4xl font-semibold tracking-wide text-[color:var(--lavender-deep)]">
+              NESTORIA
+            </h1>
+            <p className="font-script text-lg text-[color:var(--lavender-deep)]/70">
+              where every family journey begins
             </p>
-            <p>2. It registers automatically and loads this dashboard on its screen.</p>
-            <p>
-              3. Make sure media is enabled: <i>Preferences → Sound &amp; Media → Media</i>.
-            </p>
-            <p>
-              Partners: wear the <b>Partner HUD</b> and enter the pairing code from her Partner
-              panel.
-            </p>
-          </div>
-          <PrimaryButton onClick={startDemo} disabled={starting}>
-            {starting ? "Starting demo…" : "Preview a demo dashboard"}
-          </PrimaryButton>
-        </Panel>
-      </div>
+            <div className="mt-6 space-y-3 text-left text-sm text-muted-foreground">
+              <p className="font-semibold text-foreground">To open your dashboard:</p>
+              <p>
+                1. Wear the <b>Nestoria HUD</b> in Second Life.
+              </p>
+              <p>2. It registers automatically and loads this dashboard on its screen.</p>
+              <p>
+                3. Make sure media is enabled: <i>Preferences → Sound &amp; Media → Media</i>.
+              </p>
+              <p>
+                Partners: wear the <b>Partner HUD</b> and enter the pairing code from her Partner
+                panel.
+              </p>
+            </div>
+            <PrimaryButton onClick={startDemo} disabled={starting}>
+              {starting ? "Starting demo…" : "Preview a demo dashboard"}
+            </PrimaryButton>
+          </Panel>
+        </div>
       </HudFrame>
       <Toaster position="top-center" />
     </Shell>
@@ -735,641 +735,652 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
   return (
     <Shell>
       <HudFrame {...hudZoom}>
-      {/* Header */}
-      <header className="relative z-10 mx-auto max-w-[1680px] px-6 pt-4 pb-3">
-        <div className="flex items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            <img
-              src={logo}
-              alt="Nestoria logo"
-              width={72}
-              height={72}
-              className="h-12 w-12 drop-shadow-[0_4px_12px_oklch(0.55_0.15_300/0.25)]"
-              style={{ animation: "float 5s ease-in-out infinite" }}
-            />
-            <div>
-              <h1 className="font-display text-3xl font-semibold tracking-wide text-[color:var(--lavender-deep)]">
-                NESTORIA
-              </h1>
-              <p className="font-script text-sm text-[color:var(--lavender-deep)]/70">
-                where every family journey begins
-              </p>
-            </div>
-          </div>
-          <div className="hidden @min-[768px]:flex items-center gap-2 rounded-full bg-card/80 backdrop-blur-md px-3 py-2 shadow-soft">
-            <div className="h-10 w-10 rounded-full bg-[color:var(--lavender)] flex items-center justify-center">
-              <Sparkles className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                Welcome back
-              </div>
-              <div className="font-display text-lg leading-none">
-                {firstName} <span className="text-[color:var(--blush)]">♥</span>
-              </div>
-            </div>
-            <div className="ml-3 flex gap-2">
-              <button
-                onClick={() => setActive("notifications")}
-                aria-label="Notifications"
-                className="relative h-10 w-10 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition"
-              >
-                <Bell className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-                {data.unread > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-[color:var(--blush)] text-[9px] font-bold text-white flex items-center justify-center">
-                    {data.unread}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setActive("settings")}
-                aria-label="Settings"
-                className="h-10 w-10 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition"
-              >
-                <Settings className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <main className="relative z-10 mx-auto max-w-[1680px] px-6 pb-20">
-        {preg.delivered && (
-          <div className="mb-6 rounded-[28px] bg-card/90 p-5 text-center shadow-cloud ring-1 ring-white/60">
-            <span className="font-display text-2xl text-[color:var(--lavender-deep)]">
-              🎉 Your little one has arrived! Congratulations
-              {preg.babyName ? ` on ${preg.babyName}` : ""} ♥
-            </span>
-          </div>
-        )}
-        <div className="grid grid-cols-12 gap-4">
-          {/* Sidebar */}
-          <aside className="col-span-12 @min-[768px]:col-span-3 @min-[1024px]:col-span-2">
-            <Panel className="p-2">
-              <nav className="flex @min-[768px]:flex-col gap-1 overflow-x-auto @min-[768px]:overflow-visible">
-                {NAV.map(({ key, label, icon: Icon }) => {
-                  const isActive = active === key;
-                  return (
-                    <button
-                      key={key}
-                      onClick={() => setActive(key)}
-                      className={`group flex min-w-0 items-center gap-2 rounded-xl px-2.5 py-2 text-xs font-semibold transition-all whitespace-nowrap ${
-                        isActive
-                          ? "bg-[color:var(--lavender)] text-white shadow-soft"
-                          : "text-muted-foreground hover:bg-white/70 hover:text-[color:var(--lavender-deep)]"
-                      }`}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-                      {key === "notifications" && data.unread > 0 && (
-                        <span className="h-4 min-w-4 rounded-full bg-[color:var(--blush)] px-1 text-[9px] font-bold text-white flex items-center justify-center">
-                          {data.unread}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </nav>
-            </Panel>
-          </aside>
-
-          {/* Pregnancy hero */}
-          {show("pregnancy") && (
-            <section className="col-span-12 @min-[768px]:col-span-9 @min-[1024px]:col-span-6">
-              <Panel className="relative overflow-hidden">
-                <PanelHeader
-                  eyebrow="Pregnancy"
-                  title="Your beautiful journey"
-                  subtitle="every day is a step closer to meeting your little one"
-                />
-                <div className="grid grid-cols-2 gap-6 items-center">
-                  <div className="relative">
-                    <div
-                      className="aspect-square rounded-full overflow-hidden ring-4 ring-white/70 shadow-cloud"
-                      style={{ background: "var(--gradient-lavender)" }}
-                    >
-                      <img
-                        src={pregnancyHero}
-                        alt="Pregnancy"
-                        width={512}
-                        height={512}
-                        className="h-full w-full object-cover"
-                        loading="lazy"
-                      />
-                    </div>
-                    <div className="absolute -bottom-2 -right-2 rounded-full bg-white px-3 py-1.5 shadow-soft text-xs font-semibold text-[color:var(--lavender-deep)]">
-                      {preg.trimester === 1 ? "1st" : preg.trimester === 2 ? "2nd" : "3rd"}{" "}
-                      Trimester
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    <div>
-                      <div className="font-display text-4xl font-semibold text-[color:var(--lavender-deep)] leading-tight">
-                        {preg.week}{" "}
-                        <span className="text-2xl font-normal text-muted-foreground">weeks</span> +{" "}
-                        {preg.day}{" "}
-                        <span className="text-2xl font-normal text-muted-foreground">days</span>
-                      </div>
-                      <p className="text-xs italic text-muted-foreground mt-1">
-                        Due: {dueDate} · {preg.daysToGo} days to go
-                      </p>
-                    </div>
-                    <div>
-                      <div className="flex justify-between text-xs mb-1.5">
-                        <span className="uppercase tracking-widest text-muted-foreground">
-                          Progress
-                        </span>
-                        <span className="font-semibold text-[color:var(--lavender-deep)]">
-                          {preg.progressPct}%
-                        </span>
-                      </div>
-                      <CloudBar value={preg.progressPct} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="rounded-2xl bg-white/70 p-3 text-center">
-                        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                          Baby size
-                        </div>
-                        <div className="font-display text-lg text-foreground">{preg.baby.size}</div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {preg.baby.lengthCm} cm · {preg.baby.weightG} g
-                        </div>
-                      </div>
-                      <div className="rounded-2xl bg-white/70 p-3 text-center">
-                        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                          Baby kicks
-                        </div>
-                        <div className="font-display text-lg text-foreground">
-                          {preg.baby.kicksToday} today
-                        </div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {preg.baby.movement} <Footprints className="inline h-3 w-3" />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <TimelineDialog currentWeek={preg.week} />
-              </Panel>
-            </section>
-          )}
-
-          {/* Baby */}
-          {show("baby", "pregnancy") && (
-            <section className="col-span-12 @min-[1024px]:col-span-4">
-              <Panel>
-                <PanelHeader
-                  eyebrow="Baby"
-                  title={preg.babyName ? `All about ${preg.babyName}` : "All about your little one"}
-                />
-                <div className="relative mx-auto aspect-square w-44 rounded-full overflow-hidden ring-4 ring-white/70 shadow-cloud mb-4">
-                  <img
-                    src={babyHero}
-                    alt="Baby"
-                    width={400}
-                    height={400}
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                  />
-                </div>
-                <div className="space-y-2.5 text-sm">
-                  <Row
-                    label="Heartbeat"
-                    value={preg.baby.heartbeat ? `${preg.baby.heartbeat} bpm` : "Too early"}
-                    icon={<Heart className="h-3.5 w-3.5 text-[color:var(--blush)]" />}
-                  />
-                  <Row label="Movement" value={preg.baby.movement} />
-                  <Row label="Position" value={preg.baby.position} />
-                  <Row label="Weight" value={`${(preg.baby.weightG / 453.6).toFixed(1)} lbs`} />
-                  <Row label="Length" value={`${(preg.baby.lengthCm / 2.54).toFixed(1)} in`} />
-                </div>
-                <p className="mt-3 text-center text-xs italic text-muted-foreground">
-                  {preg.baby.note}
+        {/* Header */}
+        <header className="relative z-10 mx-auto max-w-[1680px] px-6 pt-4 pb-3">
+          <div className="flex items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <img
+                src={logo}
+                alt="Nestoria logo"
+                width={72}
+                height={72}
+                className="h-12 w-12 drop-shadow-[0_4px_12px_oklch(0.55_0.15_300/0.25)]"
+                style={{ animation: "float 5s ease-in-out infinite" }}
+              />
+              <div>
+                <h1 className="font-display text-3xl font-semibold tracking-wide text-[color:var(--lavender-deep)]">
+                  NESTORIA
+                </h1>
+                <p className="font-script text-sm text-[color:var(--lavender-deep)]/70">
+                  where every family journey begins
                 </p>
-                <PrimaryButton onClick={() => act("kick")}>Log a kick 👶</PrimaryButton>
-                <ScrapbookDialog
-                  ultrasounds={data.ultrasounds}
-                  newCount={data.newUltrasounds}
-                  babyName={preg.babyName}
-                  onOpened={() => {
-                    if (data.newUltrasounds > 0)
-                      act("ultrasound_seen", undefined, { silent: true });
-                  }}
-                />
-              </Panel>
-            </section>
-          )}
-
-          {/* Health */}
-          {show("health") && (
-            <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
-              <Panel>
-                <PanelHeader eyebrow="Health" title="Monitor your well-being" />
-                <div className="space-y-4">
-                  <Meter icon={Zap} label="Energy" value={stats.energy} />
-                  <Meter icon={Activity} label="Immunity" value={stats.immunity} />
-                  <Meter icon={Smile} label="Mood" value={stats.mood} tone="blush" />
-                  <Meter icon={Droplet} label="Hydration" value={stats.hydration} />
+              </div>
+            </div>
+            <div className="hidden @min-[768px]:flex items-center gap-2 rounded-full bg-card/80 backdrop-blur-md px-3 py-2 shadow-soft">
+              <div className="h-10 w-10 rounded-full bg-[color:var(--lavender)] flex items-center justify-center">
+                <Sparkles className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Welcome back
                 </div>
-                <div className="mt-5 rounded-2xl bg-white/60 px-4 py-3 flex items-start gap-3">
-                  <div className="h-8 w-8 rounded-full bg-[color:var(--lavender)] flex items-center justify-center shrink-0">
-                    <Sparkles className="h-4 w-4 text-white" />
-                  </div>
-                  <p className="text-xs italic text-muted-foreground">
-                    {data.wellness >= 75
-                      ? "You're doing great! Keep taking care of yourself."
-                      : data.wellness >= 50
-                        ? "A little self-care would feel lovely right now."
-                        : "Baby needs you rested — drink, eat and take a break."}{" "}
-                    <span className="text-[color:var(--blush)]">♥</span>
-                  </p>
+                <div className="font-display text-lg leading-none">
+                  {firstName} <span className="text-[color:var(--blush)]">♥</span>
                 </div>
-                <PrimaryButton onClick={() => act("doctor")}>
-                  <span className="inline-flex items-center gap-2">
-                    <Stethoscope className="h-4 w-4" /> Visit the doctor
-                  </span>
-                </PrimaryButton>
-              </Panel>
-            </section>
-          )}
-
-          {/* Symptoms */}
-          {show("health") && (
-            <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
-              <Panel>
-                <PanelHeader eyebrow="Symptoms" title="Track how you feel" />
-                <div className="space-y-3">
-                  {data.symptoms.map((s) => (
-                    <div key={s.name}>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="font-medium text-foreground">{s.name}</span>
-                        <span className="text-muted-foreground italic">{s.label}</span>
-                      </div>
-                      <CloudBar value={s.severity} tone="blush" />
-                    </div>
-                  ))}
-                </div>
-                <SymptomsDialog
-                  symptoms={data.symptoms}
-                  onSave={(name, severity) => act("symptom_log", { name, severity })}
-                />
-              </Panel>
-            </section>
-          )}
-
-          {/* Care & Comfort */}
-          {show("care") && (
-            <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
-              <Panel>
-                <PanelHeader eyebrow="Care & Comfort" title="Take care of your needs" />
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    {
-                      icon: Moon,
-                      label: "Rest",
-                      val: stats.rest,
-                      actionLabel: "Rest",
-                      action: "rest",
-                    },
-                    {
-                      icon: Droplet,
-                      label: "Water",
-                      val: stats.hydration,
-                      actionLabel: "Drink",
-                      action: "drink_water",
-                    },
-                    {
-                      icon: Pill,
-                      label: "Vitamins",
-                      val: stats.vitamins,
-                      actionLabel: "Take",
-                      action: "vitamins",
-                    },
-                    {
-                      icon: Stethoscope,
-                      label: "Medicine",
-                      val: 100 - stats.sickness,
-                      actionLabel: "Take",
-                      action: "medicine",
-                    },
-                    {
-                      icon: Heart,
-                      label: "Comfort",
-                      val: stats.comfort,
-                      actionLabel: "Cozy up",
-                      action: "comfort",
-                    },
-                  ].map(({ icon: Icon, label, val, actionLabel, action: name }) => (
-                    <div key={label} className="rounded-2xl bg-white/70 p-3">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="h-8 w-8 rounded-full bg-[color:var(--lavender)]/30 flex items-center justify-center">
-                          <Icon className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="text-xs font-semibold">{label}</div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {Math.round(val)}%
-                          </div>
-                        </div>
-                      </div>
-                      <CloudBar value={val} />
-                      <button
-                        onClick={() => act(name)}
-                        disabled={action.isPending}
-                        className="mt-2 w-full rounded-full py-1 text-[10px] font-medium bg-[color:var(--lavender)]/20 text-[color:var(--lavender-deep)] hover:bg-[color:var(--lavender)]/40 transition disabled:opacity-50"
-                      >
-                        {actionLabel}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </Panel>
-            </section>
-          )}
-
-          {/* Partner */}
-          {show("partner") && (
-            <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-5">
-              <Panel>
-                <PanelHeader eyebrow="Partner" title="Stronger together" />
-                {data.partner.linked ? (
-                  <>
-                    <div className="rounded-2xl bg-white/70 p-4 mb-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <div>
-                          <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                            Partner Support
-                          </div>
-                          <div className="font-display text-lg text-foreground">
-                            {data.partner.name}
-                          </div>
-                        </div>
-                        <div className="text-2xl font-display text-[color:var(--lavender-deep)]">
-                          {data.partner.support}%
-                        </div>
-                      </div>
-                      <CloudBar value={data.partner.support} />
-                    </div>
-                    <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">
-                      Recent activities
-                    </div>
-                    <ul className="space-y-2">
-                      {data.partner.activities.length === 0 && (
-                        <li className="rounded-xl bg-white/50 px-3 py-2 text-sm text-muted-foreground italic">
-                          No activities yet — they'll appear when your partner uses their HUD.
-                        </li>
-                      )}
-                      {data.partner.activities.map((a, i) => (
-                        <li
-                          key={i}
-                          className="flex items-center justify-between rounded-xl bg-white/50 px-3 py-2 text-sm"
-                        >
-                          <span className="flex items-center gap-2">
-                            <Heart className="h-3.5 w-3.5 text-[color:var(--blush)]" /> {a.activity}
-                          </span>
-                          <span className="text-xs text-muted-foreground italic">
-                            {new Date(a.created_at).toLocaleDateString(undefined, {
-                              month: "short",
-                              day: "numeric",
-                            })}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                    <PrimaryButton onClick={() => act("hug")}>Send a hug in-world ♥</PrimaryButton>
-                  </>
-                ) : (
-                  <div className="text-center">
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Give this pairing code to your partner. They enter it in their{" "}
-                      <b>Nestoria Partner HUD</b> to join your journey.
-                    </p>
-                    <PairingCode code={data.partner.code} />
-                    <p className="mt-4 text-xs italic text-muted-foreground">
-                      Once linked, their hugs, water runs and sweet messages show up here — and
-                      reach you in-world.
-                    </p>
-                  </div>
-                )}
-              </Panel>
-            </section>
-          )}
-
-          {/* Journal */}
-          {show("journal") && (
-            <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
-              <Panel>
-                <PanelHeader eyebrow="Journal" title="Capture every moment" />
-                <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
-                  {data.journal.length === 0 && (
-                    <p className="text-center text-sm italic text-muted-foreground">
-                      Your story starts here — add your first entry.
-                    </p>
+              </div>
+              <div className="ml-3 flex gap-2">
+                <button
+                  onClick={() => setActive("notifications")}
+                  aria-label="Notifications"
+                  className="relative h-10 w-10 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition"
+                >
+                  <Bell className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+                  {data.unread > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-[color:var(--blush)] text-[9px] font-bold text-white flex items-center justify-center">
+                      {data.unread}
+                    </span>
                   )}
-                  {data.journal.map((m) => {
-                    const Icon =
-                      m.kind === "milestone"
-                        ? Sparkles
-                        : m.kind === "memory"
-                          ? Camera
-                          : m.kind === "appointment"
-                            ? Stethoscope
-                            : BookHeart;
+                </button>
+                <button
+                  onClick={() => setActive("settings")}
+                  aria-label="Settings"
+                  className="h-10 w-10 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition"
+                >
+                  <Settings className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="relative z-10 mx-auto max-w-[1680px] px-6 pb-20">
+          {preg.delivered && (
+            <div className="mb-6 rounded-[28px] bg-card/90 p-5 text-center shadow-cloud ring-1 ring-white/60">
+              <span className="font-display text-2xl text-[color:var(--lavender-deep)]">
+                🎉 Your little one has arrived! Congratulations
+                {preg.babyName ? ` on ${preg.babyName}` : ""} ♥
+              </span>
+            </div>
+          )}
+          <div className="grid grid-cols-12 gap-4">
+            {/* Sidebar */}
+            <aside className="col-span-12 @min-[768px]:col-span-3 @min-[1024px]:col-span-2">
+              <Panel className="p-2">
+                <nav className="flex @min-[768px]:flex-col gap-1 overflow-x-auto @min-[768px]:overflow-visible">
+                  {NAV.map(({ key, label, icon: Icon }) => {
+                    const isActive = active === key;
                     return (
-                      <div
-                        key={m.id}
-                        className="flex items-center gap-3 rounded-2xl bg-white/60 px-3 py-2.5"
+                      <button
+                        key={key}
+                        onClick={() => setActive(key)}
+                        className={`group flex min-w-0 items-center gap-2 rounded-xl px-2.5 py-2 text-xs font-semibold transition-all whitespace-nowrap ${
+                          isActive
+                            ? "bg-[color:var(--lavender)] text-white shadow-soft"
+                            : "text-muted-foreground hover:bg-white/70 hover:text-[color:var(--lavender-deep)]"
+                        }`}
                       >
-                        <div className="h-9 w-9 shrink-0 rounded-full bg-[color:var(--lavender)]/30 flex items-center justify-center">
-                          <Icon className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold truncate">{m.title}</div>
-                          <div className="text-[11px] text-muted-foreground italic">
-                            {new Date(m.created_at).toLocaleDateString(undefined, {
-                              month: "long",
-                              day: "numeric",
-                              year: "numeric",
-                            })}
-                          </div>
-                        </div>
-                        <div
-                          className={`h-5 w-5 shrink-0 rounded-full flex items-center justify-center text-[10px] ${m.completed ? "bg-[color:var(--lavender)] text-white" : "border border-[color:var(--lavender)]/50"}`}
-                        >
-                          {m.completed ? "✓" : ""}
-                        </div>
-                      </div>
+                        <Icon className="h-4 w-4 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+                        {key === "notifications" && data.unread > 0 && (
+                          <span className="h-4 min-w-4 rounded-full bg-[color:var(--blush)] px-1 text-[9px] font-bold text-white flex items-center justify-center">
+                            {data.unread}
+                          </span>
+                        )}
+                      </button>
                     );
                   })}
-                </div>
-                <JournalDialog onSave={(entry) => act("journal_add", entry)} />
+                </nav>
               </Panel>
-            </section>
-          )}
+            </aside>
 
-          {/* Nutrition */}
-          {show("health", "care", "nutrition") && (
-            <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-3">
-              <Panel>
-                <PanelHeader eyebrow="Nutrition" title="Eat well, feel well" />
-                <NutritionRing
-                  value={Math.round((stats.hunger + stats.hydration + stats.vitamins) / 3)}
-                />
-                <div className="space-y-2 text-xs">
-                  {(
-                    [
-                      ["Meals", stats.hunger],
-                      ["Water", stats.hydration],
-                      ["Vitamins", stats.vitamins],
-                    ] as const
-                  ).map(([n, v]) => (
-                    <div key={n}>
-                      <div className="flex justify-between mb-0.5">
-                        <span className="font-medium">{n}</span>
-                        <span className="text-muted-foreground">{Math.round(v)}%</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-white/60 overflow-hidden">
-                        <div
-                          className="h-full rounded-full"
-                          style={{ width: `${v}%`, background: "var(--gradient-lavender)" }}
+            {/* Pregnancy hero */}
+            {show("pregnancy") && (
+              <section className="col-span-12 @min-[768px]:col-span-9 @min-[1024px]:col-span-6">
+                <Panel className="relative overflow-hidden">
+                  <PanelHeader
+                    eyebrow="Pregnancy"
+                    title="Your beautiful journey"
+                    subtitle="every day is a step closer to meeting your little one"
+                  />
+                  <div className="grid grid-cols-2 gap-6 items-center">
+                    <div className="relative">
+                      <div
+                        className="aspect-square rounded-full overflow-hidden ring-4 ring-white/70 shadow-cloud"
+                        style={{ background: "var(--gradient-lavender)" }}
+                      >
+                        <img
+                          src={pregnancyHero}
+                          alt="Pregnancy"
+                          width={512}
+                          height={512}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
                         />
                       </div>
+                      <div className="absolute -bottom-2 -right-2 rounded-full bg-white px-3 py-1.5 shadow-soft text-xs font-semibold text-[color:var(--lavender-deep)]">
+                        {preg.trimester === 1 ? "1st" : preg.trimester === 2 ? "2nd" : "3rd"}{" "}
+                        Trimester
+                      </div>
                     </div>
-                  ))}
-                </div>
-                <PrimaryButton onClick={() => act("eat")}>
-                  <span className="inline-flex items-center gap-2">
-                    <Utensils className="h-4 w-4" /> Eat a healthy meal
-                  </span>
-                </PrimaryButton>
-              </Panel>
-            </section>
-          )}
-
-          {/* Today's well-being */}
-          {show("care", "health") && (
-            <section className="col-span-12">
-              <Panel>
-                <PanelHeader eyebrow="Meters in context" title="Today's well-being" />
-                <div className="grid grid-cols-2 @min-[640px]:grid-cols-3 @min-[1024px]:grid-cols-6 gap-4">
-                  <Meter icon={Utensils} label="Hunger" value={stats.hunger} />
-                  <Meter icon={Droplet} label="Bladder" value={stats.bladder} />
-                  <Meter icon={Heart} label="Sickness" value={stats.sickness} tone="blush" />
-                  <Meter icon={Zap} label="Energy" value={stats.energy} />
-                  <Meter icon={Smile} label="Mood" value={stats.mood} tone="blush" />
-                  <Meter icon={Droplet} label="Hydration" value={stats.hydration} />
-                </div>
-                {stats.bladder < 30 && (
-                  <button
-                    onClick={() => act("bathroom")}
-                    className="mx-auto mt-4 block rounded-full bg-white/70 px-5 py-2 text-sm font-medium text-[color:var(--lavender-deep)] hover:bg-white transition"
-                  >
-                    🚻 Quick bathroom break
-                  </button>
-                )}
-              </Panel>
-            </section>
-          )}
-
-          {/* Notifications */}
-          {active === "notifications" && (
-            <section className="col-span-12 @min-[768px]:col-span-9 @min-[1024px]:col-span-6">
-              <Panel>
-                <PanelHeader eyebrow="Notifications" title="Little updates" />
-                <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
-                  {data.notifications.length === 0 && (
-                    <p className="text-center text-sm italic text-muted-foreground">
-                      All quiet for now ♥
-                    </p>
-                  )}
-                  {data.notifications.map((n) => (
-                    <div
-                      key={n.id}
-                      className={`rounded-2xl px-4 py-3 ${n.read ? "bg-white/40" : "bg-white/80 ring-1 ring-[color:var(--lavender)]/40"}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm font-semibold">{n.title}</div>
-                        <div className="text-[10px] text-muted-foreground italic">
-                          {new Date(n.created_at).toLocaleString(undefined, {
-                            month: "short",
-                            day: "numeric",
-                            hour: "numeric",
-                            minute: "2-digit",
-                          })}
+                    <div className="space-y-4">
+                      <div>
+                        <div className="font-display text-4xl font-semibold text-[color:var(--lavender-deep)] leading-tight">
+                          {preg.week}{" "}
+                          <span className="text-2xl font-normal text-muted-foreground">weeks</span>{" "}
+                          + {preg.day}{" "}
+                          <span className="text-2xl font-normal text-muted-foreground">days</span>
+                        </div>
+                        <p className="text-xs italic text-muted-foreground mt-1">
+                          Due: {dueDate} · {preg.daysToGo} days to go
+                        </p>
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-xs mb-1.5">
+                          <span className="uppercase tracking-widest text-muted-foreground">
+                            Progress
+                          </span>
+                          <span className="font-semibold text-[color:var(--lavender-deep)]">
+                            {preg.progressPct}%
+                          </span>
+                        </div>
+                        <CloudBar value={preg.progressPct} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-2xl bg-white/70 p-3 text-center">
+                          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                            Baby size
+                          </div>
+                          <div className="font-display text-lg text-foreground">
+                            {preg.baby.size}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {preg.baby.lengthCm} cm · {preg.baby.weightG} g
+                          </div>
+                        </div>
+                        <div className="rounded-2xl bg-white/70 p-3 text-center">
+                          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                            Baby kicks
+                          </div>
+                          <div className="font-display text-lg text-foreground">
+                            {preg.baby.kicksToday} today
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {preg.baby.movement} <Footprints className="inline h-3 w-3" />
+                          </div>
                         </div>
                       </div>
-                      {n.body && <p className="mt-0.5 text-xs text-muted-foreground">{n.body}</p>}
                     </div>
-                  ))}
-                </div>
-                {data.unread > 0 && (
-                  <PrimaryButton onClick={() => act("notifications_read")}>
-                    Mark all as read
-                  </PrimaryButton>
-                )}
-              </Panel>
-            </section>
-          )}
-
-          {/* Settings */}
-          {active === "settings" && (
-            <SettingsPanel
-              key={preg.id + preg.babyGender + (preg.babyName ?? "") + preg.durationDays}
-              data={data}
-              onSave={(params) => act("settings_update", params)}
-            />
-          )}
-
-          {show("pregnancy", "care", "baby", "partner", "journal", "health", "nutrition") && (
-            <ActionConsole data={data} onAction={act} />
-          )}
-
-          {/* Quick actions */}
-          {show("pregnancy", "care", "baby", "partner", "journal", "health") && (
-            <section className="col-span-12 @min-[768px]:col-span-8">
-              <Panel>
-                <div className="flex items-center gap-6 flex-wrap justify-center">
-                  <div className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                    Quick Actions
                   </div>
-                  <QuickAction icon={Heart} label="Hug" onClick={() => act("hug")} />
-                  <QuickAction icon={Droplet} label="Water" onClick={() => act("drink_water")} />
-                  <QuickAction icon={Pill} label="Vitamins" onClick={() => act("vitamins")} />
-                  <QuickAction icon={Stethoscope} label="Medicine" onClick={() => act("medicine")} />
-                  <QuickAction icon={Moon} label="Rest" onClick={() => act("rest")} />
-                  <QuickAction
-                    icon={MessageCircle}
-                    label="Support"
-                    onClick={() => act("support")}
+                  <TimelineDialog currentWeek={preg.week} />
+                </Panel>
+              </section>
+            )}
+
+            {/* Baby */}
+            {show("baby", "pregnancy") && (
+              <section className="col-span-12 @min-[1024px]:col-span-4">
+                <Panel>
+                  <PanelHeader
+                    eyebrow="Baby"
+                    title={
+                      preg.babyName ? `All about ${preg.babyName}` : "All about your little one"
+                    }
                   />
-                  <QuickAction icon={Stethoscope} label="Doctor" onClick={() => act("doctor")} />
-                  <MemoryDialog onSave={(entry) => act("memory", entry)} />
-                  <EventDialog onSave={(entry) => act("event", entry)} />
-                </div>
-              </Panel>
-            </section>
-          )}
+                  <div className="relative mx-auto aspect-square w-44 rounded-full overflow-hidden ring-4 ring-white/70 shadow-cloud mb-4">
+                    <img
+                      src={babyHero}
+                      alt="Baby"
+                      width={400}
+                      height={400}
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  </div>
+                  <div className="space-y-2.5 text-sm">
+                    <Row
+                      label="Heartbeat"
+                      value={preg.baby.heartbeat ? `${preg.baby.heartbeat} bpm` : "Too early"}
+                      icon={<Heart className="h-3.5 w-3.5 text-[color:var(--blush)]" />}
+                    />
+                    <Row label="Movement" value={preg.baby.movement} />
+                    <Row label="Position" value={preg.baby.position} />
+                    <Row label="Weight" value={`${(preg.baby.weightG / 453.6).toFixed(1)} lbs`} />
+                    <Row label="Length" value={`${(preg.baby.lengthCm / 2.54).toFixed(1)} in`} />
+                  </div>
+                  <p className="mt-3 text-center text-xs italic text-muted-foreground">
+                    {preg.baby.note}
+                  </p>
+                  <PrimaryButton onClick={() => act("kick")}>Log a kick 👶</PrimaryButton>
+                  <ScrapbookDialog
+                    ultrasounds={data.ultrasounds}
+                    newCount={data.newUltrasounds}
+                    babyName={preg.babyName}
+                    onOpened={() => {
+                      if (data.newUltrasounds > 0)
+                        act("ultrasound_seen", undefined, { silent: true });
+                    }}
+                  />
+                </Panel>
+              </section>
+            )}
 
-          {show("pregnancy", "care", "baby", "partner", "journal", "health") && (
-            <section className="col-span-12 @min-[768px]:col-span-4">
-              <Panel className="h-full flex flex-col justify-center text-center">
-                <div className="font-display italic text-lg text-[color:var(--lavender-deep)] leading-snug">
-                  “Small steps today,
-                  <br /> beautiful moments forever.”
-                </div>
-                <div className="mt-3 flex items-center justify-center gap-1 text-xs text-muted-foreground">
-                  <Sparkles className="h-3 w-3" /> Nestoria HUD v1.0
-                </div>
-              </Panel>
-            </section>
-          )}
-        </div>
-      </main>
+            {/* Health */}
+            {show("health") && (
+              <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
+                <Panel>
+                  <PanelHeader eyebrow="Health" title="Monitor your well-being" />
+                  <div className="space-y-4">
+                    <Meter icon={Zap} label="Energy" value={stats.energy} />
+                    <Meter icon={Activity} label="Immunity" value={stats.immunity} />
+                    <Meter icon={Smile} label="Mood" value={stats.mood} tone="blush" />
+                    <Meter icon={Droplet} label="Hydration" value={stats.hydration} />
+                  </div>
+                  <div className="mt-5 rounded-2xl bg-white/60 px-4 py-3 flex items-start gap-3">
+                    <div className="h-8 w-8 rounded-full bg-[color:var(--lavender)] flex items-center justify-center shrink-0">
+                      <Sparkles className="h-4 w-4 text-white" />
+                    </div>
+                    <p className="text-xs italic text-muted-foreground">
+                      {data.wellness >= 75
+                        ? "You're doing great! Keep taking care of yourself."
+                        : data.wellness >= 50
+                          ? "A little self-care would feel lovely right now."
+                          : "Baby needs you rested — drink, eat and take a break."}{" "}
+                      <span className="text-[color:var(--blush)]">♥</span>
+                    </p>
+                  </div>
+                  <PrimaryButton onClick={() => act("doctor")}>
+                    <span className="inline-flex items-center gap-2">
+                      <Stethoscope className="h-4 w-4" /> Visit the doctor
+                    </span>
+                  </PrimaryButton>
+                </Panel>
+              </section>
+            )}
 
-      <footer className="relative z-10 pb-6 text-center text-xs text-muted-foreground">
-        <p className="font-script text-lg text-[color:var(--lavender-deep)]">Nestoria</p>
-        <p>Where every family journey begins - Pregnancy & Family HUD for Second Life</p>
-      </footer>
+            {/* Symptoms */}
+            {show("health") && (
+              <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
+                <Panel>
+                  <PanelHeader eyebrow="Symptoms" title="Track how you feel" />
+                  <div className="space-y-3">
+                    {data.symptoms.map((s) => (
+                      <div key={s.name}>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="font-medium text-foreground">{s.name}</span>
+                          <span className="text-muted-foreground italic">{s.label}</span>
+                        </div>
+                        <CloudBar value={s.severity} tone="blush" />
+                      </div>
+                    ))}
+                  </div>
+                  <SymptomsDialog
+                    symptoms={data.symptoms}
+                    onSave={(name, severity) => act("symptom_log", { name, severity })}
+                  />
+                </Panel>
+              </section>
+            )}
+
+            {/* Care & Comfort */}
+            {show("care") && (
+              <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
+                <Panel>
+                  <PanelHeader eyebrow="Care & Comfort" title="Take care of your needs" />
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      {
+                        icon: Moon,
+                        label: "Rest",
+                        val: stats.rest,
+                        actionLabel: "Rest",
+                        action: "rest",
+                      },
+                      {
+                        icon: Droplet,
+                        label: "Water",
+                        val: stats.hydration,
+                        actionLabel: "Drink",
+                        action: "drink_water",
+                      },
+                      {
+                        icon: Pill,
+                        label: "Vitamins",
+                        val: stats.vitamins,
+                        actionLabel: "Take",
+                        action: "vitamins",
+                      },
+                      {
+                        icon: Stethoscope,
+                        label: "Medicine",
+                        val: 100 - stats.sickness,
+                        actionLabel: "Take",
+                        action: "medicine",
+                      },
+                      {
+                        icon: Heart,
+                        label: "Comfort",
+                        val: stats.comfort,
+                        actionLabel: "Cozy up",
+                        action: "comfort",
+                      },
+                    ].map(({ icon: Icon, label, val, actionLabel, action: name }) => (
+                      <div key={label} className="rounded-2xl bg-white/70 p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="h-8 w-8 rounded-full bg-[color:var(--lavender)]/30 flex items-center justify-center">
+                            <Icon className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="text-xs font-semibold">{label}</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              {Math.round(val)}%
+                            </div>
+                          </div>
+                        </div>
+                        <CloudBar value={val} />
+                        <button
+                          onClick={() => act(name)}
+                          disabled={action.isPending}
+                          className="mt-2 w-full rounded-full py-1 text-[10px] font-medium bg-[color:var(--lavender)]/20 text-[color:var(--lavender-deep)] hover:bg-[color:var(--lavender)]/40 transition disabled:opacity-50"
+                        >
+                          {actionLabel}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
+              </section>
+            )}
+
+            {/* Partner */}
+            {show("partner") && (
+              <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-5">
+                <Panel>
+                  <PanelHeader eyebrow="Partner" title="Stronger together" />
+                  {data.partner.linked ? (
+                    <>
+                      <div className="rounded-2xl bg-white/70 p-4 mb-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                              Partner Support
+                            </div>
+                            <div className="font-display text-lg text-foreground">
+                              {data.partner.name}
+                            </div>
+                          </div>
+                          <div className="text-2xl font-display text-[color:var(--lavender-deep)]">
+                            {data.partner.support}%
+                          </div>
+                        </div>
+                        <CloudBar value={data.partner.support} />
+                      </div>
+                      <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">
+                        Recent activities
+                      </div>
+                      <ul className="space-y-2">
+                        {data.partner.activities.length === 0 && (
+                          <li className="rounded-xl bg-white/50 px-3 py-2 text-sm text-muted-foreground italic">
+                            No activities yet — they'll appear when your partner uses their HUD.
+                          </li>
+                        )}
+                        {data.partner.activities.map((a, i) => (
+                          <li
+                            key={i}
+                            className="flex items-center justify-between rounded-xl bg-white/50 px-3 py-2 text-sm"
+                          >
+                            <span className="flex items-center gap-2">
+                              <Heart className="h-3.5 w-3.5 text-[color:var(--blush)]" />{" "}
+                              {a.activity}
+                            </span>
+                            <span className="text-xs text-muted-foreground italic">
+                              {new Date(a.created_at).toLocaleDateString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                              })}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      <PrimaryButton onClick={() => act("hug")}>
+                        Send a hug in-world ♥
+                      </PrimaryButton>
+                    </>
+                  ) : (
+                    <div className="text-center">
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Give this pairing code to your partner. They enter it in their{" "}
+                        <b>Nestoria Partner HUD</b> to join your journey.
+                      </p>
+                      <PairingCode code={data.partner.code} />
+                      <p className="mt-4 text-xs italic text-muted-foreground">
+                        Once linked, their hugs, water runs and sweet messages show up here — and
+                        reach you in-world.
+                      </p>
+                    </div>
+                  )}
+                </Panel>
+              </section>
+            )}
+
+            {/* Journal */}
+            {show("journal") && (
+              <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
+                <Panel>
+                  <PanelHeader eyebrow="Journal" title="Capture every moment" />
+                  <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                    {data.journal.length === 0 && (
+                      <p className="text-center text-sm italic text-muted-foreground">
+                        Your story starts here — add your first entry.
+                      </p>
+                    )}
+                    {data.journal.map((m) => {
+                      const Icon =
+                        m.kind === "milestone"
+                          ? Sparkles
+                          : m.kind === "memory"
+                            ? Camera
+                            : m.kind === "appointment"
+                              ? Stethoscope
+                              : BookHeart;
+                      return (
+                        <div
+                          key={m.id}
+                          className="flex items-center gap-3 rounded-2xl bg-white/60 px-3 py-2.5"
+                        >
+                          <div className="h-9 w-9 shrink-0 rounded-full bg-[color:var(--lavender)]/30 flex items-center justify-center">
+                            <Icon className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-semibold truncate">{m.title}</div>
+                            <div className="text-[11px] text-muted-foreground italic">
+                              {new Date(m.created_at).toLocaleDateString(undefined, {
+                                month: "long",
+                                day: "numeric",
+                                year: "numeric",
+                              })}
+                            </div>
+                          </div>
+                          <div
+                            className={`h-5 w-5 shrink-0 rounded-full flex items-center justify-center text-[10px] ${m.completed ? "bg-[color:var(--lavender)] text-white" : "border border-[color:var(--lavender)]/50"}`}
+                          >
+                            {m.completed ? "✓" : ""}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <JournalDialog onSave={(entry) => act("journal_add", entry)} />
+                </Panel>
+              </section>
+            )}
+
+            {/* Nutrition */}
+            {show("health", "care", "nutrition") && (
+              <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-3">
+                <Panel>
+                  <PanelHeader eyebrow="Nutrition" title="Eat well, feel well" />
+                  <NutritionRing
+                    value={Math.round((stats.hunger + stats.hydration + stats.vitamins) / 3)}
+                  />
+                  <div className="space-y-2 text-xs">
+                    {(
+                      [
+                        ["Meals", stats.hunger],
+                        ["Water", stats.hydration],
+                        ["Vitamins", stats.vitamins],
+                      ] as const
+                    ).map(([n, v]) => (
+                      <div key={n}>
+                        <div className="flex justify-between mb-0.5">
+                          <span className="font-medium">{n}</span>
+                          <span className="text-muted-foreground">{Math.round(v)}%</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-white/60 overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{ width: `${v}%`, background: "var(--gradient-lavender)" }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <PrimaryButton onClick={() => act("eat")}>
+                    <span className="inline-flex items-center gap-2">
+                      <Utensils className="h-4 w-4" /> Eat a healthy meal
+                    </span>
+                  </PrimaryButton>
+                </Panel>
+              </section>
+            )}
+
+            {/* Today's well-being */}
+            {show("care", "health") && (
+              <section className="col-span-12">
+                <Panel>
+                  <PanelHeader eyebrow="Meters in context" title="Today's well-being" />
+                  <div className="grid grid-cols-2 @min-[640px]:grid-cols-3 @min-[1024px]:grid-cols-6 gap-4">
+                    <Meter icon={Utensils} label="Hunger" value={stats.hunger} />
+                    <Meter icon={Droplet} label="Bladder" value={stats.bladder} />
+                    <Meter icon={Heart} label="Sickness" value={stats.sickness} tone="blush" />
+                    <Meter icon={Zap} label="Energy" value={stats.energy} />
+                    <Meter icon={Smile} label="Mood" value={stats.mood} tone="blush" />
+                    <Meter icon={Droplet} label="Hydration" value={stats.hydration} />
+                  </div>
+                  {stats.bladder < 30 && (
+                    <button
+                      onClick={() => act("bathroom")}
+                      className="mx-auto mt-4 block rounded-full bg-white/70 px-5 py-2 text-sm font-medium text-[color:var(--lavender-deep)] hover:bg-white transition"
+                    >
+                      🚻 Quick bathroom break
+                    </button>
+                  )}
+                </Panel>
+              </section>
+            )}
+
+            {/* Notifications */}
+            {active === "notifications" && (
+              <section className="col-span-12 @min-[768px]:col-span-9 @min-[1024px]:col-span-6">
+                <Panel>
+                  <PanelHeader eyebrow="Notifications" title="Little updates" />
+                  <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                    {data.notifications.length === 0 && (
+                      <p className="text-center text-sm italic text-muted-foreground">
+                        All quiet for now ♥
+                      </p>
+                    )}
+                    {data.notifications.map((n) => (
+                      <div
+                        key={n.id}
+                        className={`rounded-2xl px-4 py-3 ${n.read ? "bg-white/40" : "bg-white/80 ring-1 ring-[color:var(--lavender)]/40"}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-semibold">{n.title}</div>
+                          <div className="text-[10px] text-muted-foreground italic">
+                            {new Date(n.created_at).toLocaleString(undefined, {
+                              month: "short",
+                              day: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </div>
+                        </div>
+                        {n.body && <p className="mt-0.5 text-xs text-muted-foreground">{n.body}</p>}
+                      </div>
+                    ))}
+                  </div>
+                  {data.unread > 0 && (
+                    <PrimaryButton onClick={() => act("notifications_read")}>
+                      Mark all as read
+                    </PrimaryButton>
+                  )}
+                </Panel>
+              </section>
+            )}
+
+            {/* Settings */}
+            {active === "settings" && (
+              <SettingsPanel
+                key={preg.id + preg.babyGender + (preg.babyName ?? "") + preg.durationDays}
+                data={data}
+                onSave={(params) => act("settings_update", params)}
+              />
+            )}
+
+            {show("pregnancy", "care", "baby", "partner", "journal", "health", "nutrition") && (
+              <ActionConsole data={data} onAction={act} />
+            )}
+
+            {/* Quick actions */}
+            {show("pregnancy", "care", "baby", "partner", "journal", "health") && (
+              <section className="col-span-12 @min-[768px]:col-span-8">
+                <Panel>
+                  <div className="flex items-center gap-6 flex-wrap justify-center">
+                    <div className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                      Quick Actions
+                    </div>
+                    <QuickAction icon={Heart} label="Hug" onClick={() => act("hug")} />
+                    <QuickAction icon={Droplet} label="Water" onClick={() => act("drink_water")} />
+                    <QuickAction icon={Pill} label="Vitamins" onClick={() => act("vitamins")} />
+                    <QuickAction
+                      icon={Stethoscope}
+                      label="Medicine"
+                      onClick={() => act("medicine")}
+                    />
+                    <QuickAction icon={Moon} label="Rest" onClick={() => act("rest")} />
+                    <QuickAction
+                      icon={MessageCircle}
+                      label="Support"
+                      onClick={() => act("support")}
+                    />
+                    <QuickAction icon={Stethoscope} label="Doctor" onClick={() => act("doctor")} />
+                    <MemoryDialog onSave={(entry) => act("memory", entry)} />
+                    <EventDialog onSave={(entry) => act("event", entry)} />
+                  </div>
+                </Panel>
+              </section>
+            )}
+
+            {show("pregnancy", "care", "baby", "partner", "journal", "health") && (
+              <section className="col-span-12 @min-[768px]:col-span-4">
+                <Panel className="h-full flex flex-col justify-center text-center">
+                  <div className="font-display italic text-lg text-[color:var(--lavender-deep)] leading-snug">
+                    “Small steps today,
+                    <br /> beautiful moments forever.”
+                  </div>
+                  <div className="mt-3 flex items-center justify-center gap-1 text-xs text-muted-foreground">
+                    <Sparkles className="h-3 w-3" /> Nestoria HUD v1.0
+                  </div>
+                </Panel>
+              </section>
+            )}
+          </div>
+        </main>
+
+        <footer className="relative z-10 pb-6 text-center text-xs text-muted-foreground">
+          <p className="font-script text-lg text-[color:var(--lavender-deep)]">Nestoria</p>
+          <p>Where every family journey begins - Pregnancy & Family HUD for Second Life</p>
+        </footer>
       </HudFrame>
       <Toaster position="top-center" />
     </Shell>
@@ -1403,165 +1414,171 @@ function SetupWizard({
   return (
     <Shell>
       <HudFrame {...hudZoom}>
-      <div className="mx-auto flex min-h-screen max-w-4xl items-center justify-center px-4 py-8">
-        <Panel className="w-full">
-          {/*
+        <div className="mx-auto flex min-h-screen max-w-4xl items-center justify-center px-4 py-8">
+          <Panel className="w-full">
+            {/*
             Container queries, not `lg:` — inside the frame the breakpoints have
             to key off the scaled canvas, or zooming in keeps the two-column
             layout and squeezes both halves.
           */}
-          <div className="grid gap-6 @min-[1024px]:grid-cols-[0.9fr_1.1fr]">
-            <div className="flex flex-col justify-between rounded-3xl bg-white/65 p-5">
-              <div>
-                <img src={logo} alt="Nestoria logo" width={88} height={88} className="h-16 w-16" />
-                <h1 className="mt-3 font-display text-4xl font-semibold text-[color:var(--lavender-deep)]">
-                  Welcome to Nestoria
-                </h1>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Create the pregnancy profile that this MOAP HUD will sync with Render, Postgres,
-                  and your Second Life attachment.
-                </p>
-              </div>
-              <div className="mt-6 rounded-2xl bg-white/70 p-4 text-sm">
-                <div className="font-semibold text-foreground">Profile Summary</div>
-                <div className="mt-2 space-y-1 text-muted-foreground">
-                  <div>Mom: {momName || "Not set"}</div>
-                  <div>
-                    Pregnancy: {week} weeks + {day} days
-                  </div>
-                  <div>
-                    Baby:{" "}
-                    {babyCount === "1" ? "One baby" : babyCount === "2" ? "Twins" : "Triplets"}
-                  </div>
-                  <div>
-                    Events:{" "}
-                    {popupFrequencyMinutes === "0"
-                      ? "Manual only"
-                      : `Every ${popupFrequencyMinutes} minutes`}
+            <div className="grid gap-6 @min-[1024px]:grid-cols-[0.9fr_1.1fr]">
+              <div className="flex flex-col justify-between rounded-3xl bg-white/65 p-5">
+                <div>
+                  <img
+                    src={logo}
+                    alt="Nestoria logo"
+                    width={88}
+                    height={88}
+                    className="h-16 w-16"
+                  />
+                  <h1 className="mt-3 font-display text-4xl font-semibold text-[color:var(--lavender-deep)]">
+                    Welcome to Nestoria
+                  </h1>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Create the pregnancy profile that this MOAP HUD will sync with Render, Postgres,
+                    and your Second Life attachment.
+                  </p>
+                </div>
+                <div className="mt-6 rounded-2xl bg-white/70 p-4 text-sm">
+                  <div className="font-semibold text-foreground">Profile Summary</div>
+                  <div className="mt-2 space-y-1 text-muted-foreground">
+                    <div>Mom: {momName || "Not set"}</div>
+                    <div>
+                      Pregnancy: {week} weeks + {day} days
+                    </div>
+                    <div>
+                      Baby:{" "}
+                      {babyCount === "1" ? "One baby" : babyCount === "2" ? "Twins" : "Triplets"}
+                    </div>
+                    <div>
+                      Events:{" "}
+                      {popupFrequencyMinutes === "0"
+                        ? "Manual only"
+                        : `Every ${popupFrequencyMinutes} minutes`}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <div className="space-y-4">
-              <PanelHeader
-                eyebrow="First Attach Setup"
-                title="Your journey details"
-                subtitle="you can edit these later from Settings"
-              />
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label>Mom name</Label>
-                  <Input
-                    value={momName}
-                    onChange={(e) => setMomName(e.target.value)}
-                    placeholder="Zoedollyanna"
-                  />
+              <div className="space-y-4">
+                <PanelHeader
+                  eyebrow="First Attach Setup"
+                  title="Your journey details"
+                  subtitle="you can edit these later from Settings"
+                />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Mom name</Label>
+                    <Input
+                      value={momName}
+                      onChange={(e) => setMomName(e.target.value)}
+                      placeholder="Zoedollyanna"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Baby name or nickname</Label>
+                    <Input
+                      value={babyName}
+                      onChange={(e) => setBabyName(e.target.value)}
+                      placeholder="Decide later"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Week</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={40}
+                      value={week}
+                      onChange={(e) => setWeek(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Day</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={6}
+                      value={day}
+                      onChange={(e) => setDay(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Baby count</Label>
+                    <Select value={babyCount} onValueChange={setBabyCount}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">One baby</SelectItem>
+                        <SelectItem value="2">Twins</SelectItem>
+                        <SelectItem value="3">Triplets</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Gender</Label>
+                    <Select value={babyGender} onValueChange={setBabyGender}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="girl">Girl</SelectItem>
+                        <SelectItem value="boy">Boy</SelectItem>
+                        <SelectItem value="twins">Twins mixed</SelectItem>
+                        <SelectItem value="surprise">Surprise later</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Privacy</Label>
+                    <Select value={privacyMode} onValueChange={setPrivacyMode}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="private">Only me</SelectItem>
+                        <SelectItem value="partner">Partner only</SelectItem>
+                        <SelectItem value="partner_doctor">Partner + doctor</SelectItem>
+                        <SelectItem value="public_rp">Public RP emotes</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>RP event popups</Label>
+                    <Select value={popupFrequencyMinutes} onValueChange={setPopupFrequencyMinutes}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="20">Every 20 minutes</SelectItem>
+                        <SelectItem value="30">Every 30 minutes</SelectItem>
+                        <SelectItem value="60">Every hour</SelectItem>
+                        <SelectItem value="0">Only manual</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Baby name or nickname</Label>
-                  <Input
-                    value={babyName}
-                    onChange={(e) => setBabyName(e.target.value)}
-                    placeholder="Decide later"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Week</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={42}
-                    value={week}
-                    onChange={(e) => setWeek(Number(e.target.value))}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Day</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={6}
-                    value={day}
-                    onChange={(e) => setDay(Number(e.target.value))}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Baby count</Label>
-                  <Select value={babyCount} onValueChange={setBabyCount}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1">One baby</SelectItem>
-                      <SelectItem value="2">Twins</SelectItem>
-                      <SelectItem value="3">Triplets</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Gender</Label>
-                  <Select value={babyGender} onValueChange={setBabyGender}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="girl">Girl</SelectItem>
-                      <SelectItem value="boy">Boy</SelectItem>
-                      <SelectItem value="twins">Twins mixed</SelectItem>
-                      <SelectItem value="surprise">Surprise later</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Privacy</Label>
-                  <Select value={privacyMode} onValueChange={setPrivacyMode}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="private">Only me</SelectItem>
-                      <SelectItem value="partner">Partner only</SelectItem>
-                      <SelectItem value="partner_doctor">Partner + doctor</SelectItem>
-                      <SelectItem value="public_rp">Public RP emotes</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>RP event popups</Label>
-                  <Select value={popupFrequencyMinutes} onValueChange={setPopupFrequencyMinutes}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="20">Every 20 minutes</SelectItem>
-                      <SelectItem value="30">Every 30 minutes</SelectItem>
-                      <SelectItem value="60">Every hour</SelectItem>
-                      <SelectItem value="0">Only manual</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <PrimaryButton
+                  onClick={() =>
+                    onSave({
+                      momName,
+                      week,
+                      day,
+                      babyCount: Number(babyCount),
+                      babyGender,
+                      babyNames: babyName.trim() ? [babyName.trim()] : [],
+                      privacyMode,
+                      popupFrequencyMinutes: Number(popupFrequencyMinutes),
+                    })
+                  }
+                >
+                  Confirm profile
+                </PrimaryButton>
               </div>
-              <PrimaryButton
-                onClick={() =>
-                  onSave({
-                    momName,
-                    week,
-                    day,
-                    babyCount: Number(babyCount),
-                    babyGender,
-                    babyNames: babyName.trim() ? [babyName.trim()] : [],
-                    privacyMode,
-                    popupFrequencyMinutes: Number(popupFrequencyMinutes),
-                  })
-                }
-              >
-                Confirm profile
-              </PrimaryButton>
             </div>
-          </div>
-        </Panel>
-      </div>
+          </Panel>
+        </div>
       </HudFrame>
       <Toaster position="top-center" />
     </Shell>

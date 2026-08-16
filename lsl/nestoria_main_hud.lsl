@@ -130,14 +130,12 @@ setMoap(string url)
         PRIM_MEDIA_HOME_URL, url,
         PRIM_MEDIA_AUTO_PLAY, TRUE,
 
-        // OFF, deliberately. With auto-scale on, the viewer ignores the pixel
-        // size below and hands the page whatever resolution it felt like
-        // allocating for however large the face happened to look on screen —
-        // so the dashboard got a different CSS viewport on every machine, at
-        // every camera distance, and the layout landed somewhere different for
-        // each wearer. That is the whole "scaling is broken in-world" problem.
-        // Off, the size below is the browser viewport, the same for everyone.
-        PRIM_MEDIA_AUTO_SCALE, FALSE,
+        // Stretch the media texture across all of face 4. When this is FALSE,
+        // Second Life preserves the media texture's native mapping and leaves
+        // unused parts of a differently shaped face black. This setting only
+        // controls texture-to-face fitting; the dashboard's plus/minus/reset/
+        // Fit zoom remains controlled by ScaledFrame in src/routes/index.tsx.
+        PRIM_MEDIA_AUTO_SCALE, TRUE,
 
         PRIM_MEDIA_PERMS_INTERACT, PRIM_MEDIA_PERM_OWNER,
         PRIM_MEDIA_PERMS_CONTROL, PRIM_MEDIA_PERM_NONE,

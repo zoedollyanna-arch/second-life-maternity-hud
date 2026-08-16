@@ -161,8 +161,9 @@ export function useHudAction(token: string | null) {
       if (!res.ok) throw new Error(data.message ?? data.error ?? "Action failed");
       return data;
     },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["hud-state", token] });
-    },
+    // Keep the mutation pending until the fresh database-backed state has
+    // arrived. Buttons and meters therefore settle on saved server data, not
+    // a stale 15-second polling snapshot.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["hud-state", token] }),
   });
 }

@@ -241,10 +241,18 @@ export async function getOrCreateUser(
 }
 
 export async function createSession(userId: string): Promise<string> {
-  // opportunistic housekeeping: drop this user's expired sessions
-  await db().query(`delete from hud_sessions where user_id = $1 and expires_at < now()`, [userId]);
   const { rows } = await db().query(
     `insert into hud_sessions (user_id) values ($1) returning token`,
+    [userId],
+  );
+  await db().query(
+    `delete from hud_sessions
+     where user_id = $1
+       and token not in (
+         select token from hud_sessions
+         where user_id = $1 and expires_at > now()
+         order by created_at desc limit 5
+       )`,
     [userId],
   );
   return rows[0].token as string;
@@ -253,19 +261,13 @@ export async function createSession(userId: string): Promise<string> {
 export async function resolveSession(token: string | null): Promise<HudUser | null> {
   if (!token || !/^[0-9a-f-]{36}$/i.test(token)) return null;
   const { rows } = await db().query(
-    `update hud_sessions
-     set expires_at = now() + interval '90 days'
-     where token = $1 and expires_at > now()
-     returning user_id`,
+    `select u.id, u.avatar_key, u.avatar_name, u.display_name, u.role
+     from hud_sessions s
+     join hud_users u on u.id = s.user_id
+     where s.token = $1 and s.expires_at > now()`,
     [token],
   );
-  if (!rows[0]) return null;
-  const { rows: userRows } = await db().query(
-    `select id, avatar_key, avatar_name, display_name, role
-     from hud_users where id = $1`,
-    [rows[0].user_id],
-  );
-  return (userRows[0] as HudUser) ?? null;
+  return (rows[0] as HudUser) ?? null;
 }
 
 export async function upsertDevice(
@@ -298,10 +300,14 @@ export async function ensureActivePregnancy(userId: string) {
   );
   if (existing.rows[0]) return existing.rows[0];
   const created = await db().query(
-    `insert into pregnancies (user_id, partner_code) values ($1, $2) returning *`,
+    `insert into pregnancies (user_id, partner_code) values ($1, $2)
+     on conflict (user_id) where status = 'active'
+     do update set updated_at = pregnancies.updated_at
+     returning *, (xmax = 0) as was_inserted`,
     [userId, partnerCode()],
   );
   const preg = created.rows[0];
+  if (!preg.was_inserted) return preg;
   for (const name of DEFAULT_SYMPTOMS) {
     await db().query(
       `insert into symptoms (pregnancy_id, name, severity) values ($1, $2, $3)
@@ -343,48 +349,58 @@ export async function pregnancyForUser(user: HudUser) {
 // ---------------------------------------------------------------------------
 
 export async function getStatsWithDecay(userId: string, trimester: number) {
-  const { rows } = await db().query(`select * from user_stats where user_id = $1`, [userId]);
-  let stats = rows[0];
-  if (!stats) {
-    const created = await db().query(
-      `insert into user_stats (user_id) values ($1)
-       on conflict (user_id) do update set updated_at = user_stats.updated_at
-       returning *`,
+  const client = await db().connect();
+  try {
+    await client.query("begin");
+    await client.query(
+      `insert into user_stats (user_id) values ($1) on conflict (user_id) do nothing`,
       [userId],
     );
-    stats = created.rows[0];
-  }
-  const hours = (Date.now() - new Date(stats.updated_at).getTime()) / 3_600_000;
-  if (hours < 0.05) return normalizeStats(stats);
-
-  const updated = decayStats(stats, trimester, hours);
-  const { rows: saved } = await db().query(
-    `update user_stats set
-       energy=$2, hydration=$3, hunger=$4, bladder=$5, mood=$6,
-       immunity=$7, sickness=$8, rest=$9, vitamins=$10, comfort=$11,
-       nutrition=$12, stress=$13, baby_wellness=$14, baby_bond=$15, baby_movement=$16,
-       updated_at = now()
-     where user_id = $1 returning *`,
-    [
+    const { rows } = await client.query(`select * from user_stats where user_id = $1 for update`, [
       userId,
-      updated.energy,
-      updated.hydration,
-      updated.hunger,
-      updated.bladder,
-      updated.mood,
-      updated.immunity,
-      updated.sickness,
-      updated.rest,
-      updated.vitamins,
-      updated.comfort,
-      updated.nutrition,
-      updated.stress,
-      updated.baby_wellness,
-      updated.baby_bond,
-      updated.baby_movement,
-    ],
-  );
-  return normalizeStats(saved[0]);
+    ]);
+    const stats = rows[0];
+    const hours = (Date.now() - new Date(stats.updated_at).getTime()) / 3_600_000;
+    if (hours < 0.05) {
+      await client.query("commit");
+      return normalizeStats(stats);
+    }
+
+    const updated = decayStats(stats, trimester, hours);
+    const { rows: saved } = await client.query(
+      `update user_stats set
+         energy=$2, hydration=$3, hunger=$4, bladder=$5, mood=$6,
+         immunity=$7, sickness=$8, rest=$9, vitamins=$10, comfort=$11,
+         nutrition=$12, stress=$13, baby_wellness=$14, baby_bond=$15, baby_movement=$16,
+         updated_at = now()
+       where user_id = $1 returning *`,
+      [
+        userId,
+        updated.energy,
+        updated.hydration,
+        updated.hunger,
+        updated.bladder,
+        updated.mood,
+        updated.immunity,
+        updated.sickness,
+        updated.rest,
+        updated.vitamins,
+        updated.comfort,
+        updated.nutrition,
+        updated.stress,
+        updated.baby_wellness,
+        updated.baby_bond,
+        updated.baby_movement,
+      ],
+    );
+    await client.query("commit");
+    return normalizeStats(saved[0]);
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 function normalizeStats(row: Record<string, unknown>) {
@@ -492,6 +508,8 @@ async function ensureCraving(pregnancyId: string, trimester: number) {
   const { rows } = await db().query(
     `insert into cravings (pregnancy_id, craving, category, intensity)
      values ($1, $2, $3, $4)
+     on conflict (pregnancy_id) where active = true
+     do update set updated_at = cravings.updated_at
      returning id, craving, category, intensity, relief, sweets_streak, updated_at`,
     [pregnancyId, food.name, food.category, 45 + Math.floor(Math.random() * 36)],
   );
@@ -618,7 +636,13 @@ export async function queueCommand(
   void pushPending(userId, deviceKind).catch(() => {});
 }
 
-export async function takePendingCommands(userId: string, kind: string) {
+type PendingCommand = {
+  id: string;
+  command: string;
+  params: Record<string, unknown>;
+};
+
+async function claimPendingCommands(userId: string, kind: string): Promise<PendingCommand[]> {
   // housekeeping: drop delivered commands and stale pending ones (a device
   // that was offline for a day shouldn't replay a burst of old effects)
   await db().query(
@@ -634,11 +658,17 @@ export async function takePendingCommands(userId: string, kind: string) {
        select id from sl_commands
        where user_id = $1 and device_kind = $2 and status = 'pending'
        order by created_at limit 10
-     )
-     returning command, params`,
+       for update skip locked
+     ) and status = 'pending'
+     returning id, command, params`,
     [userId, kind],
   );
-  return rows as { command: string; params: Record<string, unknown> }[];
+  return rows as PendingCommand[];
+}
+
+export async function takePendingCommands(userId: string, kind: string) {
+  const commands = await claimPendingCommands(userId, kind);
+  return commands.map(({ command, params }) => ({ command, params }));
 }
 
 async function pushPending(userId: string, kind: "hud" | "belly" | "partner") {
@@ -648,24 +678,84 @@ async function pushPending(userId: string, kind: "hud" | "belly" | "partner") {
   );
   const url = rows[0]?.callback_url as string | undefined;
   if (!url) return;
-  const commands = await takePendingCommands(userId, kind);
+  const claimed = await claimPendingCommands(userId, kind);
+  const commands = claimed.map(({ command, params }) => ({ command, params }));
   if (!commands.length) return;
   try {
-    await fetch(url, {
+    const response = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ secret: apiSecret(), commands }),
       signal: AbortSignal.timeout(5_000),
     });
+    if (!response.ok) throw new Error(`Second Life callback returned HTTP ${response.status}`);
   } catch {
     // object offline/URL dead — requeue so the next poll picks them up
     await db().query(
       `update sl_commands set status = 'pending', sent_at = null
-       where user_id = $1 and device_kind = $2 and status = 'sent'
-         and sent_at > now() - interval '30 seconds'`,
-      [userId, kind],
+       where id = any($1::uuid[]) and status = 'sent'`,
+      [claimed.map((item) => item.id)],
     );
   }
+}
+
+async function syncEventSchedule(
+  user: HudUser,
+  pregnancyId: string,
+  setupComplete: boolean,
+): Promise<string | null> {
+  if (user.role !== "mom") return null;
+
+  if (!setupComplete) {
+    await db().query(`delete from event_schedules where pregnancy_id = $1`, [pregnancyId]);
+    return null;
+  }
+
+  const { rows: settingsRows } = await db().query(
+    `select settings from user_settings where user_id = $1`,
+    [user.id],
+  );
+  const rawFrequency = Number(settingsRows[0]?.settings?.popupFrequencyMinutes ?? 20);
+  const frequency = Number.isFinite(rawFrequency)
+    ? Math.max(0, Math.min(240, Math.round(rawFrequency)))
+    : 20;
+
+  if (frequency === 0) {
+    await db().query(`delete from event_schedules where pregnancy_id = $1`, [pregnancyId]);
+    return null;
+  }
+
+  const { rows: scheduled } = await db().query(
+    `insert into event_schedules
+       (pregnancy_id, user_id, frequency_minutes, next_event_at)
+     values ($1, $2, $3::integer, now() + ($3::integer * interval '1 minute'))
+     on conflict (pregnancy_id) do update set
+       user_id = excluded.user_id,
+       frequency_minutes = excluded.frequency_minutes,
+       next_event_at = case
+         when event_schedules.frequency_minutes <> excluded.frequency_minutes
+           then excluded.next_event_at
+         else event_schedules.next_event_at
+       end,
+       updated_at = now()
+     returning next_event_at`,
+    [pregnancyId, user.id, frequency],
+  );
+
+  // Atomically claim a due event. Only one concurrent MOAP refresh can move
+  // the timestamp forward and trigger the event.
+  const { rows: claimed } = await db().query(
+    `update event_schedules
+     set last_event_at = now(),
+         next_event_at = now() + (frequency_minutes * interval '1 minute'),
+         updated_at = now()
+     where pregnancy_id = $1 and next_event_at <= now()
+     returning next_event_at`,
+    [pregnancyId],
+  );
+  if (claimed[0]) await performAction(user, "random_event_roll", {}, "web");
+
+  return String(claimed[0]?.next_event_at ?? scheduled[0].next_event_at);
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +767,7 @@ export async function getDashboardState(user: HudUser) {
   if (!preg) return { error: "no_pregnancy" };
 
   const momId: string = preg.mom_user_id;
+  const nextEventAt = await syncEventSchedule(user, preg.id, Boolean(preg.setup_complete));
   const progress = computeProgress(new Date(preg.conceived_at), preg.duration_days);
   const milestone = milestoneForWeek(progress.week);
   const stats = await getStatsWithDecay(momId, progress.trimester);
@@ -686,6 +777,7 @@ export async function getDashboardState(user: HudUser) {
     journal,
     activities,
     notifications,
+    unreadCount,
     kicks,
     settings,
     supportRow,
@@ -710,6 +802,9 @@ export async function getDashboardState(user: HudUser) {
          where user_id = $1 order by created_at desc limit 15`,
       [user.id],
     ),
+    db().query(`select count(*)::int as n from notifications where user_id = $1 and read = false`, [
+      user.id,
+    ]),
     db().query(
       `select count(*)::int as n from kick_events
          where pregnancy_id = $1 and created_at > now() - interval '24 hours'`,
@@ -807,17 +902,14 @@ export async function getDashboardState(user: HudUser) {
       activities: activities.rows,
     },
     notifications: notifications.rows,
-    unread: notifications.rows.filter((n) => !n.read).length,
+    unread: Number(unreadCount.rows[0].n),
     currentCraving: craving ?? null,
     ultrasounds,
     newUltrasounds: ultrasounds.filter((u) => !u.seen).length,
     foods: FOOD_ITEMS.map(foodSummary),
     recentEvents: events.rows,
     popupFrequencyMinutes,
-    nextEventAt:
-      popupFrequencyMinutes > 0
-        ? new Date(Date.now() + popupFrequencyMinutes * 60_000).toISOString()
-        : null,
+    nextEventAt,
     settings: settings.rows[0]?.settings ?? {},
     serverTime: new Date().toISOString(),
   };
@@ -853,6 +945,10 @@ export async function performAction(
 
   const str = (k: string, max = 500) =>
     typeof params[k] === "string" ? (params[k] as string).slice(0, max).trim() : "";
+  const numberParam = (k: string, fallback: number, min: number, max: number) => {
+    const value = Number(params[k]);
+    return Number.isFinite(value) ? Math.max(min, Math.min(max, Math.round(value))) : fallback;
+  };
   const actionProgress = computeProgress(new Date(preg.conceived_at), preg.duration_days);
   const stats = await getStatsWithDecay(momId, actionProgress.trimester);
 
@@ -860,9 +956,9 @@ export async function performAction(
     // ---- setup / pregnancy controls ---------------------------------------
     case "setup_update": {
       const displayName = str("momName", 80);
-      const week = Math.max(1, Math.min(42, Math.round(Number(params.week ?? 1))));
-      const day = Math.max(0, Math.min(6, Math.round(Number(params.day ?? 0))));
-      const babyCount = Math.max(1, Math.min(3, Math.round(Number(params.babyCount ?? 1))));
+      const week = numberParam("week", 1, 1, 40);
+      const day = numberParam("day", 0, 0, 6);
+      const babyCount = numberParam("babyCount", 1, 1, 3);
       const babyGender = str("babyGender", 20);
       const babyNames = Array.isArray(params.babyNames)
         ? params.babyNames
@@ -871,12 +967,9 @@ export async function performAction(
             .filter(Boolean)
         : [];
       const privacyMode = str("privacyMode", 20) || "partner";
-      const popupFrequency = Math.max(
-        0,
-        Math.min(240, Math.round(Number(params.popupFrequencyMinutes ?? 20))),
-      );
+      const popupFrequency = numberParam("popupFrequencyMinutes", 20, 0, 240);
       // "week 24" means 24 completed weeks, matching the dashboard display
-      const elapsedDays = Math.max(0, Math.min(279, week * 7 + day));
+      const elapsedDays = Math.max(0, Math.min(280, week * 7 + day));
       const conceivedAt = new Date(
         Date.now() - (elapsedDays / 280) * Number(preg.duration_days) * 86_400_000,
       );
@@ -928,9 +1021,9 @@ export async function performAction(
     }
 
     case "update_week": {
-      const week = Math.max(0, Math.min(42, Math.round(Number(params.week ?? 1))));
-      const day = Math.max(0, Math.min(6, Math.round(Number(params.day ?? 0))));
-      const elapsedDays = Math.max(0, Math.min(279, week * 7 + day));
+      const week = numberParam("week", 1, 0, 40);
+      const day = numberParam("day", 0, 0, 6);
+      const elapsedDays = Math.max(0, Math.min(280, week * 7 + day));
       const conceivedAt = new Date(
         Date.now() - (elapsedDays / 280) * Number(preg.duration_days) * 86_400_000,
       );
@@ -1599,7 +1692,9 @@ export async function performAction(
         "appointment",
       );
       await addNotification(momId, "Check-up complete", heartLine);
-      await queueCommand(momId, "hud", bpm > 0 ? "heartbeat" : "say", { text: `[Check-up] ${heartLine}` });
+      await queueCommand(momId, "hud", bpm > 0 ? "heartbeat" : "say", {
+        text: `[Check-up] ${heartLine}`,
+      });
       return { ok: true, message: `Check-up done. ${heartLine}` };
     }
 
@@ -1652,7 +1747,7 @@ export async function performAction(
     // ---- symptoms -----------------------------------------------------------
     case "symptom_log": {
       const name = str("name", 60);
-      const severity = clamp(Number(params.severity ?? 0));
+      const severity = numberParam("severity", 0, 0, 100);
       if (!name) return { ok: false, message: "Which symptom?" };
       await db().query(
         `insert into symptoms (pregnancy_id, name, severity, updated_at)
@@ -1674,7 +1769,7 @@ export async function performAction(
       )
         patch.babyGender = params.babyGender;
       if (params.durationDays != null) {
-        const d = Math.round(Number(params.durationDays));
+        const d = numberParam("durationDays", Number(preg.duration_days), 1, 280);
         if (d >= 1 && d <= 280) patch.durationDays = d;
       }
       if (patch.babyName !== undefined)

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { json, readJson, slIdentity, checkSecret } from "@/lib/server/http";
+import { json, readJson, slIdentity, checkSecret, slCallbackUrl } from "@/lib/server/http";
 import { registerDevice } from "@/lib/server/game";
 
 export const Route = createFileRoute("/api/sl/register")({
@@ -26,8 +26,7 @@ export const Route = createFileRoute("/api/sl/register")({
           avatarName: identity.avatarName,
           kind,
           objectKey,
-          callbackUrl:
-            typeof body.callback_url === "string" && body.callback_url ? body.callback_url : null,
+          callbackUrl: slCallbackUrl(body.callback_url),
           region: typeof body.region === "string" ? body.region : null,
         });
         return json(result);

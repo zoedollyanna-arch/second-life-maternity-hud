@@ -14,4 +14,13 @@ create table if not exists ultrasounds (
 create index if not exists ultrasounds_preg_idx on ultrasounds (pregnancy_id, photo_index);
 
 alter table ultrasounds enable row level security;
-revoke all on table ultrasounds from anon, authenticated;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    revoke all on table ultrasounds from anon;
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    revoke all on table ultrasounds from authenticated;
+  end if;
+end
+$$;

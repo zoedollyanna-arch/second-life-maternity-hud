@@ -74,4 +74,13 @@ alter table cravings      enable row level security;
 alter table wellness_logs enable row level security;
 alter table event_history enable row level security;
 
-revoke all on table cravings, wellness_logs, event_history from anon, authenticated;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    revoke all on table cravings, wellness_logs, event_history from anon;
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    revoke all on table cravings, wellness_logs, event_history from authenticated;
+  end if;
+end
+$$;
