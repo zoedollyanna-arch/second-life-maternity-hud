@@ -8,7 +8,7 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
-    "start": "node --env-file-if-exists=.env .output/server/index.mjs",
+    "start": "npm run migrate && node --env-file-if-exists=.env .output/server/index.mjs",
     "migrate": "node --env-file-if-exists=.env scripts/migrate.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."

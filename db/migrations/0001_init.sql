@@ -184,4 +184,15 @@ alter table sl_commands        enable row level security;
 alter table action_log         enable row level security;
 alter table user_settings      enable row level security;
 
-revoke all on all tables in schema public from anon, authenticated;
+-- Supabase creates these PostgREST roles, while plain Render PostgreSQL does
+-- not. Guard the grants so the same migration works with either provider.
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    revoke all on all tables in schema public from anon;
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    revoke all on all tables in schema public from authenticated;
+  end if;
+end
+$$;

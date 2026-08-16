@@ -114,6 +114,16 @@ integer SCREEN_HEIGHT = 720;
 setMoap(string url)
 {
     if (url == "") return;
+
+    integer sides = llGetNumberOfSides();
+    if (MOAP_FACE < 0 || MOAP_FACE >= sides)
+    {
+        say("Face " + (string)MOAP_FACE + " does not exist on this prim — it has "
+            + (string)sides + " face(s), numbered 0-" + (string)(sides - 1)
+            + ". Edit MOAP_FACE at the top of this script.");
+        return;
+    }
+
     llClearPrimMedia(MOAP_FACE);
     llSetPrimMediaParams(MOAP_FACE, [
         PRIM_MEDIA_CURRENT_URL, url,
@@ -317,7 +327,11 @@ default
         gChairChannel = comfortChannel();
         gChairListen = llListen(gChairChannel, "", NULL_KEY, "");
         requestPushUrl();
-        say("starting up...");
+        // Safety net: every retry path lives in the timer, but until now the
+        // timer was only ever started from an http_response. If llRequestURL
+        // never came back, nothing retried and the HUD stayed blank forever.
+        // pollServer() re-registers on its own when there is no token yet.
+        llSetTimerEvent((float)POLL_SECONDS);
     }
 
     attach(key id)
@@ -372,10 +386,6 @@ default
             gRegisterReq = NULL_KEY;
             if (status != 200)
             {
-                string err = llJsonGetValue(body, ["error"]);
-                if (err == JSON_INVALID || err == "")
-                    err = "Could not reach the Nestoria server.";
-                say(err + " (HTTP " + (string)status + "). Retrying in 60s.");
                 llSetTimerEvent(60.0);
                 return;
             }
@@ -407,9 +417,9 @@ default
     touch_start(integer n)
     {
         if (llDetectedKey(0) != llGetOwner()) return;
-        if (gMoapUrl != "") setMoap(gMoapUrl);
+
+        setMoap(gMoapUrl);
         registerWithServer();
-        say("MOAP dashboard refreshed. Use the screen as your main hub.");
         llSetTimerEvent((float)POLL_SECONDS);
     }
 
