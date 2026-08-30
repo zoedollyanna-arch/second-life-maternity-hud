@@ -45,11 +45,32 @@ Sounds (optional): `nestoria_kick`, `nestoria_heartbeat`
 | Chair/armchair mesh or prim  | Anything sit-able and cozy-looking. Adjust `SIT_TARGET`/`SIT_ROT` in the script to fit the mesh.         |
 | `nestoria_comfort_chair.lsl` | Included — goes inside the chair. Then put the whole chair (named `nestoria_chair`) inside the Main HUD. |
 
+## 3b. Hospital bag (worn — do not rez from the HUD)
+
+| Item                        | Notes                                                                                                                                 |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Simple prim for now         | Wearable box/prim is enough until the custom bag mesh is ready. Name it `nestoria_hospital_bag`. Drop `nestoria_hospital_bag.lsl` in it. She or partner wears it. Swap the prim for the mesh later — the script stays the same. |
+| `nestoria_hospital_bag.lsl` | Hears `nestoria_bag_pack` on the same owner channel as the chair. Care → Pack hospital bag talks to it. Touch also packs.             |
+
+## 3d. Toilet (physical bathroom)
+
+| Item                  | Notes                                                                 |
+| --------------------- | --------------------------------------------------------------------- |
+| Toilet mesh           | Named `nestoria_toilet` if kept in the Main HUD. Can also be placed.  |
+| `nestoria_toilet.lsl` | Bathroom on the HUD rezzes it if present, and talks to one already out. Sit or touch for the RP moment. |
+
+## 3c. Hospital bed (physical labor / birth)
+
+| Item                        | Notes                                                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Hospital bed mesh           | Place in-world **or** put a copy named `nestoria_hospital_bed` in the Main HUD. Go to Hospital rezzes it if present, and always talks to any bed already out. |
+| `nestoria_hospital_bed.lsl` | Sit for the scene. HUD starts water break / contractions / birth; the bed does the in-world RP. HUD-rezzed beds expire if unused.         |
+
 ## 4. Partner HUD (recommended)
 
 | Item                            | Notes                                                                                                                    |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Small button/badge mesh or prim | Worn as a HUD by the partner; all interaction is via touch menus, no media face needed. A heart-shaped prim works great. |
+| Tablet/screen mesh or prim      | Worn as a HUD. **Face 4** loads `/partner?token=…`. Touch pairs or refreshes the screen. Support actions are on the page only. |
 | `nestoria_partner_hud.lsl`      | Included — goes in the root prim.                                                                                        |
 
 Optional: `nestoria_chime` sound, couple hug animation (extend the script's
@@ -73,6 +94,16 @@ HUD when finished (props never need the API secret).
 | French toast         | `food_eat\|french_toast\|eat\|25\|French Toast`                 |
 | Pickle chips         | `food_eat\|pickle_chips\|eat\|30\|Pickle Chips`                 |
 | Chocolate bar        | `food_eat\|chocolate_bar\|eat\|25\|Chocolate Bar`               |
+| Pizza                | `food_eat\|pizza\|eat\|35\|Pizza`                               |
+| Pickles              | `food_eat\|pickles\|eat\|25\|Pickles`                           |
+| Ice cream            | `food_eat\|ice_cream\|eat\|25\|Ice Cream`                       |
+| Strawberries         | `food_eat\|strawberries\|eat\|20\|Strawberries`                 |
+| Watermelon           | `food_eat\|watermelon\|eat\|20\|Watermelon`                     |
+| Lemonade             | `food_eat\|lemonade\|drink\|20\|Lemonade`                       |
+| Ginger ale           | `food_eat\|ginger_ale\|drink\|20\|Ginger Ale`                   |
+| Ice chips            | `food_eat\|ice_chips\|drink\|15\|Ice Chips`                     |
+| Corn starch          | `food_eat\|corn_starch\|eat\|20\|Corn Starch`                   |
+| Chalk                | `food_eat\|chalk\|eat\|20\|Chalk`                               |
 | Water bottle         | `drink_water\|\|drink\|20\|Water Bottle`                        |
 | Vitamin bottle       | `vitamins\|\|hold\|12\|Prenatal Vitamins`                       |
 

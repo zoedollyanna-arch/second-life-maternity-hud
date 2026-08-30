@@ -9,7 +9,14 @@ import {
   severityLabel,
   DEFAULT_SYMPTOMS,
 } from "../pregnancy";
-
+import { moodFromKey, pickMoodEvent, rpLineFor } from "../mood";
+import {
+  CRAVING_POOL,
+  FOOD_ITEMS,
+  foodByKey,
+  foodForCraving,
+  foodSummary,
+} from "../foods";
 export interface HudUser {
   id: string;
   avatar_key: string;
@@ -73,123 +80,6 @@ const DECAY_PER_HOUR: Record<StatName, number> = {
 };
 
 const clamp = (v: number) => Math.max(0, Math.min(100, v));
-
-type FoodItem = {
-  key: string;
-  name: string;
-  category: string;
-  cravingTags: string[];
-  deltas: Partial<Record<StatName, number>>;
-  cravingRelief: number;
-  note: string;
-};
-
-const FOOD_ITEMS: FoodItem[] = [
-  {
-    key: "ham_sub",
-    name: "Ham sub",
-    category: "salty",
-    cravingTags: ["ham sub", "sub", "sandwich", "salty", "protein"],
-    deltas: { hunger: 24, mood: 5, nutrition: 6, hydration: -2, baby_wellness: 1 },
-    cravingRelief: 24,
-    note: "A filling salty sandwich with a little protein.",
-  },
-  {
-    key: "spaghetti",
-    name: "Spaghetti",
-    category: "grains",
-    cravingTags: ["spaghetti", "pasta", "tomato", "grains"],
-    deltas: { hunger: 26, mood: 7, nutrition: 7, energy: 4, baby_wellness: 2 },
-    cravingRelief: 26,
-    note: "A warm pasta meal that settles hunger well.",
-  },
-  {
-    key: "chicken_bacon_burger",
-    name: "Chicken bacon burger",
-    category: "protein",
-    cravingTags: ["chicken bacon burger", "chicken", "bacon", "burger", "salty", "protein"],
-    deltas: { hunger: 30, mood: 9, nutrition: 4, hydration: -3, sickness: 1, baby_wellness: 1 },
-    cravingRelief: 30,
-    note: "Big comfort food: great for hunger, heavier on the body.",
-  },
-  {
-    key: "lasagna",
-    name: "Lasagna",
-    category: "dairy",
-    cravingTags: ["lasagna", "pasta", "cheese", "dairy", "comfort"],
-    deltas: { hunger: 32, mood: 8, nutrition: 8, energy: 3, sickness: 1, baby_wellness: 2 },
-    cravingRelief: 28,
-    note: "A hearty comfort meal with decent nutrition.",
-  },
-  {
-    key: "jam_toast",
-    name: "Jam toast",
-    category: "sweet",
-    cravingTags: ["jam toast", "toast", "jam", "sweet"],
-    deltas: { hunger: 12, mood: 8, nutrition: 1, energy: 3, sickness: -2 },
-    cravingRelief: 18,
-    note: "A light sweet snack that can help queasiness.",
-  },
-  {
-    key: "cheeseburger",
-    name: "Cheeseburger",
-    category: "salty",
-    cravingTags: ["cheeseburger", "burger", "cheese", "salty"],
-    deltas: { hunger: 30, mood: 10, nutrition: 3, hydration: -3, sickness: 2 },
-    cravingRelief: 30,
-    note: "Strong craving relief, but not an everyday nutrition boost.",
-  },
-  {
-    key: "french_toast",
-    name: "French toast",
-    category: "sweet",
-    cravingTags: ["french toast", "toast", "sweet", "breakfast"],
-    deltas: { hunger: 18, mood: 10, nutrition: 2, energy: 4 },
-    cravingRelief: 24,
-    note: "A cozy sweet breakfast craving.",
-  },
-  {
-    key: "pickle_chips",
-    name: "Pickle chips",
-    category: "salty",
-    cravingTags: ["pickle chips", "pickle", "pickles", "chips", "salty", "sour", "crunchy"],
-    deltas: { hunger: 10, mood: 7, hydration: -4, sickness: -2 },
-    cravingRelief: 26,
-    note: "Salty, sour and crunchy - the classic pregnancy craving.",
-  },
-  {
-    key: "chocolate_bar",
-    name: "Chocolate bar",
-    category: "sweet",
-    cravingTags: ["chocolate bar", "chocolate", "candy", "cocoa", "sweet"],
-    deltas: { hunger: 8, mood: 12, energy: 5, nutrition: -1, sickness: 1 },
-    cravingRelief: 28,
-    note: "Pure comfort - a little mood magic in a wrapper.",
-  },
-];
-
-function foodByKey(key: string): FoodItem | undefined {
-  return FOOD_ITEMS.find((food) => food.key === key);
-}
-
-function foodForCraving(craving: string): FoodItem {
-  const normalized = craving.toLowerCase();
-  return (
-    FOOD_ITEMS.find((food) => food.cravingTags.some((tag) => normalized.includes(tag))) ??
-    FOOD_ITEMS[Math.floor(Math.random() * FOOD_ITEMS.length)]
-  );
-}
-
-function foodSummary(food: FoodItem): Record<string, unknown> {
-  return {
-    key: food.key,
-    name: food.name,
-    category: food.category,
-    cravingRelief: food.cravingRelief,
-    note: food.note,
-    deltas: food.deltas,
-  };
-}
 
 function partnerCode(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -323,6 +213,22 @@ export async function ensureActivePregnancy(userId: string) {
   return preg;
 }
 
+function isDeliveredPregnancy(preg: { status?: string; labor_stage?: string } | null | undefined) {
+  return preg?.status === "delivered" || preg?.labor_stage === "delivered";
+}
+
+/** Latest pregnancy for this mom, including delivered. Does not start a new one. */
+async function latestPregnancyForMom(userId: string) {
+  const { rows } = await db().query(
+    `select * from pregnancies
+      where user_id = $1
+      order by case when status = 'active' then 0 else 1 end, updated_at desc
+      limit 1`,
+    [userId],
+  );
+  return rows[0] ?? null;
+}
+
 /** For partners: find the pregnancy (and mom) they're linked to. */
 export async function pregnancyForUser(user: HudUser) {
   if (user.role === "partner") {
@@ -330,12 +236,15 @@ export async function pregnancyForUser(user: HudUser) {
       `select p.*, u.avatar_key as mom_avatar_key, u.avatar_name as mom_avatar_name,
               u.id as mom_user_id
        from pregnancies p join hud_users u on u.id = p.user_id
-       where p.partner_user_id = $1 and p.status = 'active' limit 1`,
+       where p.partner_user_id = $1
+       order by case when p.status = 'active' then 0 else 1 end, p.updated_at desc
+       limit 1`,
       [user.id],
     );
     return rows[0] ?? null;
   }
-  const preg = await ensureActivePregnancy(user.id);
+  const existing = await latestPregnancyForMom(user.id);
+  const preg = existing ?? (await ensureActivePregnancy(user.id));
   return {
     ...preg,
     mom_avatar_key: user.avatar_key,
@@ -421,6 +330,28 @@ function decayStats(row: Record<string, unknown>, trimester: number, hours: numb
     if (rate > 0 && Number(base[name]) > 75) rate *= 0.45;
     updated[name] = clamp(Number(base[name]) + rate * activeHours);
   }
+  // Connected meters: one low stat pulls others with it.
+  if (base.hydration < 30) {
+    updated.energy = clamp(updated.energy - 0.8 * activeHours);
+    updated.sickness = clamp(updated.sickness + 0.6 * activeHours);
+    updated.mood = clamp(updated.mood - 0.4 * activeHours);
+  }
+  if (base.hunger < 25) {
+    updated.mood = clamp(updated.mood - 0.9 * activeHours);
+    updated.stress = clamp(updated.stress + 0.7 * activeHours);
+  }
+  if (base.bladder < 20) {
+    updated.comfort = clamp(updated.comfort - 1.2 * activeHours);
+    updated.mood = clamp(updated.mood - 0.3 * activeHours);
+  }
+  if (base.energy < 20 || base.rest < 25) {
+    updated.mood = clamp(updated.mood - 0.5 * activeHours);
+    updated.stress = clamp(updated.stress + 0.4 * activeHours);
+  }
+  if (base.sickness > 60) {
+    updated.hunger = clamp(updated.hunger - 0.6 * activeHours);
+    updated.energy = clamp(updated.energy - 0.5 * activeHours);
+  }
   return updated;
 }
 
@@ -497,14 +428,8 @@ async function getActiveCraving(pregnancyId: string) {
 async function ensureCraving(pregnancyId: string, trimester: number) {
   const existing = await getActiveCraving(pregnancyId);
   if (existing) return existing;
-  const trimesterFoods =
-    trimester === 1
-      ? ["jam_toast", "french_toast", "spaghetti", "pickle_chips"]
-      : trimester === 2
-        ? ["cheeseburger", "lasagna", "ham_sub", "french_toast", "pickle_chips", "chocolate_bar"]
-        : ["chicken_bacon_burger", "lasagna", "spaghetti", "cheeseburger", "chocolate_bar"];
-  const food =
-    foodByKey(trimesterFoods[Math.floor(Math.random() * trimesterFoods.length)]) ?? FOOD_ITEMS[0];
+  const pool = CRAVING_POOL[trimester === 1 ? 1 : trimester === 2 ? 2 : 3];
+  const food = foodByKey(pool[Math.floor(Math.random() * pool.length)]) ?? FOOD_ITEMS[0];
   const { rows } = await db().query(
     `insert into cravings (pregnancy_id, craving, category, intensity)
      values ($1, $2, $3, $4)
@@ -596,12 +521,103 @@ async function addJournal(
   body: string | null,
   kind: "note" | "milestone" | "memory" | "appointment",
   completed = true,
+  photoUrl?: string | null,
 ) {
   await db().query(
-    `insert into journal_entries (user_id, title, body, kind, completed)
-     values ($1, $2, $3, $4, $5)`,
-    [userId, title, body, kind, completed],
+    `insert into journal_entries (user_id, title, body, kind, completed, photo_url)
+     values ($1, $2, $3, $4, $5, $6)`,
+    [userId, title, body, kind, completed, photoUrl || null],
   );
+}
+
+const PHOTO_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const PHOTO_MAX_BYTES = 900_000;
+
+export async function saveJournalPhoto(userId: string, mime: string, bytes: Buffer) {
+  if (!PHOTO_MIMES.has(mime)) throw new Error("Please upload a JPEG, PNG, or WebP photo.");
+  if (!bytes.length || bytes.length > PHOTO_MAX_BYTES) {
+    throw new Error("That photo is too large. Try a smaller picture from your PC.");
+  }
+  const { rows } = await db().query(
+    `insert into journal_photos (user_id, mime, bytes) values ($1, $2, $3) returning id`,
+    [userId, mime, bytes],
+  );
+  return rows[0].id as string;
+}
+
+export async function loadJournalPhoto(user: HudUser, photoId: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(photoId)) return null;
+  const { rows } = await db().query(
+    `select jp.mime, jp.bytes
+       from journal_photos jp
+      where jp.id = $1
+        and (
+          jp.user_id = $2
+          or exists (
+            select 1 from pregnancies p
+             where p.user_id = jp.user_id and p.partner_user_id = $2
+          )
+        )
+      limit 1`,
+    [photoId, user.id],
+  );
+  return (rows[0] as { mime: string; bytes: Buffer } | undefined) ?? null;
+}
+
+async function setRecentEmotion(userId: string, emotion: string, rpText?: string) {
+  await db().query(
+    `insert into user_settings (user_id, settings)
+     values ($1, $2::jsonb)
+     on conflict (user_id) do update
+       set settings = user_settings.settings || $2::jsonb`,
+    [
+      userId,
+      JSON.stringify({
+        lastEmotion: emotion,
+        lastEmotionRp: rpText ?? null,
+        lastEmotionAt: new Date().toISOString(),
+      }),
+    ],
+  );
+}
+
+async function notifyPartner(
+  preg: { partner_user_id?: string | null },
+  title: string,
+  body: string,
+) {
+  if (!preg.partner_user_id) return;
+  await addNotification(preg.partner_user_id, title, body);
+  await queueCommand(preg.partner_user_id, "partner", "say", { text: `${title}: ${body}` });
+}
+
+async function setLaborStage(
+  pregnancyId: string,
+  stage: "none" | "contractions" | "water_broken" | "hospital" | "birth" | "delivered",
+  extra: Record<string, unknown> = {},
+) {
+  const sets = ["labor_stage = $2", "updated_at = now()"];
+  const values: unknown[] = [pregnancyId, stage];
+  let i = 3;
+  if (stage === "contractions") {
+    sets.push(`contractions_started_at = coalesce(contractions_started_at, now())`);
+    sets.push(`contraction_intensity = greatest(contraction_intensity, 35)`);
+  }
+  if (stage === "water_broken") {
+    sets.push(`water_broken_at = coalesce(water_broken_at, now())`);
+    sets.push(`contraction_intensity = greatest(contraction_intensity, 55)`);
+  }
+  if (stage === "hospital") sets.push(`hospital_at = coalesce(hospital_at, now())`);
+  if (stage === "birth" || stage === "delivered") {
+    sets.push(`birth_at = coalesce(birth_at, now())`);
+    sets.push(`status = 'delivered'`);
+  }
+  if (typeof extra.intensity === "number") {
+    sets.push(`contraction_intensity = $${i}`);
+    values.push(extra.intensity);
+    i++;
+  }
+  await db().query(`update pregnancies set ${sets.join(", ")} where id = $1`, values);
 }
 
 async function addPartnerActivity(
@@ -767,7 +783,12 @@ export async function getDashboardState(user: HudUser) {
   if (!preg) return { error: "no_pregnancy" };
 
   const momId: string = preg.mom_user_id;
-  const nextEventAt = await syncEventSchedule(user, preg.id, Boolean(preg.setup_complete));
+  const delivered = isDeliveredPregnancy(preg);
+  const nextEventAt = await syncEventSchedule(
+    user,
+    preg.id,
+    Boolean(preg.setup_complete) && !delivered,
+  );
   const progress = computeProgress(new Date(preg.conceived_at), preg.duration_days);
   const milestone = milestoneForWeek(progress.week);
   const stats = await getStatsWithDecay(momId, progress.trimester);
@@ -783,12 +804,13 @@ export async function getDashboardState(user: HudUser) {
     supportRow,
     craving,
     events,
+    momSettings,
   ] = await Promise.all([
     db().query(`select name, severity from symptoms where pregnancy_id = $1 order by name`, [
       preg.id,
     ]),
     db().query(
-      `select id, title, body, kind, completed, entry_date, created_at
+      `select id, title, body, kind, completed, entry_date, created_at, photo_url
          from journal_entries where user_id = $1 order by created_at desc limit 12`,
       [momId],
     ),
@@ -822,6 +844,7 @@ export async function getDashboardState(user: HudUser) {
          from event_history where pregnancy_id = $1 order by created_at desc limit 5`,
       [preg.id],
     ),
+    db().query(`select settings from user_settings where user_id = $1`, [momId]),
   ]);
 
   const wellness = Math.round(
@@ -837,6 +860,19 @@ export async function getDashboardState(user: HudUser) {
   );
   const popupFrequencyMinutes = Number(settings.rows[0]?.settings?.popupFrequencyMinutes ?? 20);
   const ultrasounds = await ensureUltrasoundUnlocks(preg.id, momId, progress.week);
+  const momSettingsJson = (momSettings.rows[0]?.settings ?? {}) as Record<string, unknown>;
+  const moodInfo = moodFromKey(
+    typeof momSettingsJson.lastEmotion === "string" ? momSettingsJson.lastEmotion : "calm",
+  );
+  const moodRp =
+    (typeof momSettingsJson.lastEmotionRp === "string" && momSettingsJson.lastEmotionRp) ||
+    moodInfo.note;
+  const contractionStarted = preg.contractions_started_at
+    ? new Date(preg.contractions_started_at).getTime()
+    : null;
+  const contractionMinutes = contractionStarted
+    ? Math.max(0, Math.round((Date.now() - contractionStarted) / 60_000))
+    : 0;
 
   return {
     user: {
@@ -853,7 +889,7 @@ export async function getDashboardState(user: HudUser) {
       progressPct: progress.progressPct,
       dueDate: progress.dueDate.toISOString(),
       daysToGo: progress.daysToGo,
-      delivered: progress.delivered,
+      delivered,
       babyName: preg.baby_name,
       babyGender: preg.baby_gender,
       durationDays: preg.duration_days,
@@ -863,6 +899,17 @@ export async function getDashboardState(user: HudUser) {
       babyCount: Number(preg.baby_count ?? 1),
       babyNames: Array.isArray(preg.baby_names) ? preg.baby_names : [],
       privacyMode: preg.privacy_mode ?? "partner",
+      labor: {
+        stage: preg.labor_stage ?? "none",
+        intensity: Number(preg.contraction_intensity ?? 0),
+        waterBroken: Boolean(preg.water_broken_at),
+        atHospital: Boolean(preg.hospital_at),
+        contractionMinutes,
+        waterBrokenAt: preg.water_broken_at ?? null,
+        contractionsStartedAt: preg.contractions_started_at ?? null,
+        hospitalAt: preg.hospital_at ?? null,
+        birthAt: preg.birth_at ?? null,
+      },
       baby: {
         size: milestone.size,
         lengthCm: milestone.lengthCm,
@@ -887,6 +934,13 @@ export async function getDashboardState(user: HudUser) {
       },
     },
     stats,
+    mood: {
+      key: moodInfo.key,
+      label: moodInfo.label,
+      emoji: moodInfo.emoji,
+      note: moodInfo.note,
+      hint: moodRp,
+    },
     wellness,
     symptoms: symptoms.rows.map((s) => ({
       name: s.name,
@@ -1192,10 +1246,25 @@ export async function performAction(
     case "food_eat": {
       const food = foodByKey(str("food", 80)) ?? foodByKey(str("foodKey", 80)) ?? FOOD_ITEMS[0];
       await applyCare(momId, preg.id, "eat", food.deltas, `Ate ${food.name}`);
+      const nextSickness = clamp(stats.sickness + (food.deltas.sickness ?? 0));
+      let extra = "";
+      if (nextSickness >= 75 || (stats.sickness >= 55 && (food.deltas.sickness ?? 0) > 0)) {
+        extra = " A wave of nausea follows — vomiting is available on Care.";
+        await addNotification(momId, "Nausea after eating", extra.trim());
+        await setRecentEmotion(momId, "overwhelmed", rpLineFor("overwhelmed"));
+      }
+      if (food.category === "pica") {
+        await addJournal(
+          momId,
+          `Pica craving: ${food.name}`,
+          `${actorName} gave in to a pica craving. Nutrition dipped.`,
+          "note",
+        );
+      }
       await queueCommand(momId, "hud", "say", {
-        text: `${actorName} eats ${food.name}. ${food.note}`,
+        text: `${actorName} eats ${food.name}. ${food.note}${extra}`,
       });
-      return { ok: true, message: `${food.name} eaten. ${food.note}` };
+      return { ok: true, message: `${food.name} eaten. ${food.note}${extra}` };
     }
     case "rest":
       await applyCare(
@@ -1563,7 +1632,44 @@ export async function performAction(
         baby_movement: 5,
         baby_bond: 2,
       };
-      if (sicknessRisk && roll <= 0.35) {
+      if (roll < 0.52) {
+        const { rows: supportNow } = await db().query(
+          `select coalesce(sum(support_pts), 0)::int as pts from partner_activities
+             where pregnancy_id = $1 and created_at > now() - interval '7 days'`,
+          [preg.id],
+        );
+        const swing = pickMoodEvent(progress.trimester, {
+          hunger: stats.hunger,
+          hydration: stats.hydration,
+          energy: stats.energy,
+          rest: stats.rest,
+          mood: stats.mood,
+          stress: stats.stress,
+          sickness: stats.sickness,
+          bladder: stats.bladder,
+          comfort: stats.comfort,
+          nutrition: stats.nutrition,
+          vitamins: stats.vitamins,
+          partnerLinked: !!preg.partner_user_id,
+          partnerSupport: Math.min(100, 20 + Number(supportNow[0]?.pts ?? 0)),
+        });
+        eventType = `mood_${swing.key}`;
+        title = swing.title;
+        body = swing.body;
+        eventDeltas =
+          swing.key === "happy" || swing.key === "excited" || swing.key === "calm"
+            ? { mood: 6, stress: -3 }
+            : swing.key === "crying" || swing.key === "sad"
+              ? { mood: -4, stress: -4, comfort: 2 }
+              : swing.key === "sleepy" || swing.key === "tired" || swing.key === "exhausted"
+                ? { energy: -3, rest: -2 }
+                : { mood: -2, stress: 3 };
+        await setRecentEmotion(momId, swing.key, swing.body);
+        await notifyPartner(preg, `${momName} is ${swing.label.toLowerCase()}`, swing.body);
+        await queueCommand(momId, "hud", "say", { text: swing.body });
+        if (swing.key === "crying") await queueCommand(momId, "hud", "cry", {});
+        if (swing.key === "exhausted") await queueCommand(momId, "hud", "sleep", {});
+      } else if (sicknessRisk && Math.random() < 0.45) {
         const sicknessEvents = [
           {
             eventType: "nausea",
@@ -1589,40 +1695,32 @@ export async function performAction(
         title = event.title;
         body = event.body;
         eventDeltas = event.deltas;
-      } else if (roll > 0.4 && roll <= 0.65) {
-        eventType = stats.hydration < 45 ? "hydration" : "fatigue";
-        title = stats.hydration < 45 ? "Hydration reminder" : "Fatigue";
-        body =
-          stats.hydration < 45
-            ? "You are starting to feel thirsty."
-            : "Your body feels heavy and tired.";
-        eventDeltas =
-          stats.hydration < 45 ? { hydration: -4, stress: 2 } : { energy: -5, rest: -4 };
-      } else if (roll > 0.65 && roll <= 0.85) {
-        eventType = stats.sickness > 45 ? "nausea" : "mood";
-        title = stats.sickness > 45 ? "Nausea wave" : "Mood swing";
-        body =
-          stats.sickness > 45
-            ? "A wave of nausea comes over you."
-            : "Your emotions feel extra strong right now.";
-        eventDeltas =
-          stats.sickness > 45 ? { sickness: 4, mood: -2, stress: 2 } : { mood: -3, stress: 4 };
-      } else if (roll > 0.85 && roll <= 0.95) {
+      } else if (stats.hydration < 40 && Math.random() < 0.55) {
+        eventType = "hydration";
+        title = "Hydration reminder";
+        body = "You are starting to feel thirsty.";
+        eventDeltas = { hydration: -4, stress: 2 };
+      } else if ((stats.energy < 35 || stats.rest < 35) && Math.random() < 0.5) {
+        eventType = "fatigue";
+        title = "Fatigue";
+        body = "Your body feels heavy and tired.";
+        eventDeltas = { energy: -5, rest: -4 };
+      } else if (preg.partner_user_id && Math.random() < 0.28) {
         eventType = "partner";
         title = "Support prompt";
         body = `${momName} seems tired today. A little support could help.`;
         eventDeltas = { mood: 1, stress: 1 };
-      } else if (roll > 0.95 || progress.week >= 34) {
-        eventType = progress.week >= 34 ? "late_pregnancy" : "nesting";
-        title = progress.week >= 34 ? "Belly tightening" : "Nesting moment";
+      } else if (progress.week >= 34 && Math.random() < 0.45) {
+        eventType = "late_pregnancy";
+        title = "Belly tightening";
         body =
-          progress.week >= 34
-            ? "You feel a tightening in your belly. Keep it RP-safe: breathe, rest, hydrate, or schedule a check-in."
-            : "You suddenly feel the urge to prepare for the baby.";
-        eventDeltas =
-          progress.week >= 34
-            ? { comfort: -4, stress: 5, energy: -2 }
-            : { mood: 5, energy: -3, stress: -2 };
+          "You feel a tightening in your belly. Keep it RP-safe: breathe, rest, hydrate, or schedule a check-in.";
+        eventDeltas = { comfort: -4, stress: 5, energy: -2 };
+      } else if (Math.random() < 0.35) {
+        eventType = "nesting";
+        title = "Nesting moment";
+        body = "You suddenly feel the urge to prepare for the baby.";
+        eventDeltas = { mood: 5, energy: -3, stress: -2 };
       }
       await applyCare(momId, preg.id, action, eventDeltas, `Random event: ${title}`);
       await recordEvent(preg.id, momId, eventType, title, body);
@@ -1650,10 +1748,19 @@ export async function performAction(
         breathe: { mood: 6, stress: -5 },
         journal: { mood: 4 },
         organize: { mood: 8 },
+        sit_with_it: { mood: 3, stress: -3 },
+        ask_partner: { mood: 2, stress: -2 },
         ignore: { mood: -3, hydration: -3 },
       };
       const deltas = effects[choice] ?? { mood: 2 };
       await applyCare(momId, preg.id, action, deltas, `Event choice: ${choice}`);
+      if (choice === "ask_partner") {
+        await notifyPartner(
+          preg,
+          `${momName} could use you`,
+          "A mood swing just hit. A check-in, a hug, or sitting with her would help.",
+        );
+      }
       if (choice === "journal")
         await addJournal(
           momId,
@@ -1733,7 +1840,11 @@ export async function performAction(
       )
         ? (params.kind as "note" | "milestone" | "memory" | "appointment")
         : "note";
-      await addJournal(momId, title, str("body", 2000) || null, kind, kind !== "appointment");
+      const photoId = str("photoId", 40);
+      const photoUrl = /^[0-9a-f-]{36}$/i.test(photoId)
+        ? `/api/hud/photo?id=${photoId}`
+        : str("photoUrl", 300) || null;
+      await addJournal(momId, title, str("body", 2000) || null, kind, kind !== "appointment", photoUrl);
       return { ok: true, message: "Journal entry added 📖" };
     }
 
@@ -1814,6 +1925,281 @@ export async function performAction(
       await db().query(`update notifications set read = true where user_id = $1`, [user.id]);
       return { ok: true, message: "Notifications marked as read." };
 
+    // ---- vision board: care, labor, bag, partner support --------------------
+    case "sleep":
+      await applyCare(
+        momId,
+        preg.id,
+        action,
+        { energy: 45, rest: 40, comfort: 12, sickness: -6, stress: -10, mood: 6 },
+        "Slept",
+      );
+      await setRecentEmotion(momId, "sleepy", rpLineFor("sleepy"));
+      await queueCommand(momId, "hud", "sleep", {});
+      await queueCommand(momId, "hud", "say", {
+        text: `${actorName} curls up and sleeps. Energy and rest restore.`,
+      });
+      return { ok: true, message: "You sleep. Energy +45, rest restored." };
+
+    case "vomit":
+      await applyCare(
+        momId,
+        preg.id,
+        action,
+        { sickness: -22, hunger: -10, hydration: -12, comfort: -6, mood: -4, stress: 3 },
+        "Vomited",
+      );
+      await setRecentEmotion(momId, "overwhelmed", rpLineFor("overwhelmed"));
+      await queueCommand(momId, "hud", "vomit", {});
+      await queueCommand(momId, "hud", "say", {
+        text: `${actorName} is sick. Nausea eases a little, but she needs water and rest.`,
+      });
+      await notifyPartner(
+        preg,
+        `${momName} is feeling sick`,
+        "She just had a vomiting spell. Water, a cold cloth, or a check-in would help.",
+      );
+      return { ok: true, message: "Vomiting logged. Sickness eased. Please drink water." };
+
+    case "cry":
+      await applyCare(
+        momId,
+        preg.id,
+        action,
+        { mood: -6, stress: -8, comfort: 4, energy: -3 },
+        "Cried",
+      );
+      await setRecentEmotion(momId, "crying", rpLineFor("crying"));
+      await queueCommand(momId, "hud", "cry", {});
+      await queueCommand(momId, "hud", "say", {
+        text: `${actorName} lets herself cry. Stress softens a little.`,
+      });
+      await notifyPartner(preg, `${momName} is crying`, "She could use comfort, a hug, or a check-in.");
+      return { ok: true, message: "You let it out. Stress eased. Partner was notified." };
+
+    case "feel_kick":
+      await db().query(`insert into kick_events (pregnancy_id, source) values ($1, $2)`, [
+        preg.id,
+        source === "sl" ? "belly" : "web",
+      ]);
+      await applyCare(momId, preg.id, action, { mood: 6, baby_bond: 4, baby_movement: 8 }, "Felt a kick");
+      await queueCommand(momId, "belly", "kick", {});
+      await queueCommand(momId, "hud", "kick", { text: "Baby is kicking!" });
+      await notifyPartner(preg, "Baby kicked", `${momName} felt the baby kick. Want to feel?`);
+      return { ok: true, message: "Baby kick felt. Partner can share the moment." };
+
+    case "count_kick":
+      await db().query(`insert into kick_events (pregnancy_id, source) values ($1, 'web')`, [
+        preg.id,
+      ]);
+      await applyCare(momId, preg.id, action, { baby_movement: 5, baby_bond: 2 }, "Counted a kick");
+      return { ok: true, message: "Kick counted for today's session." };
+
+    case "water_break":
+      await setLaborStage(preg.id, "water_broken");
+      await applyCare(momId, preg.id, action, { stress: 12, comfort: -10, hydration: -6 }, "Water broke");
+      await addJournal(
+        momId,
+        "Water broke",
+        "Labor is starting. Time to breathe and get ready.",
+        "milestone",
+      );
+      await addNotification(momId, "Water broke", "Call your partner. The hospital bag can be rezzed from Care.");
+      await queueCommand(momId, "hud", "labor_water", {});
+      await queueCommand(momId, "hud", "say", { text: `${actorName}'s water has broken.` });
+      await notifyPartner(preg, "Water broke", `${momName}'s water broke. She needs you.`);
+      return { ok: true, message: "Water broke. Partner has been alerted." };
+
+    case "contractions": {
+      const intensity = Math.min(100, Math.max(35, Number(preg.contraction_intensity ?? 0) + 15));
+      await setLaborStage(preg.id, "contractions", { intensity });
+      await applyCare(
+        momId,
+        preg.id,
+        action,
+        { stress: 8, comfort: -8, energy: -6, mood: -3 },
+        "Contractions",
+      );
+      await queueCommand(momId, "hud", "labor_contractions", { intensity });
+      await queueCommand(momId, "hud", "say", {
+        text: `A contraction wave. Intensity ${intensity}%. Breathe.`,
+      });
+      await notifyPartner(
+        preg,
+        "Contractions started",
+        `${momName} is having contractions (${intensity}%). Guide breathing or stay close.`,
+      );
+      return { ok: true, message: `Contractions at ${intensity}% intensity. Breathe through it.` };
+    }
+
+    case "go_to_hospital":
+      await setLaborStage(preg.id, "hospital");
+      await applyCare(momId, preg.id, action, { stress: -4, comfort: 4 }, "Went to hospital");
+      await addJournal(momId, "Arrived at the hospital", "The next chapter is starting.", "milestone");
+      await queueCommand(momId, "hud", "rez_bed", {});
+      await notifyPartner(
+        preg,
+        "Heading to the hospital",
+        `${momName} is going to the hospital. Meet her at the bed.`,
+      );
+      return { ok: true, message: "Hospital scene started. Sit the bed if it is out." };
+
+    case "birth": {
+      if (isDeliveredPregnancy(preg)) {
+        return { ok: true, message: "This pregnancy is already marked delivered." };
+      }
+      await setLaborStage(preg.id, "delivered");
+      await applyCare(
+        momId,
+        preg.id,
+        action,
+        { mood: 20, stress: -15, comfort: 8, baby_bond: 20, energy: -20 },
+        "Birth",
+      );
+      const baby = preg.baby_name ? preg.baby_name : "the baby";
+      await addJournal(momId, "Birth", `${baby} is here. The family just grew.`, "milestone");
+      await addNotification(momId, "Congratulations", `${baby} has arrived ♥`);
+      await queueCommand(momId, "hud", "labor_birth", {});
+      await queueCommand(momId, "hud", "hearts", {});
+      await queueCommand(momId, "hud", "say", { text: `${baby} is here. Congratulations.` });
+      await notifyPartner(preg, "The baby is here", `${baby} has arrived. Celebrate with ${momName}.`);
+      return { ok: true, message: `${baby} is here. Congratulations ♥` };
+    }
+
+    case "pack_bag":
+      await queueCommand(momId, "hud", "bag_pack", {});
+      await notifyPartner(
+        preg,
+        "Packing the hospital bag",
+        `${momName} is packing the worn hospital bag. You can help if you are close.`,
+      );
+      return {
+        ok: true,
+        message: "The worn hospital bag should open to pack. Wear the bag first.",
+      };
+
+    case "pack_bag_complete":
+      await applyCare(
+        momId,
+        preg.id,
+        action,
+        { stress: -6, comfort: 6, mood: 4 },
+        "Packed the hospital bag",
+      );
+      await addJournal(
+        momId,
+        "Hospital bag packed",
+        `${actorName} packed the hospital bag in-world.`,
+        "memory",
+      );
+      await notifyPartner(preg, "Bag is packed", "The hospital bag is ready.");
+      return { ok: true, message: "The hospital bag is packed and ready." };
+
+    case "partner_comfort":
+    case "partner_check_on":
+    case "partner_ice_chips":
+    case "partner_help_rest":
+    case "partner_medicine":
+    case "partner_labor_support":
+    case "partner_breathing":
+    case "partner_celebrate":
+    case "partner_pack_bag":
+    case "partner_faint":
+    case "partner_vomit_react":
+    case "partner_stay_strong": {
+      if (!isPartner && action.startsWith("partner_")) {
+        // Mom can still trigger a request-shaped version for some of these
+      }
+      const partnerMoves: Record<
+        string,
+        { deltas: Partial<Record<StatName, number>>; activity: string; pts: number; message: string }
+      > = {
+        partner_comfort: {
+          deltas: { comfort: 14, mood: 8, stress: -6 },
+          activity: "Comforted mom",
+          pts: 8,
+          message: `${actorName} comforts ${momName}.`,
+        },
+        partner_check_on: {
+          deltas: { mood: 5, comfort: 4 },
+          activity: "Checked on mom",
+          pts: 5,
+          message: `${actorName} checks in: "How are you feeling?"`,
+        },
+        partner_ice_chips: {
+          deltas: { hydration: 10, comfort: 8, sickness: -4 },
+          activity: "Brought ice chips",
+          pts: 6,
+          message: `${actorName} offers ice chips.`,
+        },
+        partner_help_rest: {
+          deltas: { rest: 12, energy: 8, comfort: 6, stress: -5 },
+          activity: "Helped mom rest",
+          pts: 7,
+          message: `${actorName} helps ${momName} rest.`,
+        },
+        partner_medicine: {
+          deltas: { sickness: -18, comfort: 5, stress: -2 },
+          activity: "Brought medicine",
+          pts: 6,
+          message: `${actorName} brings nausea medicine.`,
+        },
+        partner_labor_support: {
+          deltas: { comfort: 10, mood: 8, stress: -10 },
+          activity: "Supported during labor",
+          pts: 12,
+          message: `${actorName} stays close through a contraction.`,
+        },
+        partner_breathing: {
+          deltas: { stress: -12, mood: 6, comfort: 6 },
+          activity: "Guided breathing",
+          pts: 8,
+          message: `${actorName} guides ${momName} through breathing.`,
+        },
+        partner_celebrate: {
+          deltas: { mood: 12, baby_bond: 6 },
+          activity: "Celebrated a milestone",
+          pts: 8,
+          message: `${actorName} celebrates with ${momName}.`,
+        },
+        partner_pack_bag: {
+          deltas: { stress: -4, mood: 4 },
+          activity: "Helped pack the hospital bag",
+          pts: 7,
+          message: `${actorName} helps pack the hospital bag.`,
+        },
+        partner_faint: {
+          deltas: { mood: 2 },
+          activity: "Got dizzy and needed a moment",
+          pts: 2,
+          message: `${actorName} feels faint and sits down. Still here.`,
+        },
+        partner_vomit_react: {
+          deltas: { mood: 1 },
+          activity: "Got queasy in the delivery room",
+          pts: 2,
+          message: `${actorName} looks a little green... then steadies.`,
+        },
+        partner_stay_strong: {
+          deltas: { mood: 10, comfort: 8, stress: -8 },
+          activity: "Stayed strong",
+          pts: 10,
+          message: `${actorName} stays steady: "I've got you. We're okay."`,
+        },
+      };
+      const move = partnerMoves[action];
+      await bumpStats(momId, move.deltas);
+      if (isPartner) await addPartnerActivity(preg.id, actorName, move.activity, move.pts);
+      await addNotification(momId, move.activity, move.message);
+      await queueCommand(momId, "hud", action === "partner_stay_strong" ? "hearts" : "say", {
+        text: move.message,
+      });
+      if (action === "partner_pack_bag") await queueCommand(momId, "hud", "bag_pack", {});
+      if (action === "partner_faint") await queueCommand(user.id, "partner", "faint", {});
+      if (action === "partner_vomit_react") await queueCommand(user.id, "partner", "vomit", {});
+      return { ok: true, message: move.message };
+    }
+
     default:
       return { ok: false, message: `Unknown action: ${action}` };
   }
@@ -1845,10 +2231,11 @@ export async function registerDevice(opts: {
   }
 
   const token = await createSession(user.id);
+  const path = opts.kind === "partner" ? "/partner" : "/";
   return {
     token,
     week,
-    moap_url: `${appUrl()}/?token=${token}`,
+    moap_url: `${appUrl()}${path}?token=${token}`,
     welcome: `Welcome back, ${user.avatar_name.split(" ")[0]} - Week ${week} - touch the screen to open your dashboard.`,
   };
 }

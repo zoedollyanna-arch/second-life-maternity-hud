@@ -168,6 +168,8 @@ export function playForAction(action: string) {
     case "ultrasound":
       return playHeartbeat();
     case "kick":
+    case "feel_kick":
+    case "count_kick":
     case "talk_to_baby":
       return playKick();
     case "eat":
@@ -178,9 +180,12 @@ export function playForAction(action: string) {
     case "vitamins":
       return playPop();
     case "rest":
+    case "sleep":
     case "comfort":
     case "comfort_complete":
     case "breathe":
+    case "partner_help_rest":
+    case "partner_breathing":
       return playRelax();
     case "hug":
     case "hold_belly":

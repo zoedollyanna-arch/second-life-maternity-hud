@@ -12,6 +12,8 @@
 // Inventory (referenced by name):
 //   object "nestoria_chair"     — comfort chair (REQUIRED for the Comfort
 //                                 action; contains nestoria_comfort_chair.lsl)
+//   object "nestoria_hospital_bed" — optional; rezzed if present when
+//                                 she goes to hospital. Worn bag is separate.
 //
 // Optional inventory — sounds are OPTIONAL because the MOAP dashboard plays
 // all system sounds through the media screen itself:
@@ -25,7 +27,7 @@
 // Missing items are skipped gracefully.
 // ============================================================================
 
-string  API_BASE   = "https://second-life-maternity-hud-t3vv.onrender.com";
+string  API_BASE   = "https://second-life-maternity-hud-t2b3.onrender.com";
 string  API_SECRET = "2175039403870ed15116d0dcf330095af3f6a398e83bca01";  // same value as SL_API_SECRET in the server .env
 
 integer MOAP_FACE     = 4;      // face that shows the dashboard (adjust to your prim)
@@ -204,6 +206,48 @@ rezChair()
     say("Your comfy chair is out - sit and relax for 2 minutes.");
 }
 
+talkWorld(string message)
+{
+    llRegionSay(comfortChannel(), message);
+}
+
+rezBed()
+{
+    if (llGetInventoryType("nestoria_hospital_bed") == INVENTORY_OBJECT)
+    {
+        list details = llGetObjectDetails(llGetOwner(), [OBJECT_POS, OBJECT_ROT]);
+        vector ownerPos = llList2Vector(details, 0);
+        rotation ownerRot = llList2Rot(details, 1);
+        vector rezPos = ownerPos + <1.5, 0.0, 0.0> * ownerRot;
+        llRezObject("nestoria_hospital_bed", rezPos, ZERO_VECTOR, ownerRot, 1);
+        say("Hospital bed is out — sit when you are ready.");
+    }
+    talkWorld("nestoria_labor_hospital");
+}
+
+vomitBurst()
+{
+    llParticleSystem([
+        PSYS_PART_FLAGS, PSYS_PART_EMISSIVE_MASK | PSYS_PART_INTERP_COLOR_MASK
+                       | PSYS_PART_INTERP_SCALE_MASK | PSYS_PART_FOLLOW_VELOCITY_MASK,
+        PSYS_SRC_PATTERN, PSYS_SRC_PATTERN_ANGLE_CONE,
+        PSYS_SRC_ANGLE_BEGIN, 0.0,
+        PSYS_SRC_ANGLE_END, 0.35,
+        PSYS_PART_START_COLOR, <0.75, 0.85, 0.65>,
+        PSYS_PART_END_COLOR,   <0.55, 0.65, 0.45>,
+        PSYS_PART_START_SCALE, <0.08, 0.08, 0.0>,
+        PSYS_PART_END_SCALE,   <0.03, 0.03, 0.0>,
+        PSYS_PART_MAX_AGE, 1.8,
+        PSYS_SRC_BURST_RATE, 0.04,
+        PSYS_SRC_BURST_PART_COUNT, 8,
+        PSYS_SRC_BURST_SPEED_MIN, 0.15,
+        PSYS_SRC_BURST_SPEED_MAX, 0.45,
+        PSYS_SRC_MAX_AGE, 1.2,
+        PSYS_PART_START_ALPHA, 0.7,
+        PSYS_PART_END_ALPHA, 0.0
+    ]);
+}
+
 openEventDialog(string params)
 {
     string title = llJsonGetValue(params, ["title"]);
@@ -291,6 +335,81 @@ runCommand(string cmd, string params)
     else if (cmd == "rez_chair")
     {
         rezChair();
+    }
+    else if (cmd == "bag_pack")
+    {
+        talkWorld("nestoria_bag_pack");
+        say("If the hospital bag is worn, it is opening to pack.");
+    }
+    else if (cmd == "rez_bed")
+    {
+        rezBed();
+    }
+    else if (cmd == "labor_water")
+    {
+        talkWorld("nestoria_labor_water");
+        say("Your water has broken.");
+        playSoundByName("nestoria_chime");
+    }
+    else if (cmd == "labor_contractions")
+    {
+        talkWorld("nestoria_labor_contractions");
+        startAnimByName("nestoria_rest");
+        say("A contraction. Breathe.");
+        playSoundByName("nestoria_heartbeat");
+    }
+    else if (cmd == "labor_birth")
+    {
+        talkWorld("nestoria_labor_birth");
+        heartsBurst();
+        playSoundByName("nestoria_chime");
+    }
+    else if (cmd == "sleep")
+    {
+        startAnimByName("nestoria_rest");
+        say("You settle in to sleep.");
+    }
+    else if (cmd == "vomit")
+    {
+        vomitBurst();
+        startAnimByName("nestoria_rest");
+        say("A wave of sickness hits.");
+    }
+    else if (cmd == "cry")
+    {
+        say("Tears come. That's alright.");
+    }
+    else if (cmd == "bathroom")
+    {
+        if (llGetInventoryType("nestoria_toilet") == INVENTORY_OBJECT)
+        {
+            list details = llGetObjectDetails(llGetOwner(), [OBJECT_POS, OBJECT_ROT]);
+            vector ownerPos = llList2Vector(details, 0);
+            rotation ownerRot = llList2Rot(details, 1);
+            llRezObject("nestoria_toilet", ownerPos + <1.0, 0.4, 0.0> * ownerRot,
+                ZERO_VECTOR, ownerRot, 1);
+        }
+        talkWorld("nestoria_bathroom");
+        say("Bathroom break.");
+    }
+    else if (cmd == "water_break")
+    {
+        talkWorld("nestoria_labor_water");
+        say("Your water has broken.");
+        playSoundByName("nestoria_chime");
+    }
+    else if (cmd == "contractions")
+    {
+        talkWorld("nestoria_labor_contractions");
+        startAnimByName("nestoria_rest");
+        say("A contraction. Breathe.");
+        playSoundByName("nestoria_heartbeat");
+    }
+    else if (cmd == "birth")
+    {
+        talkWorld("nestoria_labor_birth");
+        heartsBurst();
+        playSoundByName("nestoria_chime");
     }
     else if (cmd == "dialog")
     {
@@ -431,6 +550,18 @@ default
             if (message == "nestoria_comfort_done")
             {
                 postAction("comfort_complete", "{}");
+            }
+            else if (message == "nestoria_bag_done")
+            {
+                postAction("pack_bag_complete", "{}");
+            }
+            else if (message == "nestoria_bed_seated")
+            {
+                say("You're on the hospital bed. Partner can stay close.");
+            }
+            else if (message == "nestoria_bed_birth")
+            {
+                say("The bed is with you for the birth.");
             }
             else if (llSubStringIndex(message, "nestoria_prop_done|") == 0)
             {

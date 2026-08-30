@@ -29,6 +29,7 @@ export interface JournalEntry {
   completed: boolean;
   entry_date: string;
   created_at: string;
+  photo_url?: string | null;
 }
 
 export interface HudState {
@@ -53,6 +54,17 @@ export interface HudState {
     babyCount: number;
     babyNames: string[];
     privacyMode: string;
+    labor?: {
+      stage: string;
+      intensity: number;
+      waterBroken: boolean;
+      atHospital: boolean;
+      contractionMinutes: number;
+      waterBrokenAt: string | null;
+      contractionsStartedAt: string | null;
+      hospitalAt: string | null;
+      birthAt: string | null;
+    };
     baby: {
       size: string;
       lengthCm: number;
@@ -68,6 +80,13 @@ export interface HudState {
     };
   };
   stats: HudStats;
+  mood?: {
+    key: string;
+    label: string;
+    emoji: string;
+    note: string;
+    hint: string;
+  };
   wellness: number;
   symptoms: { name: string; severity: number; label: string }[];
   journal: JournalEntry[];
@@ -121,6 +140,61 @@ export interface HudState {
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search).get("token");
+}
+
+export function journalPhotoSrc(photoUrl: string | null | undefined, token: string | null) {
+  if (!photoUrl) return null;
+  if (/^https?:\/\//i.test(photoUrl)) return photoUrl;
+  const url = new URL(photoUrl, "https://hud.local");
+  if (token) url.searchParams.set("token", token);
+  return `${url.pathname}${url.search}`;
+}
+
+function loadImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not read that photo"));
+    };
+    img.src = url;
+  });
+}
+
+export async function resizeImageFile(file: File): Promise<{ data: string; mime: string }> {
+  const img = await loadImage(file);
+  const max = 1100;
+  const scale = Math.min(1, max / Math.max(img.width || 1, img.height || 1));
+  const width = Math.max(1, Math.round((img.width || 1) * scale));
+  const height = Math.max(1, Math.round((img.height || 1) * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not prepare that photo");
+  ctx.drawImage(img, 0, 0, width, height);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.72);
+  const comma = dataUrl.indexOf(",");
+  return { data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl, mime: "image/jpeg" };
+}
+
+export async function uploadJournalPhoto(token: string, file: File): Promise<{ id: string; url: string }> {
+  const { data, mime } = await resizeImageFile(file);
+  const res = await fetch("/api/hud/photo", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token, data, mime }),
+  });
+  const payload = (await res.json()) as { ok?: boolean; id?: string; url?: string; error?: string };
+  if (!res.ok || !payload.id || !payload.url) {
+    throw new Error(payload.error ?? "Photo upload failed");
+  }
+  return { id: payload.id, url: payload.url };
 }
 
 export function useHudState(token: string | null) {

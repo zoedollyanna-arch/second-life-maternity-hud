@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { json, readJson, slIdentity, checkSecret } from "@/lib/server/http";
-import { db } from "@/lib/server/db";
+import { json, readJson, slIdentity, checkSecret, slCallbackUrl } from "@/lib/server/http";
+import { appUrl, db } from "@/lib/server/db";
 import {
   getOrCreateUser,
   upsertDevice,
@@ -47,10 +47,11 @@ export const Route = createFileRoute("/api/sl/partner-link")({
           partner.id,
           "partner",
           objectKey,
-          null,
+          slCallbackUrl(body.callback_url),
           typeof body.region === "string" ? body.region : null,
         );
         const token = await createSession(partner.id);
+        const moapUrl = `${appUrl()}/partner?token=${token}`;
 
         await addNotification(
           preg.user_id,
@@ -66,7 +67,8 @@ export const Route = createFileRoute("/api/sl/partner-link")({
           token,
           mom_name: preg.mom_name,
           mom_key: preg.mom_key,
-          message: `Paired with ${preg.mom_name} ♥ Touch the HUD any time to support her.`,
+          moap_url: moapUrl,
+          message: `Paired with ${preg.mom_name} ♥ The Partner HUD screen is now live.`,
         });
       },
     },

@@ -36,6 +36,11 @@ import {
   Maximize2,
   ZoomIn,
   ZoomOut,
+  Bath,
+  CloudRain,
+  Briefcase,
+  HeartPulse,
+  Hospital,
 } from "lucide-react";
 import logo from "@/assets/nestoria-logo.png";
 import pregnancyHero from "@/assets/pregnancy-hero.jpg";
@@ -60,8 +65,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useHudState, useHudAction, type HudState, type HudStats } from "@/lib/hud-api";
+import {
+  useHudState,
+  useHudAction,
+  journalPhotoSrc,
+  uploadJournalPhoto,
+  type HudState,
+  type HudStats,
+} from "@/lib/hud-api";
 import { BABY_GROWTH } from "@/lib/pregnancy";
+import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, type FoodCategory } from "@/lib/foods";
 import { playForAction, playChime, playError, playHearts } from "@/lib/sounds";
 
 export const Route = createFileRoute("/")({
@@ -800,6 +813,10 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                 🎉 Your little one has arrived! Congratulations
                 {preg.babyName ? ` on ${preg.babyName}` : ""} ♥
               </span>
+              <p className="mt-2 text-sm text-muted-foreground">
+                This pregnancy stays marked delivered. Journal, memories, and partner stay with this
+                story.
+              </p>
             </div>
           )}
           <div className="grid grid-cols-12 gap-4">
@@ -912,6 +929,68 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                     </div>
                   </div>
                   <TimelineDialog currentWeek={preg.week} />
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => act("feel_kick")}
+                      className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
+                    >
+                      Feel baby kick
+                    </button>
+                    <button
+                      onClick={() => act("count_kick")}
+                      className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
+                    >
+                      Count a kick
+                    </button>
+                    <button
+                      onClick={() => act("appointment")}
+                      className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
+                    >
+                      Appointment
+                    </button>
+                    <button
+                      onClick={() => act("ultrasound")}
+                      className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
+                    >
+                      Ultrasound
+                    </button>
+                    {!preg.delivered && (
+                      <>
+                        <button
+                          onClick={() => act("water_break")}
+                          className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
+                        >
+                          Water break
+                        </button>
+                        <button
+                          onClick={() => act("contractions")}
+                          className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
+                        >
+                          Contractions
+                        </button>
+                        <button
+                          onClick={() => act("go_to_hospital")}
+                          className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
+                        >
+                          Go to hospital
+                        </button>
+                        <button
+                          onClick={() => act("birth")}
+                          className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
+                        >
+                          Birth
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {preg.labor && preg.labor.stage !== "none" && (
+                    <p className="mt-3 text-center text-xs text-[color:var(--lavender-deep)]">
+                      {preg.labor.waterBroken ? "Water has broken. " : ""}
+                      {preg.labor.stage === "contractions" || preg.labor.intensity > 0
+                        ? `Contractions ${preg.labor.intensity}% · ${preg.labor.contractionMinutes} min`
+                        : preg.labor.stage.replace("_", " ")}
+                    </p>
+                  )}
                 </Panel>
               </section>
             )}
@@ -997,6 +1076,19 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
               </section>
             )}
 
+            {show("health", "care", "home") && data.mood && (
+              <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
+                <Panel>
+                  <PanelHeader eyebrow="Mood" title={`${data.mood.emoji} ${data.mood.label}`} />
+                  <p className="text-center text-sm text-muted-foreground">{data.mood.hint}</p>
+                  <p className="mt-2 text-center text-xs italic text-muted-foreground">
+                    Mood swings pop up on their own. Your meters only nudge which feeling is more
+                    likely — they never lock one in.
+                  </p>
+                </Panel>
+              </section>
+            )}
+
             {/* Symptoms */}
             {show("health") && (
               <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
@@ -1063,6 +1155,34 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                         actionLabel: "Cozy up",
                         action: "comfort",
                       },
+                      {
+                        icon: Moon,
+                        label: "Sleep",
+                        val: stats.energy,
+                        actionLabel: "Sleep",
+                        action: "sleep",
+                      },
+                      {
+                        icon: Bath,
+                        label: "Bathroom",
+                        val: stats.bladder,
+                        actionLabel: "Go",
+                        action: "bathroom",
+                      },
+                      {
+                        icon: CloudRain,
+                        label: "Vomiting",
+                        val: 100 - stats.sickness,
+                        actionLabel: "Be sick",
+                        action: "vomit",
+                      },
+                      {
+                        icon: Smile,
+                        label: "Cry",
+                        val: stats.mood,
+                        actionLabel: "Let it out",
+                        action: "cry",
+                      },
                     ].map(({ icon: Icon, label, val, actionLabel, action: name }) => (
                       <div key={label} className="rounded-2xl bg-white/70 p-3">
                         <div className="flex items-center gap-2 mb-2">
@@ -1087,6 +1207,27 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       </div>
                     ))}
                   </div>
+                  <PrimaryButton onClick={() => act("pack_bag")}>
+                    <span className="inline-flex items-center gap-2">
+                      <Briefcase className="h-4 w-4" /> Pack hospital bag
+                    </span>
+                  </PrimaryButton>
+                  <p className="mt-2 text-center text-[11px] italic text-muted-foreground">
+                    Talks to the worn hospital bag on the same channel as the chair. Wear the bag
+                    first.
+                  </p>
+                  {data.partner.linked && (
+                    <button
+                      onClick={() =>
+                        act("ask_partner", {
+                          request: `${data.user.name} could use a little support right now.`,
+                        })
+                      }
+                      className="mt-2 w-full rounded-full py-2 text-xs font-medium bg-white/70 text-[color:var(--lavender-deep)] hover:bg-white"
+                    >
+                      Ask partner for support
+                    </button>
+                  )}
                 </Panel>
               </section>
             )}
@@ -1141,6 +1282,15 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                           </li>
                         ))}
                       </ul>
+                      <PrimaryButton
+                        onClick={() =>
+                          act("ask_partner", {
+                            request: `${data.user.name} could use a little support right now.`,
+                          })
+                        }
+                      >
+                        Ask partner for support
+                      </PrimaryButton>
                       <PrimaryButton onClick={() => act("hug")}>
                         Send a hug in-world ♥
                       </PrimaryButton>
@@ -1182,14 +1332,23 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                             : m.kind === "appointment"
                               ? Stethoscope
                               : BookHeart;
+                      const photo = journalPhotoSrc(m.photo_url, token);
                       return (
                         <div
                           key={m.id}
                           className="flex items-center gap-3 rounded-2xl bg-white/60 px-3 py-2.5"
                         >
-                          <div className="h-9 w-9 shrink-0 rounded-full bg-[color:var(--lavender)]/30 flex items-center justify-center">
-                            <Icon className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-                          </div>
+                          {photo ? (
+                            <img
+                              src={photo}
+                              alt=""
+                              className="h-9 w-9 shrink-0 rounded-xl object-cover"
+                            />
+                          ) : (
+                            <div className="h-9 w-9 shrink-0 rounded-full bg-[color:var(--lavender)]/30 flex items-center justify-center">
+                              <Icon className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+                            </div>
+                          )}
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-semibold truncate">{m.title}</div>
                             <div className="text-[11px] text-muted-foreground italic">
@@ -1209,7 +1368,10 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       );
                     })}
                   </div>
-                  <JournalDialog onSave={(entry) => act("journal_add", entry)} />
+                  <JournalDialog
+                    token={token}
+                    onSave={(entry) => act("journal_add", entry)}
+                  />
                 </Panel>
               </section>
             )}
@@ -1244,9 +1406,33 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       </div>
                     ))}
                   </div>
-                  <PrimaryButton onClick={() => act("eat")}>
+                  <div className="mt-4 space-y-3 max-h-72 overflow-y-auto pr-1">
+                    {FOOD_CATEGORIES.map((category) => {
+                      const items = data.foods.filter((food) => food.category === category);
+                      if (!items.length) return null;
+                      return (
+                        <div key={category}>
+                          <div className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                            {FOOD_CATEGORY_LABELS[category as FoodCategory] ?? category}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {items.map((food) => (
+                              <button
+                                key={food.key}
+                                onClick={() => act("food_eat", { food: food.key })}
+                                className="rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-medium text-[color:var(--lavender-deep)] hover:bg-white"
+                              >
+                                {food.name}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <PrimaryButton onClick={() => act("craving_roll")}>
                     <span className="inline-flex items-center gap-2">
-                      <Utensils className="h-4 w-4" /> Eat a healthy meal
+                      <Sparkles className="h-4 w-4" /> Roll a craving
                     </span>
                   </PrimaryButton>
                 </Panel>
@@ -1546,6 +1732,9 @@ function SetupWizard({
                   </div>
                   <div className="space-y-1.5">
                     <Label>RP event popups</Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Mood swings use this timer too. Meters nudge which feeling is more likely.
+                    </p>
                     <Select value={popupFrequencyMinutes} onValueChange={setPopupFrequencyMinutes}>
                       <SelectTrigger>
                         <SelectValue />
@@ -1614,6 +1803,11 @@ function ActionConsole({
         { icon: Calendar, label: "Timeline", action: "baby_size" },
         { icon: Camera, label: "Ultrasound", action: "ultrasound" },
         { icon: Stethoscope, label: "Appointment", action: "appointment" },
+        { icon: Footprints, label: "Feel Kick", action: "feel_kick" },
+        { icon: HeartPulse, label: "Contractions", action: "contractions" },
+        { icon: Droplet, label: "Water Break", action: "water_break" },
+        { icon: Hospital, label: "Hospital", action: "go_to_hospital" },
+        { icon: Baby, label: "Birth", action: "birth" },
         {
           icon: Sparkles,
           label: "Due Date",
@@ -1635,12 +1829,17 @@ function ActionConsole({
       title: "Care",
       items: [
         { icon: Moon, label: "Rest", action: "rest" },
+        { icon: Moon, label: "Sleep", action: "sleep" },
         { icon: Droplet, label: "Water", action: "drink_water" },
         { icon: Pill, label: "Vitamins", action: "vitamins" },
         { icon: Stethoscope, label: "Medicine", action: "medicine" },
         { icon: Waves, label: "Breathe", action: "breathe" },
         { icon: Heart, label: "Comfort", action: "comfort" },
         { icon: Sparkles, label: "Bath", action: "warm_bath" },
+        { icon: Bath, label: "Bathroom", action: "bathroom" },
+        { icon: CloudRain, label: "Vomit", action: "vomit" },
+        { icon: Smile, label: "Cry", action: "cry" },
+        { icon: Briefcase, label: "Bag", action: "pack_bag" },
       ],
     },
     {
@@ -1874,16 +2073,42 @@ function TimelineDialog({ currentWeek }: { currentWeek: number }) {
 }
 
 function JournalDialog({
+  token,
   onSave,
 }: {
-  onSave: (entry: { title: string; body: string; kind: string }) => void;
+  token: string;
+  onSave: (entry: {
+    title: string;
+    body: string;
+    kind: string;
+    photoId?: string;
+    photoUrl?: string;
+  }) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [kind, setKind] = useState("note");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const reset = () => {
+    setTitle("");
+    setBody("");
+    setKind("note");
+    setPhotoFile(null);
+    setPreview(null);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) reset();
+      }}
+    >
       <DialogTrigger asChild>
         <button className="mt-4 w-full rounded-full py-2.5 text-sm font-medium text-[color:var(--lavender-deep)] bg-white/70 hover:bg-white transition flex items-center justify-center gap-2">
           <Plus className="h-4 w-4" /> New Journal Entry
@@ -1929,24 +2154,56 @@ function JournalDialog({
               rows={4}
             />
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="j-photo">Photo from your PC</Label>
+            <Input
+              id="j-photo"
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0] ?? null;
+                setPhotoFile(file);
+                setPreview(file ? URL.createObjectURL(file) : null);
+              }}
+            />
+            {preview && (
+              <img src={preview} alt="" className="mt-2 max-h-36 w-full rounded-2xl object-cover" />
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              Pick a picture on this computer. Second Life media can upload it from here.
+            </p>
+          </div>
         </div>
         <DialogFooter>
           <button
+            disabled={saving}
             onClick={() => {
               if (!title.trim()) {
                 toast.error("Give your entry a title ♥");
                 return;
               }
-              onSave({ title, body, kind });
-              setTitle("");
-              setBody("");
-              setKind("note");
-              setOpen(false);
+              void (async () => {
+                setSaving(true);
+                try {
+                  let photoId: string | undefined;
+                  if (photoFile) {
+                    const uploaded = await uploadJournalPhoto(token, photoFile);
+                    photoId = uploaded.id;
+                  }
+                  onSave({ title, body, kind, photoId });
+                  reset();
+                  setOpen(false);
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "Could not save that photo");
+                } finally {
+                  setSaving(false);
+                }
+              })();
             }}
-            className="w-full rounded-full py-2.5 font-medium text-white shadow-soft transition hover:brightness-105"
+            className="w-full rounded-full py-2.5 font-medium text-white shadow-soft transition hover:brightness-105 disabled:opacity-60"
             style={{ background: "var(--gradient-lavender)" }}
           >
-            Save entry
+            {saving ? "Saving…" : "Save entry"}
           </button>
         </DialogFooter>
       </DialogContent>

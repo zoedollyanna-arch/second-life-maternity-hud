@@ -3,12 +3,14 @@ services:
     name: nestoria-pregnancy-hud
     runtime: node
     plan: starter
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /
     envVars:
       - key: NODE_VERSION
         value: 22
+      - key: NPM_CONFIG_PRODUCTION
+        value: "false"
       - key: APP_URL
         sync: false
       - key: DATABASE_URL

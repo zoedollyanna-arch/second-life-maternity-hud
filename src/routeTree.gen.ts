@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PartnerRouteImport } from './routes/partner'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiSlRegisterRouteImport } from './routes/api/sl/register'
 import { Route as ApiSlPollRouteImport } from './routes/api/sl/poll'
@@ -16,9 +17,15 @@ import { Route as ApiSlPartnerLinkRouteImport } from './routes/api/sl/partner-li
 import { Route as ApiSlEventRouteImport } from './routes/api/sl/event'
 import { Route as ApiSlActionRouteImport } from './routes/api/sl/action'
 import { Route as ApiHudStateRouteImport } from './routes/api/hud/state'
+import { Route as ApiHudPhotoRouteImport } from './routes/api/hud/photo'
 import { Route as ApiHudDemoRouteImport } from './routes/api/hud/demo'
 import { Route as ApiHudActionRouteImport } from './routes/api/hud/action'
 
+const PartnerRoute = PartnerRouteImport.update({
+  id: '/partner',
+  path: '/partner',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -54,6 +61,11 @@ const ApiHudStateRoute = ApiHudStateRouteImport.update({
   path: '/api/hud/state',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiHudPhotoRoute = ApiHudPhotoRouteImport.update({
+  id: '/api/hud/photo',
+  path: '/api/hud/photo',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiHudDemoRoute = ApiHudDemoRouteImport.update({
   id: '/api/hud/demo',
   path: '/api/hud/demo',
@@ -67,8 +79,10 @@ const ApiHudActionRoute = ApiHudActionRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/partner': typeof PartnerRoute
   '/api/hud/action': typeof ApiHudActionRoute
   '/api/hud/demo': typeof ApiHudDemoRoute
+  '/api/hud/photo': typeof ApiHudPhotoRoute
   '/api/hud/state': typeof ApiHudStateRoute
   '/api/sl/action': typeof ApiSlActionRoute
   '/api/sl/event': typeof ApiSlEventRoute
@@ -78,8 +92,10 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/partner': typeof PartnerRoute
   '/api/hud/action': typeof ApiHudActionRoute
   '/api/hud/demo': typeof ApiHudDemoRoute
+  '/api/hud/photo': typeof ApiHudPhotoRoute
   '/api/hud/state': typeof ApiHudStateRoute
   '/api/sl/action': typeof ApiSlActionRoute
   '/api/sl/event': typeof ApiSlEventRoute
@@ -90,8 +106,10 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/partner': typeof PartnerRoute
   '/api/hud/action': typeof ApiHudActionRoute
   '/api/hud/demo': typeof ApiHudDemoRoute
+  '/api/hud/photo': typeof ApiHudPhotoRoute
   '/api/hud/state': typeof ApiHudStateRoute
   '/api/sl/action': typeof ApiSlActionRoute
   '/api/sl/event': typeof ApiSlEventRoute
@@ -103,8 +121,10 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/partner'
     | '/api/hud/action'
     | '/api/hud/demo'
+    | '/api/hud/photo'
     | '/api/hud/state'
     | '/api/sl/action'
     | '/api/sl/event'
@@ -114,8 +134,10 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/partner'
     | '/api/hud/action'
     | '/api/hud/demo'
+    | '/api/hud/photo'
     | '/api/hud/state'
     | '/api/sl/action'
     | '/api/sl/event'
@@ -125,8 +147,10 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/partner'
     | '/api/hud/action'
     | '/api/hud/demo'
+    | '/api/hud/photo'
     | '/api/hud/state'
     | '/api/sl/action'
     | '/api/sl/event'
@@ -137,8 +161,10 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  PartnerRoute: typeof PartnerRoute
   ApiHudActionRoute: typeof ApiHudActionRoute
   ApiHudDemoRoute: typeof ApiHudDemoRoute
+  ApiHudPhotoRoute: typeof ApiHudPhotoRoute
   ApiHudStateRoute: typeof ApiHudStateRoute
   ApiSlActionRoute: typeof ApiSlActionRoute
   ApiSlEventRoute: typeof ApiSlEventRoute
@@ -149,6 +175,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/partner': {
+      id: '/partner'
+      path: '/partner'
+      fullPath: '/partner'
+      preLoaderRoute: typeof PartnerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -198,6 +231,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHudStateRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/hud/photo': {
+      id: '/api/hud/photo'
+      path: '/api/hud/photo'
+      fullPath: '/api/hud/photo'
+      preLoaderRoute: typeof ApiHudPhotoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/hud/demo': {
       id: '/api/hud/demo'
       path: '/api/hud/demo'
@@ -217,8 +257,10 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  PartnerRoute: PartnerRoute,
   ApiHudActionRoute: ApiHudActionRoute,
   ApiHudDemoRoute: ApiHudDemoRoute,
+  ApiHudPhotoRoute: ApiHudPhotoRoute,
   ApiHudStateRoute: ApiHudStateRoute,
   ApiSlActionRoute: ApiSlActionRoute,
   ApiSlEventRoute: ApiSlEventRoute,

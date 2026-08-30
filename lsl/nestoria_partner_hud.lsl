@@ -1,51 +1,54 @@
 // ============================================================================
-// NESTORIA PREGNANCY HUD — Partner HUD script
+// NESTORIA — Partner HUD (MOAP only)
 // ----------------------------------------------------------------------------
-// Worn by the partner. Pairs with the mom's pregnancy using the pairing code
-// shown in her web dashboard (Partner panel → "Open Partner Hub").
+// Same web app as the Pregnancy HUD, different page: /partner?token=…
+// Touch to pair (first time) or refresh the screen. All support actions
+// live on that page — no in-world dialog menu.
 //
-// Touch the HUD for a menu of support actions. Every action is recorded on
-// the server, boosts her support meter, and shows up in her dashboard feed.
-//
-// SETUP: set API_BASE and API_SECRET to match your server .env.
-// Optional inventory: sound "nestoria_chime", anim "nestoria_hug".
+// SETUP: API_BASE and API_SECRET must match the server .env.
+// Face 4 is the media screen (same as the mom HUD). Adjust MOAP_FACE if needed.
 // ============================================================================
 
-string  API_BASE   = "https://second-life-maternity-hud-t3vv.onrender.com";
-string  API_SECRET = "2175039403870ed15116d0dcf330095af3f6a398e83bca01";  // same value as SL_API_SECRET in the server .env
+string  API_BASE   = "https://second-life-maternity-hud-t2b3.onrender.com";
+string  API_SECRET = "2175039403870ed15116d0dcf330095af3f6a398e83bca01";
 
-float   VOLUME = 0.7;
+integer MOAP_FACE     = 4;
+integer SCREEN_WIDTH  = 1280;
+integer SCREEN_HEIGHT = 720;
+integer POLL_SECONDS  = 30;
 
 string  gToken = "";
+string  gMoapUrl = "";
 string  gMomName = "";
-key     gMomKey = NULL_KEY;
 key     gHttpReq = NULL_KEY;
+key     gPollReq = NULL_KEY;
 integer gListenHandle;
 integer gMenuChannel;
 integer gAwaitingCode = FALSE;
-integer gAwaitingMessage = FALSE;
 
 say(string msg) { llOwnerSay("♥ Nestoria Partner: " + msg); }
 
-playSoundByName(string name)
+setMoap(string url)
 {
-    if (llGetInventoryType(name) == INVENTORY_SOUND) llPlaySound(name, VOLUME);
-}
-
-request(string path, string body)
-{
-    gHttpReq = llHTTPRequest(API_BASE + path, [
-        HTTP_METHOD, "POST",
-        HTTP_MIMETYPE, "application/json",
-        HTTP_BODY_MAXLENGTH, 16384
-    ], body);
-}
-
-sendAction(string action, string note)
-{
-    list fields = ["token", gToken, "action", action, "source", "sl"];
-    if (note != "") fields += ["note", note];
-    request("/api/sl/action", llList2Json(JSON_OBJECT, fields));
+    if (url == "") return;
+    integer sides = llGetNumberOfSides();
+    if (MOAP_FACE < 0 || MOAP_FACE >= sides)
+    {
+        say("Face " + (string)MOAP_FACE + " does not exist on this prim.");
+        return;
+    }
+    llClearPrimMedia(MOAP_FACE);
+    llSetPrimMediaParams(MOAP_FACE, [
+        PRIM_MEDIA_CURRENT_URL, url,
+        PRIM_MEDIA_HOME_URL, url,
+        PRIM_MEDIA_AUTO_PLAY, TRUE,
+        PRIM_MEDIA_AUTO_SCALE, TRUE,
+        PRIM_MEDIA_PERMS_INTERACT, PRIM_MEDIA_PERM_OWNER,
+        PRIM_MEDIA_PERMS_CONTROL, PRIM_MEDIA_PERM_NONE,
+        PRIM_MEDIA_CONTROLS, PRIM_MEDIA_CONTROLS_MINI,
+        PRIM_MEDIA_WIDTH_PIXELS, SCREEN_WIDTH,
+        PRIM_MEDIA_HEIGHT_PIXELS, SCREEN_HEIGHT
+    ]);
 }
 
 askForCode()
@@ -55,21 +58,7 @@ askForCode()
     llListenRemove(gListenHandle);
     gListenHandle = llListen(gMenuChannel, "", llGetOwner(), "");
     llTextBox(llGetOwner(),
-        "Enter your pairing code.\n(She can find it on her dashboard in the Partner panel.)",
-        gMenuChannel);
-}
-
-mainMenu()
-{
-    gMenuChannel = -1 - (integer)llFrand(1000000.0);
-    llListenRemove(gListenHandle);
-    gListenHandle = llListen(gMenuChannel, "", llGetOwner(), "");
-    string who = gMomName;
-    if (who == "") who = "your love";
-    llDialog(llGetOwner(),
-        "♥ Supporting " + who + " ♥\nEvery little thing counts.",
-        ["Hug", "Bring Water", "Encourage", "Rub Back",
-         "Attend Appt", "Send Message", "Re-Pair", "Status"],
+        "Enter her pairing code (Partner panel on her Pregnancy HUD).",
         gMenuChannel);
 }
 
@@ -77,68 +66,64 @@ default
 {
     state_entry()
     {
-        say("Touch me to pair with your partner's Nestoria HUD.");
+        say("Touch to pair. After pairing, this screen is the Partner HUD.");
+        llSetTimerEvent((float)POLL_SECONDS);
     }
 
     attach(key id)
     {
         if (id != NULL_KEY && gToken == "") askForCode();
+        else if (id != NULL_KEY) setMoap(gMoapUrl);
     }
 
     touch_start(integer n)
     {
         if (llDetectedKey(0) != llGetOwner()) return;
         if (gToken == "") askForCode();
-        else mainMenu();
+        else
+        {
+            setMoap(gMoapUrl);
+            say("Partner screen refreshed.");
+        }
     }
 
     listen(integer channel, string name, key id, string message)
     {
         llListenRemove(gListenHandle);
-
-        if (gAwaitingCode)
-        {
-            gAwaitingCode = FALSE;
-            request("/api/sl/partner-link", llList2Json(JSON_OBJECT, [
-                "secret", API_SECRET,
-                "code", llStringTrim(message, STRING_TRIM),
-                "object_key", (string)llGetKey(),
-                "region", llGetRegionName()
-            ]));
-            say("Pairing...");
-            return;
-        }
-
-        if (gAwaitingMessage)
-        {
-            gAwaitingMessage = FALSE;
-            sendAction("partner_message", message);
-            say("Message sent ♥");
-            return;
-        }
-
-        if (message == "Hug")          { sendAction("hug", ""); playSoundByName("nestoria_chime"); }
-        else if (message == "Bring Water")  sendAction("partner_water", "");
-        else if (message == "Encourage")    sendAction("support", "");
-        else if (message == "Rub Back")     sendAction("partner_backrub", "");
-        else if (message == "Attend Appt")  sendAction("partner_appointment", "");
-        else if (message == "Send Message")
-        {
-            gAwaitingMessage = TRUE;
-            gMenuChannel = -1 - (integer)llFrand(1000000.0);
-            gListenHandle = llListen(gMenuChannel, "", llGetOwner(), "");
-            llTextBox(llGetOwner(), "Write a sweet message for her:", gMenuChannel);
-        }
-        else if (message == "Re-Pair") askForCode();
-        else if (message == "Status") sendAction("partner_status", "");
+        if (!gAwaitingCode) return;
+        gAwaitingCode = FALSE;
+        gHttpReq = llHTTPRequest(API_BASE + "/api/sl/partner-link", [
+            HTTP_METHOD, "POST",
+            HTTP_MIMETYPE, "application/json",
+            HTTP_BODY_MAXLENGTH, 16384
+        ], llList2Json(JSON_OBJECT, [
+            "secret", API_SECRET,
+            "code", llStringTrim(message, STRING_TRIM),
+            "object_key", (string)llGetKey(),
+            "region", llGetRegionName()
+        ]));
+        say("Pairing...");
     }
 
     http_response(key id, integer status, list meta, string body)
     {
+        if (id == gPollReq)
+        {
+            gPollReq = NULL_KEY;
+            if (status == 401) { gToken = ""; return; }
+            if (status != 200) return;
+            integer i = 0;
+            while (llJsonValueType(body, ["commands", i]) != JSON_INVALID)
+            {
+                string text = llJsonGetValue(body, ["commands", i, "params", "text"]);
+                if (text != JSON_INVALID) say(text);
+                i++;
+            }
+            return;
+        }
         if (id != gHttpReq) return;
         gHttpReq = NULL_KEY;
-
-        if (status == 401) { gToken = ""; say("Pairing expired - touch to pair again."); return; }
+        if (status == 401) { gToken = ""; say("Pairing expired — touch to pair again."); return; }
         if (status != 200)
         {
             string err = llJsonGetValue(body, ["error"]);
@@ -146,21 +131,28 @@ default
             say(err);
             return;
         }
-
         string token = llJsonGetValue(body, ["token"]);
         if (token != JSON_INVALID && token != "") gToken = token;
-
+        string moap = llJsonGetValue(body, ["moap_url"]);
+        if (moap != JSON_INVALID && moap != "")
+        {
+            gMoapUrl = moap;
+            setMoap(gMoapUrl);
+        }
         string momName = llJsonGetValue(body, ["mom_name"]);
         if (momName != JSON_INVALID) gMomName = momName;
-        string momKey = llJsonGetValue(body, ["mom_key"]);
-        if (momKey != JSON_INVALID) gMomKey = (key)momKey;
-
         string msg = llJsonGetValue(body, ["message"]);
         if (msg != JSON_INVALID && msg != "") say(msg);
+    }
 
-        string anim = llJsonGetValue(body, ["anim"]);
-        if (anim == "hug" && gMomKey != NULL_KEY)
-            llWhisper(0, llKey2Name(llGetOwner()) + " wraps " + gMomName + " in a warm hug ♥");
+    timer()
+    {
+        if (gToken == "") return;
+        gPollReq = llHTTPRequest(
+            API_BASE + "/api/sl/poll?token=" + gToken + "&kind=partner", [
+            HTTP_METHOD, "GET",
+            HTTP_BODY_MAXLENGTH, 16384
+        ], "");
     }
 
     changed(integer change)
