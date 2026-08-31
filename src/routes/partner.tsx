@@ -214,13 +214,13 @@ function PartnerDashboard({ token }: { token: string }) {
                   <div className="mt-2 flex justify-center gap-2">
                     <button
                       onClick={() => act("partner_faint")}
-                      className="rounded-full bg-white/70 px-3 py-1.5 text-[11px]"
+                      className="min-h-10 rounded-full bg-white/70 px-4 hud-copy"
                     >
                       Feel faint
                     </button>
                     <button
                       onClick={() => act("partner_vomit_react")}
-                      className="rounded-full bg-white/70 px-3 py-1.5 text-[11px]"
+                      className="min-h-10 rounded-full bg-white/70 px-4 hud-copy"
                     >
                       Get queasy
                     </button>

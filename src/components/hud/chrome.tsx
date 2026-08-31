@@ -1,15 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Maximize2, ZoomIn, ZoomOut } from "lucide-react";
+import { useCallback, useRef, type ReactNode } from "react";
 
-/** Kept for settings/accessibility text density. Layout no longer uses transform scale. */
-export const HUD_DESIGN_WIDTH = 1024;
-export const MIN_ZOOM = 0.85;
-export const MAX_ZOOM = 1.2;
+/** Layout fills the MOAP face. Do not apply transform:scale or zoom. */
+export const HUD_DESIGN_WIDTH = 800;
+export const MIN_ZOOM = 1;
+export const MAX_ZOOM = 1;
 export const ZOOM_STEP = 0.05;
 export const ZOOM_STORAGE_KEY = "nestoriaHudZoomV5";
 
-export const clampZoom = (value: number) =>
-  Math.round(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value)) * 100) / 100;
+export const clampZoom = (value: number) => 1;
 
 const PIP_COUNT = 6;
 
@@ -29,7 +27,7 @@ export function CloudBar({
         : "linear-gradient(180deg, #D6C6E7 0%, #A77ACB 100%)";
   return (
     <div
-      className="flex min-w-0 items-center gap-[3px]"
+      className="hud-cloud-pips"
       role="meter"
       aria-valuenow={Math.round(value)}
       aria-valuemin={0}
@@ -41,7 +39,7 @@ export function CloudBar({
           className="hud-cloud-pip"
           style={{
             background: i < filled ? fill : "#E9E3EF",
-            boxShadow: i < filled ? "0 1px 3px #A77ACB44" : "none",
+            boxShadow: i < filled ? "0 2px 6px #A77ACB44" : "none",
           }}
         />
       ))}
@@ -54,37 +52,21 @@ export function Meter({
   label,
   value,
   tone = "lavender",
-  compact = false,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: number;
   tone?: "lavender" | "blush" | "cream";
-  compact?: boolean;
 }) {
-  if (compact) {
-    return (
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <div className="flex min-w-0 items-center justify-between gap-1">
-          <span className="hud-label flex min-w-0 items-center gap-1 truncate">
-            <Icon className="h-3 w-3 shrink-0" />
-            {label}
-          </span>
-          <span className="hud-label shrink-0 text-[#A77ACB]">{Math.round(value)}%</span>
-        </div>
-        <CloudBar value={value} tone={tone} />
-      </div>
-    );
-  }
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white shadow-soft">
-        <Icon className="h-3.5 w-3.5 text-[#A77ACB]" />
+    <div className="hud-meter">
+      <div className="hud-meter-icon">
+        <Icon className="h-5 w-5" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="mb-0.5 flex items-center justify-between gap-2">
-          <span className="hud-label truncate">{label}</span>
-          <span className="hud-label shrink-0 text-[#A77ACB]">{Math.round(value)}%</span>
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <span className="hud-copy truncate font-semibold">{label}</span>
+          <span className="hud-copy shrink-0 font-bold text-[#A77ACB]">{Math.round(value)}%</span>
         </div>
         <CloudBar value={value} tone={tone} />
       </div>
@@ -144,8 +126,8 @@ export function Row({
   icon?: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 items-baseline justify-between gap-2 rounded-xl bg-white/80 px-2.5 py-1.5">
-      <span className="hud-label flex min-w-0 items-center gap-1.5 truncate">
+    <div className="flex min-h-11 min-w-0 items-center justify-between gap-2 rounded-xl bg-white/80 px-3 py-2">
+      <span className="hud-copy flex min-w-0 items-center gap-1.5 truncate font-semibold">
         {icon}
         {label}
       </span>
@@ -155,77 +137,13 @@ export function Row({
 }
 
 export function useHudZoom() {
-  const [zoom, setZoomState] = useState(1);
   const metrics = useRef<{ renderedHeight: number; viewportHeight: number } | null>(null);
-
-  useEffect(() => {
-    const saved = Number(window.localStorage.getItem(ZOOM_STORAGE_KEY));
-    if (Number.isFinite(saved) && saved > 0) setZoomState(clampZoom(saved));
-  }, []);
-
-  const setZoom = useCallback((next: number) => {
-    const clamped = clampZoom(next);
-    setZoomState(clamped);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(ZOOM_STORAGE_KEY, String(clamped));
-      document.documentElement.style.setProperty("--hud-zoom", String(clamped));
-    }
-    return clamped;
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.style.setProperty("--hud-zoom", String(zoom));
-  }, [zoom]);
-
+  const setZoom = useCallback((_next: number) => 1, []);
   const onMetrics = useCallback((next: { renderedHeight: number; viewportHeight: number }) => {
     metrics.current = next;
   }, []);
-
-  const fit = useCallback(() => setZoom(1), [setZoom]);
-
-  return { zoom, setZoom, onMetrics, fit };
-}
-
-export function DensityControls({
-  zoom,
-  setZoom,
-}: {
-  zoom: number;
-  setZoom: (next: number) => void;
-}) {
-  return (
-    <div className="flex items-center gap-0.5 rounded-full bg-white/80 p-0.5 shadow-soft">
-      <button
-        type="button"
-        onClick={() => setZoom(zoom - ZOOM_STEP)}
-        disabled={zoom <= MIN_ZOOM}
-        aria-label="Smaller text"
-        className="hud-icon-btn disabled:opacity-40"
-      >
-        <ZoomOut className="h-3.5 w-3.5" />
-      </button>
-      <button
-        type="button"
-        onClick={() => setZoom(1)}
-        aria-label="Reset text size"
-        className="min-w-8 px-1 text-[10px] font-semibold text-[#A77ACB]"
-      >
-        {Math.round(zoom * 100)}
-      </button>
-      <button
-        type="button"
-        onClick={() => setZoom(zoom + ZOOM_STEP)}
-        disabled={zoom >= MAX_ZOOM}
-        aria-label="Larger text"
-        className="hud-icon-btn disabled:opacity-40"
-      >
-        <ZoomIn className="h-3.5 w-3.5" />
-      </button>
-      <button type="button" onClick={() => setZoom(1)} aria-label="Fit screen" className="hud-icon-btn">
-        <Maximize2 className="h-3.5 w-3.5" />
-      </button>
-    </div>
-  );
+  const fit = useCallback(() => 1, []);
+  return { zoom: 1, setZoom, onMetrics, fit };
 }
 
 /** Full-viewport tablet chrome. No transform:scale — layout reflows to the MOAP face. */

@@ -9,7 +9,6 @@ import {
   BookHeart,
   Bell,
   Settings,
-  Activity,
   Droplet,
   Pill,
   Moon,
@@ -39,6 +38,7 @@ import {
   Briefcase,
   HeartPulse,
   Hospital,
+  MoreHorizontal,
 } from "lucide-react";
 import logo from "@/assets/nestoria-logo.png";
 import pregnancyHero from "@/assets/pregnancy-hero.jpg";
@@ -85,7 +85,6 @@ import {
   Shell,
   HudFrame,
   useHudZoom,
-  DensityControls,
 } from "@/components/hud/chrome";
 
 export const Route = createFileRoute("/")({
@@ -105,18 +104,56 @@ type NavKey =
   | "journal"
   | "nutrition"
   | "notifications"
-  | "settings";
+  | "settings"
+  | "more";
 
-const RAIL_NAV: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+const DOCK_NAV: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: "home", label: "Home", icon: Home },
   { key: "pregnancy", label: "Pregnancy", icon: Sparkles },
   { key: "health", label: "Health", icon: Heart },
+  { key: "baby", label: "Baby", icon: Baby },
+  { key: "more", label: "More", icon: MoreHorizontal },
+];
+
+const MORE_APPS: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: "care", label: "Care", icon: HandHeart },
   { key: "partner", label: "Partner", icon: Users },
   { key: "journal", label: "Journal", icon: BookHeart },
-  { key: "baby", label: "Baby", icon: Baby },
+  { key: "journal", label: "Milestones", icon: Trophy },
+  { key: "nutrition", label: "Nutrition", icon: Apple },
+  { key: "notifications", label: "Alerts", icon: Bell },
   { key: "settings", label: "Settings", icon: Settings },
 ];
+
+function dockKey(active: NavKey): NavKey {
+  if (active === "home" || active === "pregnancy" || active === "baby" || active === "more") return active;
+  if (active === "health" || active === "nutrition") return "health";
+  return "more";
+}
+
+function AppPage({
+  title,
+  onBack,
+  children,
+}: {
+  title: string;
+  onBack: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="hud-page">
+      <div className="hud-page-head">
+        <button type="button" className="hud-back" onClick={onBack}>
+          <ChevronLeft className="h-5 w-5" />
+          Back
+        </button>
+        <h2 className="hud-title">{title}</h2>
+        <span className="w-[72px] shrink-0" aria-hidden />
+      </div>
+      {children}
+    </div>
+  );
+}
 
 const CLIENT_DECAY_PER_HOUR: Record<keyof HudStats, number> = {
   energy: -2.2,
@@ -291,8 +328,15 @@ function ConnectScreen() {
 
 function Dashboard({ token, data }: { token: string; data: HudState }) {
   const [active, setActive] = useState<NavKey>("home");
+  const backTo = useRef<NavKey>("home");
   const hudZoom = useHudZoom();
   const action = useHudAction(token);
+
+  const openApp = (key: NavKey, from: NavKey = "home") => {
+    backTo.current = from;
+    setActive(key);
+  };
+  const goBack = () => setActive(backTo.current === active ? "home" : backTo.current);
 
   const act = (name: string, params?: Record<string, unknown>, opts?: { silent?: boolean }) =>
     action.mutate(
@@ -341,7 +385,6 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
       }),
     [preg.dueDate],
   );
-  const firstName = data.user.name.split(" ")[0];
   const nextMilestone = useMemo(
     () => BABY_GROWTH.find((m) => m.week > preg.week) ?? BABY_GROWTH[BABY_GROWTH.length - 1],
     [preg.week],
@@ -352,7 +395,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
     [
       { key: "pregnancy", label: "Pregnancy", icon: Sparkles },
       { key: "health", label: "Health", icon: Heart },
-      { key: "care", label: "Care & Comfort", icon: HandHeart },
+      { key: "care", label: "Care", icon: HandHeart },
       { key: "partner", label: "Partner", icon: Users },
       { key: "journal", label: "Journal", icon: BookHeart },
       { key: "baby", label: "Baby", icon: Baby },
@@ -373,48 +416,35 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
       <HudFrame {...hudZoom}>
         <div className="hud-app">
           <header className="hud-topbar">
-            <div className="flex min-w-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setActive("home")}
-                className="flex min-w-0 items-center gap-2 text-left"
-              >
-                <img src={logo} alt="" width={40} height={40} className="h-9 w-9 shrink-0 rounded-xl" />
-                <div className="min-w-0">
-                  <div className="hud-brand truncate">NESTORIA</div>
-                  <div className="hud-muted truncate">Pregnancy & Family</div>
-                </div>
-              </button>
-            </div>
-            <div className="flex min-w-0 items-center gap-1.5">
-              <div className="hidden min-w-0 min-[720px]:block">
-                <div className="hud-muted truncate">Welcome back</div>
-                <div className="hud-copy truncate font-semibold">{firstName}</div>
+            <button
+              type="button"
+              onClick={() => setActive("home")}
+              className="flex min-w-0 items-center gap-3 text-left"
+            >
+              <img src={logo} alt="" width={44} height={44} className="h-11 w-11 shrink-0 rounded-xl" />
+              <div className="min-w-0">
+                <div className="hud-brand truncate">NESTORIA</div>
+                <div className="hud-subtitle truncate">Pregnancy & Family</div>
               </div>
+            </button>
+            <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
-                onClick={() => setActive("notifications")}
+                onClick={() => openApp("notifications")}
                 aria-label="Notifications"
                 className="hud-icon-btn relative"
               >
-                <Bell className="h-4 w-4" />
-                {data.unread > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#F6C6D6] px-1 text-[9px] font-bold text-white">
-                    {data.unread}
-                  </span>
-                )}
+                <Bell className="h-5 w-5" />
+                {data.unread > 0 && <span className="hud-unread">{data.unread}</span>}
               </button>
               <button
                 type="button"
-                onClick={() => setActive("settings")}
+                onClick={() => openApp("settings")}
                 aria-label="Settings"
                 className="hud-icon-btn"
               >
-                <Settings className="h-4 w-4" />
+                <Settings className="h-5 w-5" />
               </button>
-              <div className="hidden min-[900px]:block">
-                <DensityControls zoom={hudZoom.zoom} setZoom={hudZoom.setZoom} />
-              </div>
             </div>
           </header>
 
@@ -428,56 +458,33 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
           )}
 
           <div className="hud-stage">
-            {active !== "home" && (
-            <nav className="hud-rail" aria-label="Main">
-              {RAIL_NAV.map(({ key, label, icon: Icon }) => {
-                const isActive = active === key;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setActive(key)}
-                    className={`hud-rail-btn ${isActive ? "is-active" : ""}`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    <span>{label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-            )}
-
             <main className={`hud-main ${pageScrolls ? "is-scroll" : ""}`}>
               {active === "home" && (
                 <div className="hud-home">
                   <section>
-                    <button type="button" className="hud-card w-full text-left" onClick={() => setActive("pregnancy")}>
+                    <button
+                      type="button"
+                      className="hud-card w-full text-left"
+                      onClick={() => openApp("pregnancy")}
+                    >
                       <div className="hud-overview-strip">
                         <img src={pregnancyHero} alt="" loading="lazy" />
-                        <div className="min-w-0">
-                          <div className="hud-muted">{preg.delivered ? "Delivered" : "Pregnant"}</div>
+                        <div className="hud-overview-meta">
                           <div className="hud-stat">
-                            {preg.week}w + {preg.day}d
+                            {preg.week}W + {preg.day}D
                           </div>
-                          <div className="hud-copy mt-0.5">{trimesterLabel}</div>
-                          <div className="mt-1.5">
-                            <CloudBar value={preg.progressPct} />
-                          </div>
+                          <div className="hud-copy">{trimesterLabel}</div>
+                          <CloudBar value={preg.progressPct} />
                         </div>
-                        <div className="hidden min-w-0 min-[820px]:grid grid-cols-2 gap-1.5">
-                          {(
-                            [
-                              ["Due", dueDate],
-                              ["Left", `${preg.daysToGo} days`],
-                              ["Size", preg.baby.size],
-                              ["Progress", `${preg.progressPct}%`],
-                            ] as const
-                          ).map(([label, value]) => (
-                            <div key={label} className="min-w-0 rounded-xl bg-white/80 px-2 py-1">
-                              <div className="hud-label truncate">{label}</div>
-                              <div className="hud-copy truncate font-semibold">{value}</div>
-                            </div>
-                          ))}
+                        <div className="hud-overview-facts">
+                          <div className="hud-overview-fact">
+                            <div className="hud-label">Due</div>
+                            <div className="hud-copy truncate">{dueDate}</div>
+                          </div>
+                          <div className="hud-overview-fact">
+                            <div className="hud-label">Size</div>
+                            <div className="hud-copy truncate">{preg.baby.size}</div>
+                          </div>
                         </div>
                       </div>
                     </button>
@@ -489,7 +496,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                         <button
                           key={label}
                           type="button"
-                          onClick={() => setActive(key)}
+                          onClick={() => openApp(key)}
                           className="hud-tile"
                         >
                           <span className="hud-tile-icon">
@@ -500,63 +507,34 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       ))}
                     </div>
                   </section>
-
-                  <section>
-                    <Panel>
-                      <div className="hud-health-strip">
-                        <Meter compact icon={Heart} label="Sickness" value={stats.sickness} tone="blush" />
-                        <Meter compact icon={Utensils} label="Hunger" value={stats.hunger} />
-                        <Meter compact icon={Droplet} label="Bladder" value={stats.bladder} />
-                        <Meter compact icon={Zap} label="Energy" value={stats.energy} />
-                        <Meter compact icon={Smile} label="Mood" value={stats.mood} tone="blush" />
-                        <Meter compact icon={Droplet} label="Hydration" value={stats.hydration} />
-                      </div>
-                    </Panel>
-                  </section>
-
-                  <section>
-                    <div className="hud-actions">
-                      <button type="button" className="hud-action" onClick={() => act("rest")}>
-                        <Moon className="h-4 w-4 text-[#A77ACB]" />
-                        <span>Rest</span>
-                      </button>
-                      <button type="button" className="hud-action" onClick={() => act("drink_water")}>
-                        <Droplet className="h-4 w-4 text-[#A77ACB]" />
-                        <span>Water</span>
-                      </button>
-                      <button type="button" className="hud-action" onClick={() => act("vitamins")}>
-                        <Pill className="h-4 w-4 text-[#A77ACB]" />
-                        <span>Vitamins</span>
-                      </button>
-                      <button type="button" className="hud-action" onClick={() => act("comfort")}>
-                        <Heart className="h-4 w-4 text-[#A77ACB]" />
-                        <span>Comfort</span>
-                      </button>
-                      <button type="button" className="hud-action" onClick={() => act("hug")}>
-                        <HandHeart className="h-4 w-4 text-[#A77ACB]" />
-                        <span>Hug</span>
-                      </button>
-                      <button type="button" className="hud-action" onClick={() => act("support")}>
-                        <MessageCircle className="h-4 w-4 text-[#A77ACB]" />
-                        <span>Support</span>
-                      </button>
-                      <button type="button" className="hud-action" onClick={() => act("medicine")}>
-                        <Stethoscope className="h-4 w-4 text-[#A77ACB]" />
-                        <span>Meds</span>
-                      </button>
-                      <button type="button" className="hud-action" onClick={() => act("count_kick")}>
-                        <Footprints className="h-4 w-4 text-[#A77ACB]" />
-                        <span>Kick</span>
-                      </button>
-                    </div>
-                  </section>
                 </div>
               )}
 
-              {active === "pregnancy" && (
-                <div className="hud-page">
+              {active === "more" && (
+                <AppPage title="More" onBack={() => setActive("home")}>
                   <Panel className="is-scroll">
-                    <PanelHeader eyebrow="Pregnancy" title="Your beautiful journey" />
+                    <div className="hud-more-list">
+                      {MORE_APPS.map(({ key, label, icon: Icon }) => (
+                        <button
+                          key={label}
+                          type="button"
+                          className="hud-more-row"
+                          onClick={() => openApp(key, "more")}
+                        >
+                          <span className="hud-tile-icon">
+                            <Icon />
+                          </span>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </Panel>
+                </AppPage>
+              )}
+
+              {active === "pregnancy" && (
+                <AppPage title="Pregnancy" onBack={goBack}>
+                  <Panel className="is-scroll">
                     <div className="grid grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)] gap-3">
                       <div className="relative mx-auto aspect-square w-full max-w-[180px] overflow-hidden rounded-full ring-4 ring-white/70">
                         <img
@@ -568,7 +546,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       </div>
                       <div className="min-w-0 space-y-2">
                         <div className="hud-stat">
-                          {preg.week}w + {preg.day}d
+                          {preg.week}W + {preg.day}D
                         </div>
                         <p className="hud-muted">
                           {trimesterLabel} · Due {dueDate} · {preg.daysToGo} days remaining
@@ -590,34 +568,34 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       </div>
                     </div>
                     <TimelineDialog currentWeek={preg.week} />
-                    <div className="mt-3 grid grid-cols-4 gap-2">
+                    <div className="mt-3 hud-care-grid">
                       <button
                         onClick={() => act("feel_kick")}
-                        className="hud-action min-h-10"
+                        className="hud-action"
                       >
                         Feel kick
                       </button>
-                      <button onClick={() => act("count_kick")} className="hud-action min-h-10">
+                      <button onClick={() => act("count_kick")} className="hud-action">
                         Count kick
                       </button>
-                      <button onClick={() => act("appointment")} className="hud-action min-h-10">
+                      <button onClick={() => act("appointment")} className="hud-action">
                         Appointment
                       </button>
-                      <button onClick={() => act("ultrasound")} className="hud-action min-h-10">
+                      <button onClick={() => act("ultrasound")} className="hud-action">
                         Ultrasound
                       </button>
                       {!preg.delivered && (
                         <>
-                          <button onClick={() => act("water_break")} className="hud-action min-h-10">
+                          <button onClick={() => act("water_break")} className="hud-action">
                             Water break
                           </button>
-                          <button onClick={() => act("contractions")} className="hud-action min-h-10">
+                          <button onClick={() => act("contractions")} className="hud-action">
                             Contractions
                           </button>
-                          <button onClick={() => act("go_to_hospital")} className="hud-action min-h-10">
+                          <button onClick={() => act("go_to_hospital")} className="hud-action">
                             Hospital
                           </button>
-                          <button onClick={() => act("birth")} className="hud-action min-h-10">
+                          <button onClick={() => act("birth")} className="hud-action">
                             Birth
                           </button>
                         </>
@@ -632,16 +610,12 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       </p>
                     )}
                   </Panel>
-                </div>
+                </AppPage>
               )}
 
               {active === "baby" && (
-                <div className="hud-page">
+                <AppPage title={preg.babyName ?? "Baby"} onBack={goBack}>
                   <Panel className="is-scroll">
-                    <PanelHeader
-                      eyebrow="Baby"
-                      title={preg.babyName ? `All about ${preg.babyName}` : "All about your little one"}
-                    />
                     <div className="grid grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)] items-center gap-3">
                       <div className="relative mx-auto aspect-square w-full max-w-[160px] overflow-hidden rounded-full ring-4 ring-white/70">
                         <img src={babyHero} alt="Baby" className="h-full w-full object-cover" loading="lazy" />
@@ -670,62 +644,41 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       }}
                     />
                   </Panel>
-                </div>
+                </AppPage>
               )}
 
               {active === "health" && (
-                <div className="hud-page">
+                <AppPage title="Health" onBack={goBack}>
                   <Panel className="is-scroll">
-                    <PanelHeader eyebrow="Health" title="Monitor your well-being" />
                     <div className="hud-meters">
                       <Meter icon={Heart} label="Sickness" value={stats.sickness} tone="blush" />
-                      <Meter icon={Utensils} label="Hunger" value={stats.hunger} />
-                      <Meter icon={Droplet} label="Bladder" value={stats.bladder} />
                       <Meter icon={Zap} label="Energy" value={stats.energy} />
+                      <Meter icon={Utensils} label="Hunger" value={stats.hunger} />
                       <Meter icon={Smile} label="Mood" value={stats.mood} tone="blush" />
+                      <Meter icon={Droplet} label="Bladder" value={stats.bladder} />
                       <Meter icon={Droplet} label="Hydration" value={stats.hydration} />
-                      <Meter icon={Activity} label="Immunity" value={stats.immunity} />
                     </div>
                     {data.mood && (
-                      <div className="mt-3 rounded-2xl bg-white/70 px-3 py-2">
-                        <div className="hud-copy font-semibold">
-                          {data.mood.emoji} {data.mood.label}
-                        </div>
-                        <p className="hud-muted mt-1">{data.mood.hint}</p>
-                      </div>
-                    )}
-                    <div className="mt-3 rounded-2xl bg-white/60 px-3 py-2">
-                      <p className="hud-muted italic">
-                        {data.wellness >= 75
-                          ? "You're doing great! Keep taking care of yourself."
-                          : data.wellness >= 50
-                            ? "A little self-care would feel lovely right now."
-                            : "Baby needs you rested — drink, eat and take a break."}
+                      <p className="mt-2 hud-copy">
+                        {data.mood.emoji} {data.mood.label} — {data.mood.hint}
                       </p>
+                    )}
+                    <div className="hud-care-grid mt-3">
+                      <button type="button" className="hud-action" onClick={() => act("doctor")}>
+                        <Stethoscope className="h-6 w-6 shrink-0 text-[#A77ACB]" />
+                        <span>Doctor</span>
+                      </button>
+                      <button type="button" className="hud-action" onClick={() => openApp("nutrition", "health")}>
+                        <Apple className="h-6 w-6 shrink-0 text-[#A77ACB]" />
+                        <span>Nutrition</span>
+                      </button>
                     </div>
-                    <PrimaryButton onClick={() => act("doctor")}>
-                      <span className="inline-flex items-center gap-2">
-                        <Stethoscope className="h-4 w-4" /> Visit the doctor
-                      </span>
-                    </PrimaryButton>
-                    <button
-                      type="button"
-                      onClick={() => setActive("nutrition")}
-                      className="mt-2 w-full rounded-full bg-white/70 py-2 hud-copy font-semibold text-[#A77ACB]"
-                    >
-                      Open nutrition
-                    </button>
-                  </Panel>
-                  <Panel className="is-scroll">
-                    <PanelHeader eyebrow="Symptoms" title="Track how you feel" />
-                    <div className="space-y-2">
+                    <div className="hud-label mt-4 mb-2">Symptoms</div>
+                    <div className="hud-symptom-list">
                       {data.symptoms.map((s) => (
-                        <div key={s.name}>
-                          <div className="mb-1 flex justify-between">
-                            <span className="hud-copy font-medium">{s.name}</span>
-                            <span className="hud-muted italic">{s.label}</span>
-                          </div>
-                          <CloudBar value={s.severity} tone="blush" />
+                        <div key={s.name} className="hud-symptom-row">
+                          <span className="font-semibold">{s.name}</span>
+                          <span className="hud-muted">{s.label}</span>
                         </div>
                       ))}
                     </div>
@@ -734,110 +687,57 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       onSave={(name, severity) => act("symptom_log", { name, severity })}
                     />
                   </Panel>
-                </div>
+                </AppPage>
               )}
 
               {active === "care" && (
-                <div className="hud-page">
+                <AppPage title="Care" onBack={goBack}>
                   <Panel className="is-scroll">
-                    <PanelHeader eyebrow="Care & Comfort" title="Take care of your needs" />
-                    <div className="grid grid-cols-3 gap-2 min-[900px]:grid-cols-4">
+                    <div className="hud-care-grid">
                       {[
-                        { icon: Moon, label: "Rest", val: stats.rest, actionLabel: "Rest", action: "rest" },
-                        {
-                          icon: Droplet,
-                          label: "Water",
-                          val: stats.hydration,
-                          actionLabel: "Drink",
-                          action: "drink_water",
-                        },
-                        {
-                          icon: Pill,
-                          label: "Vitamins",
-                          val: stats.vitamins,
-                          actionLabel: "Take",
-                          action: "vitamins",
-                        },
-                        {
-                          icon: Stethoscope,
-                          label: "Medicine",
-                          val: 100 - stats.sickness,
-                          actionLabel: "Take",
-                          action: "medicine",
-                        },
-                        {
-                          icon: Heart,
-                          label: "Comfort",
-                          val: stats.comfort,
-                          actionLabel: "Cozy up",
-                          action: "comfort",
-                        },
-                        { icon: Moon, label: "Sleep", val: stats.energy, actionLabel: "Sleep", action: "sleep" },
-                        {
-                          icon: Bath,
-                          label: "Bathroom",
-                          val: stats.bladder,
-                          actionLabel: "Go",
-                          action: "bathroom",
-                        },
-                        {
-                          icon: CloudRain,
-                          label: "Vomiting",
-                          val: 100 - stats.sickness,
-                          actionLabel: "Be sick",
-                          action: "vomit",
-                        },
-                        { icon: Smile, label: "Cry", val: stats.mood, actionLabel: "Let it out", action: "cry" },
-                      ].map(({ icon: Icon, label, val, actionLabel, action: name }) => (
-                        <div key={label} className="min-w-0 rounded-2xl bg-white/70 p-2">
-                          <div className="mb-1 flex items-center gap-2">
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#D6C6E7]/40">
-                              <Icon className="h-4 w-4 text-[#A77ACB]" />
-                            </div>
-                            <div className="min-w-0">
-                              <div className="hud-copy truncate font-semibold">{label}</div>
-                              <div className="hud-muted">{Math.round(val)}%</div>
-                            </div>
-                          </div>
-                          <CloudBar value={val} />
-                          <button
-                            onClick={() => act(name)}
-                            disabled={action.isPending}
-                            className="mt-2 min-h-8 w-full rounded-full bg-[#D6C6E7]/30 py-1 text-[11px] font-semibold text-[#4D405E] disabled:opacity-50"
-                          >
-                            {actionLabel}
-                          </button>
-                        </div>
+                        { icon: Moon, label: "Rest", action: "rest" },
+                        { icon: Droplet, label: "Water", action: "drink_water" },
+                        { icon: Pill, label: "Vitamins", action: "vitamins" },
+                        { icon: Heart, label: "Comfort", action: "comfort" },
+                        { icon: Stethoscope, label: "Medicine", action: "medicine" },
+                        { icon: Moon, label: "Sleep", action: "sleep" },
+                        { icon: Bath, label: "Bathroom", action: "bathroom" },
+                        { icon: CloudRain, label: "Be sick", action: "vomit" },
+                        { icon: Smile, label: "Cry", action: "cry" },
+                        { icon: Briefcase, label: "Pack bag", action: "pack_bag" },
+                      ].map(({ icon: Icon, label, action: name }) => (
+                        <button
+                          key={label}
+                          type="button"
+                          className="hud-action"
+                          disabled={action.isPending}
+                          onClick={() => act(name)}
+                        >
+                          <Icon className="h-6 w-6 shrink-0 text-[#A77ACB]" />
+                          <span>{label}</span>
+                        </button>
                       ))}
                     </div>
-                    <PrimaryButton onClick={() => act("pack_bag")}>
-                      <span className="inline-flex items-center gap-2">
-                        <Briefcase className="h-4 w-4" /> Pack hospital bag
-                      </span>
-                    </PrimaryButton>
-                    <p className="mt-2 text-center hud-muted italic">
-                      Talks to the worn hospital bag on the same channel as the chair. Wear the bag first.
-                    </p>
                     {data.partner.linked && (
                       <button
+                        type="button"
                         onClick={() =>
                           act("ask_partner", {
                             request: `${data.user.name} could use a little support right now.`,
                           })
                         }
-                        className="mt-2 w-full rounded-full bg-white/70 py-2 hud-copy font-semibold text-[#A77ACB]"
+                        className="mt-3 min-h-12 w-full rounded-full bg-white/70 hud-copy font-semibold text-[#A77ACB]"
                       >
                         Ask partner for support
                       </button>
                     )}
                   </Panel>
-                </div>
+                </AppPage>
               )}
 
               {active === "partner" && (
-                <div className="hud-page">
+                <AppPage title="Partner" onBack={goBack}>
                   <Panel className="is-scroll">
-                    <PanelHeader eyebrow="Partner" title="Stronger together" />
                     {data.partner.linked ? (
                       <>
                         <div className="mb-3 rounded-2xl bg-white/70 p-3">
@@ -853,37 +753,37 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                           </div>
                           <CloudBar value={data.partner.support} tone="blush" />
                         </div>
-                        <div className="mb-3 grid grid-cols-2 gap-2 min-[800px]:grid-cols-4">
-                          <button type="button" className="hud-action min-h-11" onClick={() => act("hug")}>
-                            <HandHeart className="h-4 w-4 text-[#A77ACB]" />
+                        <div className="mb-3 hud-care-grid">
+                          <button type="button" className="hud-action" onClick={() => act("hug")}>
+                            <HandHeart className="h-6 w-6 text-[#A77ACB]" />
                             <span>Send hug</span>
                           </button>
                           <button
                             type="button"
-                            className="hud-action min-h-11"
+                            className="hud-action"
                             onClick={() => act("ask_partner", { request: `${data.user.name} could use water.` })}
                           >
-                            <Droplet className="h-4 w-4 text-[#A77ACB]" />
+                            <Droplet className="h-6 w-6 text-[#A77ACB]" />
                             <span>Ask for water</span>
                           </button>
                           <button
                             type="button"
-                            className="hud-action min-h-11"
+                            className="hud-action"
                             onClick={() => act("ask_partner", { request: `${data.user.name} could use rest.` })}
                           >
-                            <Moon className="h-4 w-4 text-[#A77ACB]" />
+                            <Moon className="h-6 w-6 text-[#A77ACB]" />
                             <span>Ask to rest</span>
                           </button>
                           <button
                             type="button"
-                            className="hud-action min-h-11"
+                            className="hud-action"
                             onClick={() =>
                               act("ask_partner", {
                                 request: `${data.user.name} could use a little support right now.`,
                               })
                             }
                           >
-                            <MessageCircle className="h-4 w-4 text-[#A77ACB]" />
+                            <MessageCircle className="h-6 w-6 text-[#A77ACB]" />
                             <span>Support</span>
                           </button>
                         </div>
@@ -927,13 +827,12 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       </div>
                     )}
                   </Panel>
-                </div>
+                </AppPage>
               )}
 
               {active === "journal" && (
-                <div className="hud-page">
+                <AppPage title="Journal" onBack={goBack}>
                   <Panel className="is-scroll">
-                    <PanelHeader eyebrow="Journal" title="Capture every moment" />
                     <div className="mb-2 flex flex-wrap gap-2">
                       <JournalDialog token={token} onSave={(entry) => act("journal_add", entry)} />
                       <MemoryDialog onSave={(entry) => act("memory", entry)} />
@@ -959,7 +858,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                               <img src={photo} alt="" className="h-9 w-9 shrink-0 rounded-xl object-cover" />
                             ) : (
                               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#D6C6E7]/40">
-                                <Icon className="h-4 w-4 text-[#A77ACB]" />
+                                <Icon className="h-6 w-6 text-[#A77ACB]" />
                               </div>
                             )}
                             <div className="min-w-0 flex-1">
@@ -973,7 +872,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                               </div>
                             </div>
                             <div
-                              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] ${m.completed ? "bg-[#D6C6E7] text-white" : "border border-[#D6C6E7]/50"}`}
+                              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm ${m.completed ? "bg-[#D6C6E7] text-white" : "border border-[#D6C6E7]/50"}`}
                             >
                               {m.completed ? "✓" : ""}
                             </div>
@@ -982,17 +881,16 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       })}
                     </div>
                   </Panel>
-                </div>
+                </AppPage>
               )}
 
               {active === "nutrition" && (
-                <div className="hud-page">
+                <AppPage title="Nutrition" onBack={goBack}>
                   <Panel className="is-scroll">
-                    <PanelHeader eyebrow="Nutrition" title="Eat well, feel well" />
                     <NutritionRing
                       value={Math.round((stats.hunger + stats.hydration + stats.vitamins) / 3)}
                     />
-                    <div className="space-y-2 text-xs">
+                    <div className="space-y-3">
                       {(
                         [
                           ["Meals", stats.hunger],
@@ -1028,7 +926,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                                 <button
                                   key={food.key}
                                   onClick={() => act("food_eat", { food: food.key })}
-                                  className="rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-medium text-[#A77ACB] hover:bg-white"
+                                  className="hud-food-chip"
                                 >
                                   {food.name}
                                 </button>
@@ -1044,13 +942,12 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       </span>
                     </PrimaryButton>
                   </Panel>
-                </div>
+                </AppPage>
               )}
 
               {active === "notifications" && (
-                <div className="hud-page">
+                <AppPage title="Alerts" onBack={goBack}>
                   <Panel className="is-scroll">
-                    <PanelHeader eyebrow="Notifications" title="Little updates" />
                     <div className="space-y-2">
                       {data.notifications.length === 0 && (
                         <p className="text-center hud-muted italic">All quiet for now</p>
@@ -1079,21 +976,41 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       <PrimaryButton onClick={() => act("notifications_read")}>Mark all as read</PrimaryButton>
                     )}
                   </Panel>
-                </div>
+                </AppPage>
               )}
 
               {active === "settings" && (
-                <div className="hud-page">
+                <AppPage title="Settings" onBack={goBack}>
                   <SettingsPanel
                     key={preg.id + preg.babyGender + (preg.babyName ?? "") + preg.durationDays}
                     data={data}
                     onSave={(params) => act("settings_update", params)}
                   />
                   <ActionConsole data={data} onAction={act} />
-                </div>
+                </AppPage>
               )}
             </main>
           </div>
+
+          <nav className="hud-dock" aria-label="Primary">
+            {DOCK_NAV.map(({ key, label, icon: Icon }) => {
+              const isActive = dockKey(active) === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={`hud-dock-btn ${isActive ? "is-active" : ""}`}
+                  onClick={() => {
+                    backTo.current = "home";
+                    setActive(key);
+                  }}
+                >
+                  <Icon />
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </nav>
         </div>
       </HudFrame>
       <Toaster position="top-center" />
@@ -1253,7 +1170,7 @@ function SetupWizard({
                   </div>
                   <div className="space-y-1.5">
                     <Label>RP event popups</Label>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="hud-muted">
                       Mood swings use this timer too. Meters nudge which feeling is more likely.
                     </p>
                     <Select value={popupFrequencyMinutes} onValueChange={setPopupFrequencyMinutes}>
@@ -1428,21 +1345,21 @@ function ActionConsole({
       <Panel className="is-scroll">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[color:var(--lavender-deep)]/70">
+            <div className="hud-label">
               MOAP Action Console
             </div>
             <h2 className="font-display text-2xl font-semibold text-foreground">
               Production buttons
             </h2>
           </div>
-          <div className="rounded-2xl bg-white/70 px-4 py-2 text-xs text-muted-foreground">
+          <div className="rounded-2xl bg-white/70 px-4 py-2 hud-copy text-muted-foreground">
             Current craving: <span className="font-semibold text-foreground">{craving}</span>
           </div>
         </div>
         <div className="grid gap-3 min-[768px]:grid-cols-2 min-[1280px]:grid-cols-3">
           {actionGroups.map((group) => (
             <div key={group.title} className="rounded-2xl bg-white/60 p-3">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              <div className="mb-2 hud-label">
                 {group.title}
               </div>
               <div className="grid grid-cols-3 gap-2">
@@ -1450,7 +1367,7 @@ function ActionConsole({
                   <button
                     key={`${group.title}-${label}`}
                     onClick={() => onAction(action, params)}
-                    className="flex h-14 min-h-[44px] flex-col items-center justify-center gap-1 rounded-2xl bg-white/75 px-2 text-center text-[11px] font-semibold leading-tight text-[color:var(--lavender-deep)] shadow-soft transition hover:bg-white"
+                    className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-2xl bg-white/75 px-2 text-center text-sm font-semibold leading-tight text-[color:var(--lavender-deep)] shadow-soft transition hover:bg-white"
                   >
                     <Icon className="h-4 w-4" />
                     <span>{label}</span>
@@ -1479,7 +1396,7 @@ function QuickAction({
       <div className="h-12 w-12 rounded-2xl bg-white/80 shadow-soft flex items-center justify-center group-hover:scale-105 group-hover:bg-white transition-transform">
         <Icon className="h-5 w-5 text-[color:var(--lavender-deep)]" />
       </div>
-      <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</span>
+      <span className="hud-subtitle">{label}</span>
     </button>
   );
 }
@@ -1512,7 +1429,7 @@ function NutritionRing({ value }: { value: number }) {
           <div className="font-display text-2xl font-semibold text-[color:var(--lavender-deep)]">
             {value}%
           </div>
-          <div className="text-[10px] text-muted-foreground uppercase tracking-widest">
+          <div className="hud-subtitle uppercase tracking-widest">
             {value >= 70 ? "Good" : value >= 40 ? "Okay" : "Low"}
           </div>
         </div>
@@ -1690,7 +1607,7 @@ function JournalDialog({
             {preview && (
               <img src={preview} alt="" className="mt-2 max-h-36 w-full rounded-2xl object-cover" />
             )}
-            <p className="text-[11px] text-muted-foreground">
+            <p className="hud-muted">
               Pick a picture on this computer. Second Life media can upload it from here.
             </p>
           </div>
@@ -1743,7 +1660,7 @@ function MemoryDialog({ onSave }: { onSave: (entry: { title: string; body: strin
           <div className="h-12 w-12 rounded-2xl bg-white/80 shadow-soft flex items-center justify-center group-hover:scale-105 group-hover:bg-white transition-transform">
             <Camera className="h-5 w-5 text-[color:var(--lavender-deep)]" />
           </div>
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+          <span className="hud-subtitle">
             Memory
           </span>
         </button>
@@ -1801,7 +1718,7 @@ function EventDialog({ onSave }: { onSave: (entry: { title: string; body: string
           <div className="h-12 w-12 rounded-2xl bg-white/80 shadow-soft flex items-center justify-center group-hover:scale-105 group-hover:bg-white transition-transform">
             <Calendar className="h-5 w-5 text-[color:var(--lavender-deep)]" />
           </div>
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Event</span>
+          <span className="hud-subtitle">Event</span>
         </button>
       </DialogTrigger>
       <DialogContent className="rounded-[28px]">
@@ -2029,7 +1946,7 @@ function ScrapbookDialog({
         <button className="relative mt-2.5 w-full rounded-full py-2.5 text-sm font-medium text-[color:var(--lavender-deep)] bg-white/70 hover:bg-white transition flex items-center justify-center gap-2">
           <Camera className="h-4 w-4" /> Baby's scrapbook
           {newCount > 0 && (
-            <span className="absolute -top-1.5 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[color:var(--blush)] px-1.5 text-[10px] font-bold text-white shadow-soft">
+            <span className="absolute -top-1.5 -right-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-[color:var(--blush)] px-1.5 text-xs font-bold text-white shadow-soft">
               {newCount} new
             </span>
           )}
@@ -2076,7 +1993,7 @@ function ScrapbookDialog({
                   className="aspect-[4/3] w-full rounded-sm object-cover"
                 />
                 {!current.seen && (
-                  <span className="absolute right-4 top-4 rounded-full bg-[color:var(--blush)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-white shadow-soft">
+                  <span className="absolute right-4 top-4 rounded-full bg-[color:var(--blush)] px-2 py-0.5 text-xs font-bold uppercase tracking-widest text-white shadow-soft">
                     New
                   </span>
                 )}

@@ -6,12 +6,12 @@ export const LAYOUT_PREVIEW_STATE: HudState = {
   pregnancy: {
     id: "preview",
     status: "pregnant",
-    week: 24,
-    day: 3,
+    week: 22,
+    day: 0,
     trimester: 2,
-    progressPct: 61,
-    dueDate: "2026-12-16",
-    daysToGo: 109,
+    progressPct: 55,
+    dueDate: "2026-09-14",
+    daysToGo: 18,
     delivered: false,
     babyName: "Peach",
     babyGender: "surprise",
@@ -34,7 +34,7 @@ export const LAYOUT_PREVIEW_STATE: HudState = {
       birthAt: null,
     },
     baby: {
-      size: "Cantaloupe",
+      size: "Papaya",
       lengthCm: 30.1,
       weightG: 600,
       note: "Baby is getting stronger every day.",
@@ -73,8 +73,11 @@ export const LAYOUT_PREVIEW_STATE: HudState = {
   },
   wellness: 68,
   symptoms: [
-    { name: "Nausea", severity: 25, label: "Mild" },
-    { name: "Back Pain", severity: 40, label: "Moderate" },
+    { name: "Back Pain", severity: 30, label: "Mild" },
+    { name: "Fatigue", severity: 50, label: "Moderate" },
+    { name: "Headache", severity: 0, label: "None" },
+    { name: "Heartburn", severity: 28, label: "Mild" },
+    { name: "Nausea", severity: 45, label: "Moderate" },
   ],
   journal: [
     {
