@@ -1,5 +1,6 @@
 // Applies db/migrations/*.sql in order, tracking applied files in
-// public.schema_migrations. Usage: DATABASE_URL=... node scripts/migrate.mjs
+// public.schema_migrations. Missing or unreachable DATABASE_URL skips
+// cleanly so the web process can still boot.
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -15,8 +16,8 @@ const migrationsDir = path.join(
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
-  console.error("DATABASE_URL is not set. Put it in .env or the Render Environment tab.");
-  process.exit(1);
+  console.log("DATABASE_URL is not set — skipping migrations.");
+  process.exit(0);
 }
 
 const client = new pg.Client(pgClientConfig(databaseUrl));
@@ -24,7 +25,8 @@ try {
   await client.connect();
 } catch (error) {
   console.error(formatDatabaseError(error, databaseUrl));
-  process.exit(1);
+  console.log("Skipping migrations; starting the web server anyway.");
+  process.exit(0);
 }
 
 try {
@@ -58,6 +60,9 @@ try {
     }
   }
   console.log("migrations complete");
+} catch (error) {
+  console.error(error);
+  console.log("Skipping remaining migrations; starting the web server anyway.");
 } finally {
-  await client.end();
+  await client.end().catch(() => {});
 }

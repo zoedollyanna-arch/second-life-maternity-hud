@@ -42,8 +42,9 @@ export function normalizeDatabaseUrl(raw) {
     );
   }
 
-  if (!url.searchParams.get("sslmode")) url.searchParams.set("sslmode", "require");
+  url.searchParams.delete("sslmode");
   url.searchParams.set("gssencmode", "disable");
+  url.searchParams.set("uselibpqcompat", "true");
   return url.toString();
 }
 
