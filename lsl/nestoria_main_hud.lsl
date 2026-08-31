@@ -30,7 +30,7 @@
 string  API_BASE   = "https://second-life-maternity-hud-t2b3.onrender.com";
 string  API_SECRET = "2175039403870ed15116d0dcf330095af3f6a398e83bca01";  // same value as SL_API_SECRET in the server .env
 
-integer MOAP_FACE     = 4;      // face that shows the dashboard (adjust to your prim)
+integer MOAP_FACE     = 4;      // dashboard media is always this face
 integer POLL_SECONDS  = 30;     // fallback poll when push is unavailable
 float   VOLUME        = 0.7;
 
@@ -118,33 +118,23 @@ setMoap(string url)
     if (url == "") return;
 
     integer sides = llGetNumberOfSides();
-    if (MOAP_FACE < 0 || MOAP_FACE >= sides)
-    {
-        say("Face " + (string)MOAP_FACE + " does not exist on this prim — it has "
-            + (string)sides + " face(s), numbered 0-" + (string)(sides - 1)
-            + ". Edit MOAP_FACE at the top of this script.");
-        return;
-    }
+    integer face;
+    for (face = 0; face < sides; ++face)
+        llClearLinkMedia(LINK_THIS, face);
 
-    llClearPrimMedia(MOAP_FACE);
-    llSetPrimMediaParams(MOAP_FACE, [
+    list media = [
         PRIM_MEDIA_CURRENT_URL, url,
         PRIM_MEDIA_HOME_URL, url,
         PRIM_MEDIA_AUTO_PLAY, TRUE,
-
-        // Stretch the media texture across all of face 4. When this is FALSE,
-        // Second Life preserves the media texture's native mapping and leaves
-        // unused parts of a differently shaped face black. This setting only
-        // controls texture-to-face fitting; the dashboard's plus/minus/reset/
-        // Fit zoom remains controlled by ScaledFrame in src/routes/index.tsx.
         PRIM_MEDIA_AUTO_SCALE, TRUE,
-
         PRIM_MEDIA_PERMS_INTERACT, PRIM_MEDIA_PERM_OWNER,
         PRIM_MEDIA_PERMS_CONTROL, PRIM_MEDIA_PERM_NONE,
         PRIM_MEDIA_CONTROLS, PRIM_MEDIA_CONTROLS_MINI,
         PRIM_MEDIA_WIDTH_PIXELS, SCREEN_WIDTH,
         PRIM_MEDIA_HEIGHT_PIXELS, SCREEN_HEIGHT
-    ]);
+    ];
+    llSetLinkMedia(LINK_THIS, MOAP_FACE, media);
+    llSetPrimMediaParams(MOAP_FACE, media);
 }
 
 registerWithServer()
@@ -480,7 +470,6 @@ default
         else if (method == URL_REQUEST_DENIED)
         {
             gCallbackUrl = "";
-            say("No free URLs on this parcel - using polling only.");
             registerWithServer();
         }
         else if (method == "POST")
@@ -508,9 +497,7 @@ default
             }
             gToken   = llJsonGetValue(body, ["token"]);
             gMoapUrl = llJsonGetValue(body, ["moap_url"]);
-            string welcome = llJsonGetValue(body, ["welcome"]);
             setMoap(gMoapUrl);
-            if (welcome != JSON_INVALID) say(welcome);
             llSetTimerEvent((float)POLL_SECONDS);
         }
         else if (id == gPollReq)

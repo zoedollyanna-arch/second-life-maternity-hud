@@ -6,7 +6,7 @@
 // live on that page — no in-world dialog menu.
 //
 // SETUP: API_BASE and API_SECRET must match the server .env.
-// Face 4 is the media screen (same as the mom HUD). Adjust MOAP_FACE if needed.
+// Face 4 is the media screen. Do not change MOAP_FACE.
 // ============================================================================
 
 string  API_BASE   = "https://second-life-maternity-hud-t2b3.onrender.com";
@@ -31,14 +31,13 @@ say(string msg) { llOwnerSay("♥ Nestoria Partner: " + msg); }
 setMoap(string url)
 {
     if (url == "") return;
+
     integer sides = llGetNumberOfSides();
-    if (MOAP_FACE < 0 || MOAP_FACE >= sides)
-    {
-        say("Face " + (string)MOAP_FACE + " does not exist on this prim.");
-        return;
-    }
-    llClearPrimMedia(MOAP_FACE);
-    llSetPrimMediaParams(MOAP_FACE, [
+    integer face;
+    for (face = 0; face < sides; ++face)
+        llClearLinkMedia(LINK_THIS, face);
+
+    list media = [
         PRIM_MEDIA_CURRENT_URL, url,
         PRIM_MEDIA_HOME_URL, url,
         PRIM_MEDIA_AUTO_PLAY, TRUE,
@@ -48,7 +47,9 @@ setMoap(string url)
         PRIM_MEDIA_CONTROLS, PRIM_MEDIA_CONTROLS_MINI,
         PRIM_MEDIA_WIDTH_PIXELS, SCREEN_WIDTH,
         PRIM_MEDIA_HEIGHT_PIXELS, SCREEN_HEIGHT
-    ]);
+    ];
+    llSetLinkMedia(LINK_THIS, MOAP_FACE, media);
+    llSetPrimMediaParams(MOAP_FACE, media);
 }
 
 askForCode()
@@ -80,11 +81,7 @@ default
     {
         if (llDetectedKey(0) != llGetOwner()) return;
         if (gToken == "") askForCode();
-        else
-        {
-            setMoap(gMoapUrl);
-            say("Partner screen refreshed.");
-        }
+        else setMoap(gMoapUrl);
     }
 
     listen(integer channel, string name, key id, string message)
@@ -102,7 +99,6 @@ default
             "object_key", (string)llGetKey(),
             "region", llGetRegionName()
         ]));
-        say("Pairing...");
     }
 
     http_response(key id, integer status, list meta, string body)
@@ -123,14 +119,8 @@ default
         }
         if (id != gHttpReq) return;
         gHttpReq = NULL_KEY;
-        if (status == 401) { gToken = ""; say("Pairing expired — touch to pair again."); return; }
-        if (status != 200)
-        {
-            string err = llJsonGetValue(body, ["error"]);
-            if (err == JSON_INVALID) err = "server error " + (string)status;
-            say(err);
-            return;
-        }
+        if (status == 401) { gToken = ""; return; }
+        if (status != 200) return;
         string token = llJsonGetValue(body, ["token"]);
         if (token != JSON_INVALID && token != "") gToken = token;
         string moap = llJsonGetValue(body, ["moap_url"]);
