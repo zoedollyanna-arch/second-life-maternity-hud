@@ -127,14 +127,7 @@ default
         if (id == gRegisterReq)
         {
             gRegisterReq = NULL_KEY;
-            if (status != 200)
-            {
-                string err = llJsonGetValue(body, ["error"]);
-                if (err == JSON_INVALID || err == "")
-                    err = "Could not reach the Nestoria server.";
-                llOwnerSay("♥ Nestoria Belly: " + err + " (HTTP " + (string)status + ").");
-                return;
-            }
+            if (status != 200) return;
             gToken = llJsonGetValue(body, ["token"]);
             string week = llJsonGetValue(body, ["week"]);
             if (week != JSON_INVALID) applyWeek((integer)week);

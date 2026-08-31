@@ -1,9 +1,8 @@
 // ============================================================================
 // NESTORIA PREGNANCY HUD — Main HUD script
 // ----------------------------------------------------------------------------
-// Drop this script into the root prim of the HUD object (a flat mesh/prim
-// tablet worn as a HUD). The front face displays the Nestoria web dashboard
-// via shared media (MOAP).
+// Drop this script into the root prim of the HUD object. Shared media (MOAP)
+// is shown on face 4 only. API_BASE is the live Render host.
 //
 // SETUP (edit these two lines before saving):
 //   API_BASE   = your deployed Nestoria server, no trailing slash
