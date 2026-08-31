@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import pg from "pg";
+import { formatDatabaseError, pgClientConfig } from "../src/lib/server/pg-config.mjs";
 
 const migrationsDir = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -14,12 +15,17 @@ const migrationsDir = path.join(
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
-  console.error("DATABASE_URL is not set. Put it in .env or the environment.");
+  console.error("DATABASE_URL is not set. Put it in .env or the Render Environment tab.");
   process.exit(1);
 }
 
-const client = new pg.Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } });
-await client.connect();
+const client = new pg.Client(pgClientConfig(databaseUrl));
+try {
+  await client.connect();
+} catch (error) {
+  console.error(formatDatabaseError(error, databaseUrl));
+  process.exit(1);
+}
 
 try {
   await client.query(`

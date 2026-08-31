@@ -1621,6 +1621,9 @@ export async function performAction(
     }
 
     case "random_event_roll": {
+      if (isDeliveredPregnancy(preg)) {
+        return { ok: true, message: "This pregnancy is marked delivered. Care events have paused." };
+      }
       const progress = computeProgress(new Date(preg.conceived_at), preg.duration_days);
       const roll = Math.random();
       const sicknessRisk = stats.sickness > 55 || progress.trimester === 1;

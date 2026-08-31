@@ -1,4 +1,5 @@
 import pg from "pg";
+import { formatDatabaseError, pgPoolConfig } from "./pg-config.mjs";
 
 let pool: pg.Pool | undefined;
 
@@ -6,11 +7,13 @@ export function db(): pg.Pool {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) throw new Error("DATABASE_URL is not set");
-    pool = new pg.Pool({
-      connectionString,
-      ssl: { rejectUnauthorized: false },
-      max: 10,
-      idleTimeoutMillis: 30_000,
+    try {
+      pool = new pg.Pool(pgPoolConfig(connectionString));
+    } catch (error) {
+      throw new Error(formatDatabaseError(error, connectionString));
+    }
+    pool.on("error", (error) => {
+      console.error(formatDatabaseError(error, connectionString));
     });
   }
   return pool;

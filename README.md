@@ -46,7 +46,7 @@ Copy `.env.example` to `.env` and set:
 
 | Variable        | Meaning                                                      |
 | --------------- | ------------------------------------------------------------ |
-| `DATABASE_URL`  | Postgres connection string (Supabase pooler works)           |
+| `DATABASE_URL`  | Supabase **Transaction pooler** URI (port 6543). Username must be `postgres.<project-ref>`. |
 | `SL_API_SECRET` | Shared secret; must match `API_SECRET` in each `.lsl` script |
 | `APP_URL`       | Public URL of this deployment (used to build the MOAP URL)   |
 | `DISABLE_DEMO`  | Optional. Set `1` to disable the "Preview a demo" button     |
@@ -82,13 +82,22 @@ Web Service manually with:
 | Render setting    | Value                          |
 | ----------------- | ------------------------------ |
 | Runtime           | Node                           |
+| Node version      | `22`                           |
 | Build command     | `npm install --include=dev && npm run build` |
 | Start command     | `npm start`                    |
 | Health check path | `/`                            |
 
-Set `DATABASE_URL`, `SL_API_SECRET`, `APP_URL`, and `DISABLE_DEMO=1` in Render.
-After the first deploy, run `npm run migrate` from Render Shell or locally
-against the same database.
+Set these in the Render dashboard (Environment):
+
+| Variable        | Value |
+| --------------- | ----- |
+| `NODE_VERSION`  | `22` (not 24/26 — `>=22` would pick latest and break) |
+| `DATABASE_URL`  | Supabase → **Connect** → **Transaction pooler** URI (port **6543**). Copy it from the dashboard; `aws-0` vs `aws-1` and the region must match. Unpause the project if it is paused. |
+| `SL_API_SECRET` | Same string as `API_SECRET` in the LSL scripts |
+| `APP_URL`       | `https://your-service.onrender.com` |
+| `DISABLE_DEMO`  | `1` |
+
+`npm start` already runs migrations. If start dies with `tenant/user … not found`, the pooler URI is wrong or the Supabase project is paused — it is not an app build error.
 
 ### 5. Second Life
 
