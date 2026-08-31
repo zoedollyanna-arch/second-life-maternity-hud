@@ -6,15 +6,16 @@
 // live on that page — no in-world dialog menu.
 //
 // SETUP: API_BASE and API_SECRET must match the server .env.
-// Face 4 is the media screen. Do not change MOAP_FACE.
+// Face 4 of link 2 is the media screen. Script goes in the ROOT prim.
 // ============================================================================
 
 string  API_BASE   = "https://second-life-maternity-hud-t2b3.onrender.com";
 string  API_SECRET = "2175039403870ed15116d0dcf330095af3f6a398e83bca01";
 
+integer MOAP_LINK     = 2;
 integer MOAP_FACE     = 4;
-integer SCREEN_WIDTH  = 1280;
-integer SCREEN_HEIGHT = 720;
+integer SCREEN_WIDTH  = 1024;
+integer SCREEN_HEIGHT = 824;
 integer POLL_SECONDS  = 30;
 
 string  gToken = "";
@@ -25,31 +26,141 @@ key     gPollReq = NULL_KEY;
 integer gListenHandle;
 integer gMenuChannel;
 integer gAwaitingCode = FALSE;
+float   gPollWait = 30.0;
+integer gFailStreak = 0;
+float   gNextHttp = 0.0;
+integer gMediaReady = FALSE;
 
 say(string msg) { llOwnerSay("♥ Nestoria Partner: " + msg); }
 
-setMoap(string url)
+integer hudPrimCount()
 {
-    if (url == "") return;
+    integer n = llList2Integer(llGetObjectDetails(llGetKey(), [OBJECT_PRIM_COUNT]), 0);
+    if (n < 1) n = MOAP_LINK;
+    if (llGetLinkNumber() == 0) n = 1;
+    return n;
+}
 
-    integer sides = llGetNumberOfSides();
-    integer face;
-    for (face = 0; face < sides; ++face)
-        llClearLinkMedia(LINK_THIS, face);
+integer moapLink()
+{
+    if (llGetLinkNumber() == 0) return LINK_THIS;
+    integer me = llGetLinkNumber();
+    if (me == MOAP_LINK) return LINK_THIS;
+    integer n = hudPrimCount();
+    if (MOAP_LINK >= 1 && MOAP_LINK <= n) return MOAP_LINK;
+    return LINK_THIS;
+}
 
-    list media = [
+integer moapFace(integer link)
+{
+    integer sides = llGetLinkNumberOfSides(link);
+    if (MOAP_FACE >= 0 && MOAP_FACE < sides) return MOAP_FACE;
+    return 0;
+}
+
+prepMoapFace(integer link, integer face)
+{
+    llSetLinkPrimitiveParamsFast(link, [
+        PRIM_COLOR, face, <1.0, 1.0, 1.0>, 1.0,
+        PRIM_FULLBRIGHT, face, TRUE,
+        PRIM_GLOW, face, 0.0,
+        PRIM_TEXTURE, face, TEXTURE_BLANK, <1.0, 1.0, 0.0>, ZERO_VECTOR, 0.0
+    ]);
+}
+
+integer applyMoap(integer link, integer face, string url, string home)
+{
+    prepMoapFace(link, face);
+    return llSetLinkMedia(link, face, [
         PRIM_MEDIA_CURRENT_URL, url,
-        PRIM_MEDIA_HOME_URL, url,
+        PRIM_MEDIA_HOME_URL, home,
         PRIM_MEDIA_AUTO_PLAY, TRUE,
-        PRIM_MEDIA_AUTO_SCALE, TRUE,
-        PRIM_MEDIA_PERMS_INTERACT, PRIM_MEDIA_PERM_OWNER,
+        PRIM_MEDIA_AUTO_SCALE, FALSE,
+        PRIM_MEDIA_AUTO_LOOP, FALSE,
+        PRIM_MEDIA_AUTO_ZOOM, FALSE,
+        PRIM_MEDIA_FIRST_CLICK_INTERACT, TRUE,
+        PRIM_MEDIA_WHITELIST_ENABLE, FALSE,
+        PRIM_MEDIA_WHITELIST, "",
+        PRIM_MEDIA_PERMS_INTERACT, PRIM_MEDIA_PERM_ANYONE,
         PRIM_MEDIA_PERMS_CONTROL, PRIM_MEDIA_PERM_NONE,
         PRIM_MEDIA_CONTROLS, PRIM_MEDIA_CONTROLS_MINI,
         PRIM_MEDIA_WIDTH_PIXELS, SCREEN_WIDTH,
         PRIM_MEDIA_HEIGHT_PIXELS, SCREEN_HEIGHT
+    ]);
+}
+
+setMoap(string url)
+{
+    if (url == "") url = API_BASE + "/partner";
+    gMoapUrl = url;
+
+    string nav = url;
+    if (llSubStringIndex(nav, "#") == -1) nav += "#n" + (string)llGetUnixTime();
+
+    integer link = moapLink();
+    integer face = moapFace(link);
+
+    if (!gMediaReady)
+    {
+        integer f;
+        integer sides = llGetLinkNumberOfSides(link);
+        for (f = 0; f < sides; ++f)
+        {
+            if (f != face) llClearLinkMedia(link, f);
+        }
+        gMediaReady = TRUE;
+    }
+
+    integer status = applyMoap(link, face, nav, url);
+    if (status != STATUS_OK && link != LINK_THIS)
+        status = applyMoap(LINK_THIS, face, nav, url);
+    if (status != STATUS_OK && face != 0)
+        status = applyMoap(link, 0, nav, url);
+}
+
+list httpOpts(string method, integer withJson)
+{
+    list opts = [
+        HTTP_METHOD, method,
+        HTTP_BODY_MAXLENGTH, 16384,
+        HTTP_VERBOSE_THROTTLE, FALSE,
+        HTTP_PRAGMA_NO_CACHE, TRUE
     ];
-    llSetLinkMedia(LINK_THIS, MOAP_FACE, media);
-    llSetPrimMediaParams(MOAP_FACE, media);
+    if (withJson) opts += [HTTP_MIMETYPE, "application/json"];
+    return opts;
+}
+
+noteHttpStatus(integer status)
+{
+    if (status >= 500 || status <= 0)
+    {
+        ++gFailStreak;
+        gPollWait = 90.0 * (float)gFailStreak;
+        if (gPollWait > 600.0) gPollWait = 600.0;
+        gNextHttp = llGetTime() + gPollWait;
+        llSetTimerEvent(gPollWait);
+    }
+    else if (status == 429)
+    {
+        gPollWait = 90.0;
+        gNextHttp = llGetTime() + gPollWait;
+        llSetTimerEvent(gPollWait);
+    }
+    else
+    {
+        gFailStreak = 0;
+        gPollWait = (float)POLL_SECONDS;
+        gNextHttp = 0.0;
+        llSetTimerEvent(gPollWait);
+    }
+}
+
+integer httpIdle()
+{
+    if (gHttpReq != NULL_KEY) return FALSE;
+    if (gPollReq != NULL_KEY) return FALSE;
+    if (llGetTime() < gNextHttp) return FALSE;
+    return TRUE;
 }
 
 askForCode()
@@ -67,21 +178,27 @@ default
 {
     state_entry()
     {
+        setMoap(API_BASE + "/partner");
         say("Touch to pair. After pairing, this screen is the Partner HUD.");
-        llSetTimerEvent((float)POLL_SECONDS);
+        gPollWait = 8.0;
+        llSetTimerEvent(gPollWait);
     }
 
     attach(key id)
     {
-        if (id != NULL_KEY && gToken == "") askForCode();
-        else if (id != NULL_KEY) setMoap(gMoapUrl);
+        if (id == NULL_KEY) return;
+        gMediaReady = FALSE;
+        if (gMoapUrl == "") setMoap(API_BASE + "/partner");
+        else setMoap(gMoapUrl);
+        if (gToken == "") askForCode();
     }
 
     touch_start(integer n)
     {
         if (llDetectedKey(0) != llGetOwner()) return;
-        if (gToken == "") askForCode();
+        if (gMoapUrl == "") setMoap(API_BASE + "/partner");
         else setMoap(gMoapUrl);
+        if (gToken == "") askForCode();
     }
 
     listen(integer channel, string name, key id, string message)
@@ -89,16 +206,18 @@ default
         llListenRemove(gListenHandle);
         if (!gAwaitingCode) return;
         gAwaitingCode = FALSE;
-        gHttpReq = llHTTPRequest(API_BASE + "/api/sl/partner-link", [
-            HTTP_METHOD, "POST",
-            HTTP_MIMETYPE, "application/json",
-            HTTP_BODY_MAXLENGTH, 16384
-        ], llList2Json(JSON_OBJECT, [
-            "secret", API_SECRET,
-            "code", llStringTrim(message, STRING_TRIM),
-            "object_key", (string)llGetKey(),
-            "region", llGetRegionName()
-        ]));
+        if (!httpIdle())
+        {
+            say("Give it a minute — the server is catching up — then touch again.");
+            return;
+        }
+        gHttpReq = llHTTPRequest(API_BASE + "/api/sl/partner-link", httpOpts("POST", TRUE),
+            llList2Json(JSON_OBJECT, [
+                "secret", API_SECRET,
+                "code", llStringTrim(message, STRING_TRIM),
+                "object_key", (string)llGetKey(),
+                "region", llGetRegionName()
+            ]));
     }
 
     http_response(key id, integer status, list meta, string body)
@@ -106,6 +225,7 @@ default
         if (id == gPollReq)
         {
             gPollReq = NULL_KEY;
+            noteHttpStatus(status);
             if (status == 401) { gToken = ""; return; }
             if (status != 200) return;
             integer i = 0;
@@ -119,16 +239,14 @@ default
         }
         if (id != gHttpReq) return;
         gHttpReq = NULL_KEY;
+        noteHttpStatus(status);
         if (status == 401) { gToken = ""; return; }
         if (status != 200) return;
         string token = llJsonGetValue(body, ["token"]);
         if (token != JSON_INVALID && token != "") gToken = token;
         string moap = llJsonGetValue(body, ["moap_url"]);
-        if (moap != JSON_INVALID && moap != "")
-        {
-            gMoapUrl = moap;
-            setMoap(gMoapUrl);
-        }
+        if (moap != JSON_INVALID && moap != "") setMoap(moap);
+        else if (gToken != "") setMoap(API_BASE + "/partner?token=" + gToken);
         string momName = llJsonGetValue(body, ["mom_name"]);
         if (momName != JSON_INVALID) gMomName = momName;
         string msg = llJsonGetValue(body, ["message"]);
@@ -138,16 +256,20 @@ default
     timer()
     {
         if (gToken == "") return;
+        if (!httpIdle()) return;
         gPollReq = llHTTPRequest(
-            API_BASE + "/api/sl/poll?token=" + gToken + "&kind=partner", [
-            HTTP_METHOD, "GET",
-            HTTP_BODY_MAXLENGTH, 16384
-        ], "");
+            API_BASE + "/api/sl/poll?token=" + gToken + "&kind=partner",
+            httpOpts("GET", FALSE), "");
     }
 
     changed(integer change)
     {
         if (change & CHANGED_OWNER) llResetScript();
+        if (change & (CHANGED_REGION | CHANGED_TELEPORT | CHANGED_REGION_START))
+        {
+            gMediaReady = FALSE;
+            if (gMoapUrl != "") setMoap(gMoapUrl);
+        }
     }
 
     on_rez(integer start) { }

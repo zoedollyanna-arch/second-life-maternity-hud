@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Home,
@@ -33,9 +33,7 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
-  Maximize2,
-  ZoomIn,
-  ZoomOut,
+  Trophy,
   Bath,
   CloudRain,
   Briefcase,
@@ -76,6 +74,19 @@ import {
 import { BABY_GROWTH } from "@/lib/pregnancy";
 import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, type FoodCategory } from "@/lib/foods";
 import { playForAction, playChime, playError, playHearts } from "@/lib/sounds";
+import { LAYOUT_PREVIEW_STATE } from "@/lib/hud-preview";
+import {
+  CloudBar,
+  Meter,
+  Panel,
+  PanelHeader,
+  PrimaryButton,
+  Row,
+  Shell,
+  HudFrame,
+  useHudZoom,
+  DensityControls,
+} from "@/components/hud/chrome";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>): { token?: string } => ({
@@ -96,16 +107,14 @@ type NavKey =
   | "notifications"
   | "settings";
 
-const NAV: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+const RAIL_NAV: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: "home", label: "Home", icon: Home },
   { key: "pregnancy", label: "Pregnancy", icon: Sparkles },
   { key: "health", label: "Health", icon: Heart },
-  { key: "baby", label: "Baby", icon: Baby },
-  { key: "care", label: "Care & Comfort", icon: Moon },
+  { key: "care", label: "Care", icon: HandHeart },
   { key: "partner", label: "Partner", icon: Users },
   { key: "journal", label: "Journal", icon: BookHeart },
-  { key: "nutrition", label: "Nutrition", icon: Apple },
-  { key: "notifications", label: "Notifications", icon: Bell },
+  { key: "baby", label: "Baby", icon: Baby },
   { key: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -128,34 +137,6 @@ const CLIENT_DECAY_PER_HOUR: Record<keyof HudStats, number> = {
 };
 
 const clampStat = (value: number) => Math.max(0, Math.min(100, value));
-
-// ---------------------------------------------------------------------------
-// HUD scaling
-//
-// The SL media face is a fixed pixel surface — 1280x720, set by
-// lsl/nestoria_main_hud.lsl with PRIM_MEDIA_AUTO_SCALE off so those numbers are
-// the browser viewport every wearer gets, rather than whatever size the viewer
-// felt like allocating for the face on screen.
-//
-// The design width matches that surface on purpose. It used to be 1440, which
-// meant the dashboard was permanently drawn at 89% and every wearer read 14px
-// text where 16px was intended. At parity the fit scale is 1 and the page
-// renders pixel-for-pixel; `zoom` multiplies from there.
-//
-// Scaling with `transform` alone does not change layout size, which is why
-// zooming used to cut content off at both edges — ScaledFrame below also
-// counter-sizes its width and reports the scaled height back to the document,
-// keeping everything on screen.
-// ---------------------------------------------------------------------------
-
-const HUD_DESIGN_WIDTH = 1280;
-const MIN_ZOOM = 0.5;
-const MAX_ZOOM = 1.75;
-const ZOOM_STEP = 0.1;
-const ZOOM_STORAGE_KEY = "nestoriaHudZoomV3";
-
-const clampZoom = (value: number) =>
-  Math.round(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value)) * 100) / 100;
 
 function smartDecayHours(hours: number) {
   const safeHours = Math.max(0, hours);
@@ -192,433 +173,54 @@ function useLiveStats(data: HudState) {
 }
 
 // ---------------------------------------------------------------------------
-// Shared visual primitives (unchanged design language)
-// ---------------------------------------------------------------------------
-
-function CloudBar({
-  value,
-  tone = "lavender",
-}: {
-  value: number;
-  tone?: "lavender" | "blush" | "cream";
-}) {
-  const gradient =
-    tone === "blush"
-      ? "linear-gradient(90deg, oklch(0.82 0.1 355) 0%, oklch(0.88 0.08 355) 60%, oklch(0.95 0.02 355) 100%)"
-      : tone === "cream"
-        ? "linear-gradient(90deg, oklch(0.88 0.08 80) 0%, oklch(0.94 0.05 80) 60%, oklch(0.97 0.02 80) 100%)"
-        : "linear-gradient(90deg, oklch(0.72 0.12 300) 0%, oklch(0.82 0.09 305) 55%, oklch(0.94 0.03 305) 100%)";
-  return (
-    <div
-      className="relative h-6 w-full rounded-full overflow-hidden"
-      style={{
-        background: "oklch(0.96 0.012 305)",
-        boxShadow: "inset 0 2px 4px oklch(0.55 0.15 300 / 0.15)",
-      }}
-    >
-      <div
-        className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
-        style={{ width: `${Math.max(0, Math.min(100, value))}%`, background: gradient }}
-      >
-        <div className="absolute inset-0 animate-[meterSheen_2.8s_linear_infinite] bg-[linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent)]" />
-        <div className="absolute inset-0 flex items-center gap-1 px-1">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <span key={i} className="h-3 w-3 rounded-full bg-white/60 blur-[1px]" />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Meter({
-  icon: Icon,
-  label,
-  value,
-  tone = "lavender",
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-  tone?: "lavender" | "blush" | "cream";
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/70 shadow-soft">
-        <Icon className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="mb-1 flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            {label}
-          </span>
-          <span className="text-xs font-semibold text-[color:var(--lavender-deep)]">
-            {Math.round(value)}%
-          </span>
-        </div>
-        <CloudBar value={value} tone={tone} />
-      </div>
-    </div>
-  );
-}
-
-function Panel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div
-      className={`rounded-[20px] bg-card/85 backdrop-blur-xl shadow-cloud ring-1 ring-white/60 p-4 lg:p-5 ${className}`}
-    >
-      {children}
-    </div>
-  );
-}
-
-function PanelHeader({
-  eyebrow,
-  title,
-  subtitle,
-}: {
-  eyebrow?: string;
-  title: string;
-  subtitle?: string;
-}) {
-  return (
-    <div className="mb-5 text-center">
-      {eyebrow && (
-        <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[color:var(--lavender-deep)]/70">
-          {eyebrow}
-        </div>
-      )}
-      <h2 className="mt-1 text-2xl font-display font-semibold text-foreground">{title}</h2>
-      {subtitle && <p className="text-xs italic text-muted-foreground mt-0.5">{subtitle}</p>}
-    </div>
-  );
-}
-
-function PrimaryButton({
-  children,
-  onClick,
-  disabled,
-}: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="mt-5 w-full rounded-full py-2.5 font-medium text-white shadow-soft transition hover:brightness-105 disabled:opacity-60"
-      style={{ background: "var(--gradient-lavender)" }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Row({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between rounded-xl bg-white/60 px-3 py-2">
-      <span className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
-        {icon}
-        {label}
-      </span>
-      <span className="text-sm font-semibold text-foreground">{value}</span>
-    </div>
-  );
-}
-
-/**
- * Renders `children` on a virtual canvas that is always exactly as wide as the
- * media surface, then scales it. `zoom` multiplies the auto-fit scale, so
- * zooming behaves like browser zoom: everything grows or shrinks together and
- * nothing ever falls outside the frame horizontally.
- */
-function ScaledFrame({
-  zoom,
-  onMetrics,
-  children,
-}: {
-  zoom: number;
-  onMetrics?: (metrics: { renderedHeight: number; viewportHeight: number }) => void;
-  children: React.ReactNode;
-}) {
-  const outerRef = useRef<HTMLDivElement>(null);
-  const innerRef = useRef<HTMLDivElement>(null);
-  // Both null until mounted so the server render and the first client render
-  // agree; scaling is applied on the first client effect.
-  const [availableWidth, setAvailableWidth] = useState<number | null>(null);
-  const [contentHeight, setContentHeight] = useState<number | null>(null);
-
-  // Measured off the wrapper rather than the window: clientWidth already
-  // excludes the scrollbar, so the frame can't spill underneath it. The
-  // `overflow-y: scroll` rule in styles.css keeps that width from flip-flopping
-  // as content grows past a screenful.
-  useEffect(() => {
-    const el = outerRef.current;
-    if (!el) return;
-    const measure = () => setAvailableWidth(el.clientWidth);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    window.addEventListener("resize", measure);
-    window.addEventListener("orientationchange", measure);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", measure);
-      window.removeEventListener("orientationchange", measure);
-    };
-  }, []);
-
-  // offsetHeight / ResizeObserver report the *layout* box, which the transform
-  // does not touch — so this can't feed back into itself.
-  useEffect(() => {
-    const el = innerRef.current;
-    if (!el) return;
-    const sync = () => setContentHeight(el.offsetHeight);
-    sync();
-    const observer = new ResizeObserver(sync);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  const scaled = availableWidth !== null && availableWidth > 0;
-  const fitScale = scaled ? Math.min(1, availableWidth / HUD_DESIGN_WIDTH) : 1;
-  const scale = fitScale * zoom;
-
-  // Report how tall the frame actually draws, so "Fit" can work out the zoom
-  // that brings the whole thing onto the surface. Reported rather than acted on
-  // here: scaling to fit height from inside would change the layout that
-  // produced the measurement, and the two would chase each other forever.
-  useEffect(() => {
-    if (!onMetrics || contentHeight === null || !scaled) return;
-    onMetrics({
-      renderedHeight: contentHeight * scale,
-      viewportHeight: window.innerHeight,
-    });
-  }, [onMetrics, contentHeight, scale, scaled]);
-
-  return (
-    <div
-      ref={outerRef}
-      style={{
-        height: scaled && contentHeight !== null ? contentHeight * scale : undefined,
-        // Clips both axes: the transform shrinks the frame visually but leaves
-        // its layout box full size, so without this the wrapper grows its own
-        // scrollbars and eats into the width we just fitted to.
-        overflow: "hidden",
-      }}
-    >
-      {/*
-        `@container` makes the dashboard's responsive classes key off this
-        virtual canvas instead of the real viewport — otherwise zooming in keeps
-        the desktop column counts and squeezes every panel.
-      */}
-      <div
-        ref={innerRef}
-        className="@container"
-        style={
-          scaled
-            ? {
-                width: availableWidth / scale,
-                transform: `scale(${scale})`,
-                transformOrigin: "top left",
-              }
-            : undefined
-        }
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function ZoomControls({
-  zoom,
-  onZoom,
-  onReset,
-  onFit,
-}: {
-  zoom: number;
-  onZoom: (next: number) => void;
-  onReset: () => void;
-  onFit: () => void;
-}) {
-  return (
-    <div className="fixed bottom-4 right-4 z-50 flex items-center gap-1 rounded-full bg-card/90 backdrop-blur-md px-2 py-1.5 shadow-cloud ring-1 ring-white/60">
-      <button
-        onClick={() => onZoom(zoom - ZOOM_STEP)}
-        disabled={zoom <= MIN_ZOOM}
-        aria-label="Zoom out"
-        title="Zoom out"
-        className="h-9 w-9 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition disabled:opacity-40"
-      >
-        <ZoomOut className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-      </button>
-      <button
-        onClick={onReset}
-        aria-label="Reset zoom to 100%"
-        title="Reset zoom to 100%"
-        className="min-w-14 rounded-full px-2 py-1 text-xs font-semibold text-[color:var(--lavender-deep)] hover:bg-white/70 transition"
-      >
-        {Math.round(zoom * 100)}%
-      </button>
-      <button
-        onClick={() => onZoom(zoom + ZOOM_STEP)}
-        disabled={zoom >= MAX_ZOOM}
-        aria-label="Zoom in"
-        title="Zoom in"
-        className="h-9 w-9 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition disabled:opacity-40"
-      >
-        <ZoomIn className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-      </button>
-      <button
-        onClick={onFit}
-        aria-label="Fit the whole screen"
-        title="Fit the whole screen"
-        className="h-9 w-9 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition"
-      >
-        <Maximize2 className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-      </button>
-    </div>
-  );
-}
-
-/**
- * Zoom preference, shared by every screen the HUD can show.
- *
- * It lives in one hook rather than in the dashboard because the setup wizard
- * and the connect screen are what a wearer sees *first*, and they used to
- * render outside the scaled frame entirely: no zoom controls, no fitting, sized
- * against the raw viewport. Someone whose media surface came back small had no
- * way to make the first screen readable.
- */
-function useHudZoom() {
-  // Starts at 1 on both server and client; the saved preference is applied
-  // after mount so hydration stays in sync.
-  const [zoom, setZoomState] = useState(1);
-  const metrics = useRef<{ renderedHeight: number; viewportHeight: number } | null>(null);
-
-  useEffect(() => {
-    const saved = Number(window.localStorage.getItem(ZOOM_STORAGE_KEY));
-    if (Number.isFinite(saved) && saved > 0) setZoomState(clampZoom(saved));
-  }, []);
-
-  const setZoom = useCallback((next: number) => {
-    const clamped = clampZoom(next);
-    setZoomState(clamped);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(ZOOM_STORAGE_KEY, String(clamped));
-    }
-    return clamped;
-  }, []);
-
-  const onMetrics = useCallback((next: { renderedHeight: number; viewportHeight: number }) => {
-    metrics.current = next;
-  }, []);
-
-  // Shrink until the whole frame is on the surface. Uses the height the frame
-  // last reported, so one press is one calculation — no loop between the fit
-  // and the layout it changes.
-  const fit = useCallback(() => {
-    const current = metrics.current;
-    if (!current || current.renderedHeight <= 0) return setZoom(1);
-    if (current.renderedHeight <= current.viewportHeight) return setZoom(1);
-    return setZoom((zoom * current.viewportHeight) / current.renderedHeight);
-  }, [setZoom, zoom]);
-
-  return { zoom, setZoom, onMetrics, fit };
-}
-
-/** A screen that scales to the media surface and carries its own zoom controls. */
-function HudFrame({
-  zoom,
-  setZoom,
-  onMetrics,
-  fit,
-  children,
-}: ReturnType<typeof useHudZoom> & { children: React.ReactNode }) {
-  return (
-    <>
-      <ScaledFrame zoom={zoom} onMetrics={onMetrics}>
-        {children}
-      </ScaledFrame>
-      <ZoomControls zoom={zoom} onZoom={setZoom} onReset={() => setZoom(1)} onFit={fit} />
-    </>
-  );
-}
-
-function Ambient() {
-  return (
-    <>
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        {Array.from({ length: 24 }).map((_, i) => (
-          <span
-            key={i}
-            className="absolute h-1 w-1 rounded-full bg-white/70"
-            style={{
-              top: `${(i * 37) % 100}%`,
-              left: `${(i * 53) % 100}%`,
-              boxShadow: "0 0 8px 2px oklch(0.9 0.05 300 / 0.6)",
-              animation: `twinkle ${3 + (i % 4)}s ease-in-out ${i * 0.2}s infinite`,
-            }}
-          />
-        ))}
-      </div>
-      <style>{`@keyframes twinkle { 0%,100%{opacity:.2;transform:scale(.8)} 50%{opacity:1;transform:scale(1.3)} }
-        @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
-        @keyframes meterSheen { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }`}</style>
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Entry
 // ---------------------------------------------------------------------------
 
 function Index() {
   const { token } = Route.useSearch();
-  const state = useHudState(token ?? null);
+  const layoutPreview = import.meta.env.DEV && token === "layout-preview";
+  const state = useHudState(layoutPreview ? null : token ?? null);
+  const hudZoom = useHudZoom();
+
+  if (layoutPreview) {
+    return <Dashboard token="layout-preview" data={LAYOUT_PREVIEW_STATE} />;
+  }
 
   if (!token) return <ConnectScreen />;
   if (state.isLoading) {
     return (
       <Shell>
-        <div className="flex min-h-[60vh] items-center justify-center">
-          <div className="text-center">
-            <Loader2 className="mx-auto h-10 w-10 animate-spin text-[color:var(--lavender-deep)]" />
-            <p className="mt-4 font-display text-xl text-[color:var(--lavender-deep)]">
-              Opening your nursery…
-            </p>
+        <HudFrame {...hudZoom}>
+          <div className="flex h-full min-h-0 flex-1 items-center justify-center">
+            <div className="text-center">
+              <Loader2 className="mx-auto h-10 w-10 animate-spin text-[color:var(--lavender-deep)]" />
+              <p className="mt-4 font-display text-xl text-[color:var(--lavender-deep)]">
+                Opening your nursery…
+              </p>
+            </div>
           </div>
-        </div>
+        </HudFrame>
       </Shell>
     );
   }
   if (state.isError || !state.data || state.data.error) {
     return (
       <Shell>
-        <div className="flex min-h-[60vh] items-center justify-center px-6">
-          <Panel className="max-w-md text-center">
-            <PanelHeader eyebrow="Session" title="Your session has expired" />
-            <p className="text-sm text-muted-foreground">
-              Touch your Nestoria HUD in Second Life and choose <b>Sync</b> — it will refresh this
-              screen with a new session.
-            </p>
-          </Panel>
-        </div>
+        <HudFrame {...hudZoom}>
+          <div className="flex h-full min-h-0 flex-1 items-center justify-center px-6">
+            <Panel className="w-full max-w-[920px] text-center">
+              <PanelHeader eyebrow="Session" title="Your session has expired" />
+              <p className="text-base text-muted-foreground">
+                Touch your Nestoria HUD in Second Life and choose <b>Sync</b> — it will refresh this
+                screen with a new session.
+              </p>
+            </Panel>
+          </div>
+        </HudFrame>
       </Shell>
     );
   }
   return <Dashboard token={token} data={state.data} />;
-}
-
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen w-full">
-      <Ambient />
-      {children}
-    </div>
-  );
 }
 
 function ConnectScreen() {
@@ -639,40 +241,43 @@ function ConnectScreen() {
   return (
     <Shell>
       <HudFrame {...hudZoom}>
-        <div className="flex min-h-screen items-center justify-center px-6">
-          <Panel className="max-w-lg text-center">
-            <img
-              src={logo}
-              alt="Nestoria logo"
-              width={96}
-              height={96}
-              className="mx-auto h-20 w-20"
-              style={{ animation: "float 5s ease-in-out infinite" }}
-            />
-            <h1 className="mt-3 font-display text-4xl font-semibold tracking-wide text-[color:var(--lavender-deep)]">
-              NESTORIA
-            </h1>
-            <p className="font-script text-lg text-[color:var(--lavender-deep)]/70">
-              where every family journey begins
-            </p>
-            <div className="mt-6 space-y-3 text-left text-sm text-muted-foreground">
-              <p className="font-semibold text-foreground">To open your dashboard:</p>
-              <p>
-                1. Wear the <b>Nestoria HUD</b> in Second Life.
+        <div className="hud-app">
+          <div className="grid h-full min-h-0 min-w-0 grid-cols-1 gap-4 min-[800px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <Panel className="flex min-h-0 flex-col items-center justify-center text-center">
+              <img
+                src={logo}
+                alt="Nestoria logo"
+                width={88}
+                height={88}
+                className="h-[clamp(56px,8vh,88px)] w-[clamp(56px,8vh,88px)]"
+                style={{ animation: "float 5s ease-in-out infinite" }}
+              />
+              <h1 className="hud-brand mt-3">NESTORIA</h1>
+              <p className="font-script text-[clamp(16px,2vw,22px)] text-[#A77ACB]">
+                where every family journey begins
               </p>
-              <p>2. It registers automatically and loads this dashboard on its screen.</p>
-              <p>
-                3. Make sure media is enabled: <i>Preferences → Sound &amp; Media → Media</i>.
-              </p>
-              <p>
-                Partners: wear the <b>Partner HUD</b> and enter the pairing code from her Partner
-                panel.
-              </p>
-            </div>
-            <PrimaryButton onClick={startDemo} disabled={starting}>
-              {starting ? "Starting demo…" : "Preview a demo dashboard"}
-            </PrimaryButton>
-          </Panel>
+              <p className="mt-2 hud-muted">Pregnancy & Family HUD</p>
+            </Panel>
+            <Panel className="flex min-h-0 flex-col justify-center">
+              <div className="space-y-2 hud-copy">
+                <p className="font-semibold">To open your dashboard:</p>
+                <p>
+                  1. Wear the <b>Nestoria HUD</b> in Second Life.
+                </p>
+                <p>2. It registers automatically and loads this dashboard on its screen.</p>
+                <p>
+                  3. Enable media: <i>Preferences → Sound &amp; Media → Media</i>.
+                </p>
+                <p>
+                  Partners: wear the <b>Partner HUD</b> and enter the pairing code from her Partner
+                  panel.
+                </p>
+              </div>
+              <PrimaryButton onClick={startDemo} disabled={starting}>
+                {starting ? "Starting demo…" : "Preview a demo dashboard"}
+              </PrimaryButton>
+            </Panel>
+          </div>
         </div>
       </HudFrame>
       <Toaster position="top-center" />
@@ -727,846 +332,769 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
   const preg = data.pregnancy;
   const stats = useLiveStats(data);
-  const show = (...keys: NavKey[]) => active === "home" || keys.includes(active);
-
   const dueDate = useMemo(
     () =>
       new Date(preg.dueDate).toLocaleDateString(undefined, {
         year: "numeric",
-        month: "long",
+        month: "short",
         day: "numeric",
       }),
     [preg.dueDate],
   );
   const firstName = data.user.name.split(" ")[0];
+  const nextMilestone = useMemo(
+    () => BABY_GROWTH.find((m) => m.week > preg.week) ?? BABY_GROWTH[BABY_GROWTH.length - 1],
+    [preg.week],
+  );
+  const trimesterLabel =
+    preg.trimester === 1 ? "1st Trimester" : preg.trimester === 2 ? "2nd Trimester" : "3rd Trimester";
+  const homeTiles: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] =
+    [
+      { key: "pregnancy", label: "Pregnancy", icon: Sparkles },
+      { key: "health", label: "Health", icon: Heart },
+      { key: "care", label: "Care & Comfort", icon: HandHeart },
+      { key: "partner", label: "Partner", icon: Users },
+      { key: "journal", label: "Journal", icon: BookHeart },
+      { key: "baby", label: "Baby", icon: Baby },
+      { key: "journal", label: "Milestones", icon: Trophy },
+      { key: "settings", label: "Settings", icon: Settings },
+    ];
+
   if (!preg.setupComplete && data.user.role === "mom") {
     return (
       <SetupWizard token={token} data={data} onSave={(params) => act("setup_update", params)} />
     );
   }
 
+  const pageScrolls = active !== "home";
+
   return (
     <Shell>
       <HudFrame {...hudZoom}>
-        {/* Header */}
-        <header className="relative z-10 mx-auto max-w-[1680px] px-6 pt-4 pb-3">
-          <div className="flex items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <img
-                src={logo}
-                alt="Nestoria logo"
-                width={72}
-                height={72}
-                className="h-12 w-12 drop-shadow-[0_4px_12px_oklch(0.55_0.15_300/0.25)]"
-                style={{ animation: "float 5s ease-in-out infinite" }}
-              />
-              <div>
-                <h1 className="font-display text-3xl font-semibold tracking-wide text-[color:var(--lavender-deep)]">
-                  NESTORIA
-                </h1>
-                <p className="font-script text-sm text-[color:var(--lavender-deep)]/70">
-                  where every family journey begins
-                </p>
+        <div className="hud-app">
+          <header className="hud-topbar">
+            <div className="flex min-w-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setActive("home")}
+                className="flex min-w-0 items-center gap-2 text-left"
+              >
+                <img src={logo} alt="" width={40} height={40} className="h-9 w-9 shrink-0 rounded-xl" />
+                <div className="min-w-0">
+                  <div className="hud-brand truncate">NESTORIA</div>
+                  <div className="hud-muted truncate">Pregnancy & Family</div>
+                </div>
+              </button>
+            </div>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <div className="hidden min-w-0 min-[720px]:block">
+                <div className="hud-muted truncate">Welcome back</div>
+                <div className="hud-copy truncate font-semibold">{firstName}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActive("notifications")}
+                aria-label="Notifications"
+                className="hud-icon-btn relative"
+              >
+                <Bell className="h-4 w-4" />
+                {data.unread > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#F6C6D6] px-1 text-[9px] font-bold text-white">
+                    {data.unread}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setActive("settings")}
+                aria-label="Settings"
+                className="hud-icon-btn"
+              >
+                <Settings className="h-4 w-4" />
+              </button>
+              <div className="hidden min-[900px]:block">
+                <DensityControls zoom={hudZoom.zoom} setZoom={hudZoom.setZoom} />
               </div>
             </div>
-            <div className="hidden @min-[768px]:flex items-center gap-2 rounded-full bg-card/80 backdrop-blur-md px-3 py-2 shadow-soft">
-              <div className="h-10 w-10 rounded-full bg-[color:var(--lavender)] flex items-center justify-center">
-                <Sparkles className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                  Welcome back
-                </div>
-                <div className="font-display text-lg leading-none">
-                  {firstName} <span className="text-[color:var(--blush)]">♥</span>
-                </div>
-              </div>
-              <div className="ml-3 flex gap-2">
-                <button
-                  onClick={() => setActive("notifications")}
-                  aria-label="Notifications"
-                  className="relative h-10 w-10 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition"
-                >
-                  <Bell className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-                  {data.unread > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-[color:var(--blush)] text-[9px] font-bold text-white flex items-center justify-center">
-                      {data.unread}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => setActive("settings")}
-                  aria-label="Settings"
-                  className="h-10 w-10 rounded-full bg-white/70 flex items-center justify-center shadow-soft hover:bg-white transition"
-                >
-                  <Settings className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </header>
+          </header>
 
-        <main className="relative z-10 mx-auto max-w-[1680px] px-6 pb-20">
           {preg.delivered && (
-            <div className="mb-6 rounded-[28px] bg-card/90 p-5 text-center shadow-cloud ring-1 ring-white/60">
-              <span className="font-display text-2xl text-[color:var(--lavender-deep)]">
-                🎉 Your little one has arrived! Congratulations
-                {preg.babyName ? ` on ${preg.babyName}` : ""} ♥
+            <div className="shrink-0 rounded-2xl bg-white/80 px-3 py-1.5 text-center">
+              <span className="hud-copy font-semibold">
+                Your little one has arrived
+                {preg.babyName ? ` — ${preg.babyName}` : ""}.
               </span>
-              <p className="mt-2 text-sm text-muted-foreground">
-                This pregnancy stays marked delivered. Journal, memories, and partner stay with this
-                story.
-              </p>
             </div>
           )}
-          <div className="grid grid-cols-12 gap-4">
-            {/* Sidebar */}
-            <aside className="col-span-12 @min-[768px]:col-span-3 @min-[1024px]:col-span-2">
-              <Panel className="p-2">
-                <nav className="flex @min-[768px]:flex-col gap-1 overflow-x-auto @min-[768px]:overflow-visible">
-                  {NAV.map(({ key, label, icon: Icon }) => {
-                    const isActive = active === key;
-                    return (
-                      <button
-                        key={key}
-                        onClick={() => setActive(key)}
-                        className={`group flex min-w-0 items-center gap-2 rounded-xl px-2.5 py-2 text-xs font-semibold transition-all whitespace-nowrap ${
-                          isActive
-                            ? "bg-[color:var(--lavender)] text-white shadow-soft"
-                            : "text-muted-foreground hover:bg-white/70 hover:text-[color:var(--lavender-deep)]"
-                        }`}
-                      >
-                        <Icon className="h-4 w-4 shrink-0" />
-                        <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-                        {key === "notifications" && data.unread > 0 && (
-                          <span className="h-4 min-w-4 rounded-full bg-[color:var(--blush)] px-1 text-[9px] font-bold text-white flex items-center justify-center">
-                            {data.unread}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </nav>
-              </Panel>
-            </aside>
 
-            {/* Pregnancy hero */}
-            {show("pregnancy") && (
-              <section className="col-span-12 @min-[768px]:col-span-9 @min-[1024px]:col-span-6">
-                <Panel className="relative overflow-hidden">
-                  <PanelHeader
-                    eyebrow="Pregnancy"
-                    title="Your beautiful journey"
-                    subtitle="every day is a step closer to meeting your little one"
-                  />
-                  <div className="grid grid-cols-2 gap-6 items-center">
-                    <div className="relative">
-                      <div
-                        className="aspect-square rounded-full overflow-hidden ring-4 ring-white/70 shadow-cloud"
-                        style={{ background: "var(--gradient-lavender)" }}
-                      >
+          <div className="hud-stage">
+            {active !== "home" && (
+            <nav className="hud-rail" aria-label="Main">
+              {RAIL_NAV.map(({ key, label, icon: Icon }) => {
+                const isActive = active === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setActive(key)}
+                    className={`hud-rail-btn ${isActive ? "is-active" : ""}`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+            )}
+
+            <main className={`hud-main ${pageScrolls ? "is-scroll" : ""}`}>
+              {active === "home" && (
+                <div className="hud-home">
+                  <section>
+                    <button type="button" className="hud-card w-full text-left" onClick={() => setActive("pregnancy")}>
+                      <div className="hud-overview-strip">
+                        <img src={pregnancyHero} alt="" loading="lazy" />
+                        <div className="min-w-0">
+                          <div className="hud-muted">{preg.delivered ? "Delivered" : "Pregnant"}</div>
+                          <div className="hud-stat">
+                            {preg.week}w + {preg.day}d
+                          </div>
+                          <div className="hud-copy mt-0.5">{trimesterLabel}</div>
+                          <div className="mt-1.5">
+                            <CloudBar value={preg.progressPct} />
+                          </div>
+                        </div>
+                        <div className="hidden min-w-0 min-[820px]:grid grid-cols-2 gap-1.5">
+                          {(
+                            [
+                              ["Due", dueDate],
+                              ["Left", `${preg.daysToGo} days`],
+                              ["Size", preg.baby.size],
+                              ["Progress", `${preg.progressPct}%`],
+                            ] as const
+                          ).map(([label, value]) => (
+                            <div key={label} className="min-w-0 rounded-xl bg-white/80 px-2 py-1">
+                              <div className="hud-label truncate">{label}</div>
+                              <div className="hud-copy truncate font-semibold">{value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </button>
+                  </section>
+
+                  <section className="min-h-0">
+                    <div className="hud-tiles">
+                      {homeTiles.map(({ key, label, icon: Icon }) => (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => setActive(key)}
+                          className="hud-tile"
+                        >
+                          <span className="hud-tile-icon">
+                            <Icon />
+                          </span>
+                          <span>{label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section>
+                    <Panel>
+                      <div className="hud-health-strip">
+                        <Meter compact icon={Heart} label="Sickness" value={stats.sickness} tone="blush" />
+                        <Meter compact icon={Utensils} label="Hunger" value={stats.hunger} />
+                        <Meter compact icon={Droplet} label="Bladder" value={stats.bladder} />
+                        <Meter compact icon={Zap} label="Energy" value={stats.energy} />
+                        <Meter compact icon={Smile} label="Mood" value={stats.mood} tone="blush" />
+                        <Meter compact icon={Droplet} label="Hydration" value={stats.hydration} />
+                      </div>
+                    </Panel>
+                  </section>
+
+                  <section>
+                    <div className="hud-actions">
+                      <button type="button" className="hud-action" onClick={() => act("rest")}>
+                        <Moon className="h-4 w-4 text-[#A77ACB]" />
+                        <span>Rest</span>
+                      </button>
+                      <button type="button" className="hud-action" onClick={() => act("drink_water")}>
+                        <Droplet className="h-4 w-4 text-[#A77ACB]" />
+                        <span>Water</span>
+                      </button>
+                      <button type="button" className="hud-action" onClick={() => act("vitamins")}>
+                        <Pill className="h-4 w-4 text-[#A77ACB]" />
+                        <span>Vitamins</span>
+                      </button>
+                      <button type="button" className="hud-action" onClick={() => act("comfort")}>
+                        <Heart className="h-4 w-4 text-[#A77ACB]" />
+                        <span>Comfort</span>
+                      </button>
+                      <button type="button" className="hud-action" onClick={() => act("hug")}>
+                        <HandHeart className="h-4 w-4 text-[#A77ACB]" />
+                        <span>Hug</span>
+                      </button>
+                      <button type="button" className="hud-action" onClick={() => act("support")}>
+                        <MessageCircle className="h-4 w-4 text-[#A77ACB]" />
+                        <span>Support</span>
+                      </button>
+                      <button type="button" className="hud-action" onClick={() => act("medicine")}>
+                        <Stethoscope className="h-4 w-4 text-[#A77ACB]" />
+                        <span>Meds</span>
+                      </button>
+                      <button type="button" className="hud-action" onClick={() => act("count_kick")}>
+                        <Footprints className="h-4 w-4 text-[#A77ACB]" />
+                        <span>Kick</span>
+                      </button>
+                    </div>
+                  </section>
+                </div>
+              )}
+
+              {active === "pregnancy" && (
+                <div className="hud-page">
+                  <Panel className="is-scroll">
+                    <PanelHeader eyebrow="Pregnancy" title="Your beautiful journey" />
+                    <div className="grid grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)] gap-3">
+                      <div className="relative mx-auto aspect-square w-full max-w-[180px] overflow-hidden rounded-full ring-4 ring-white/70">
                         <img
                           src={pregnancyHero}
                           alt="Pregnancy"
-                          width={512}
-                          height={512}
                           className="h-full w-full object-cover"
                           loading="lazy"
                         />
                       </div>
-                      <div className="absolute -bottom-2 -right-2 rounded-full bg-white px-3 py-1.5 shadow-soft text-xs font-semibold text-[color:var(--lavender-deep)]">
-                        {preg.trimester === 1 ? "1st" : preg.trimester === 2 ? "2nd" : "3rd"}{" "}
-                        Trimester
-                      </div>
-                    </div>
-                    <div className="space-y-4">
-                      <div>
-                        <div className="font-display text-4xl font-semibold text-[color:var(--lavender-deep)] leading-tight">
-                          {preg.week}{" "}
-                          <span className="text-2xl font-normal text-muted-foreground">weeks</span>{" "}
-                          + {preg.day}{" "}
-                          <span className="text-2xl font-normal text-muted-foreground">days</span>
+                      <div className="min-w-0 space-y-2">
+                        <div className="hud-stat">
+                          {preg.week}w + {preg.day}d
                         </div>
-                        <p className="text-xs italic text-muted-foreground mt-1">
-                          Due: {dueDate} · {preg.daysToGo} days to go
+                        <p className="hud-muted">
+                          {trimesterLabel} · Due {dueDate} · {preg.daysToGo} days remaining
                         </p>
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-xs mb-1.5">
-                          <span className="uppercase tracking-widest text-muted-foreground">
-                            Progress
-                          </span>
-                          <span className="font-semibold text-[color:var(--lavender-deep)]">
-                            {preg.progressPct}%
-                          </span>
-                        </div>
                         <CloudBar value={preg.progressPct} />
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="rounded-2xl bg-white/70 p-3 text-center">
-                          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                            Baby size
-                          </div>
-                          <div className="font-display text-lg text-foreground">
-                            {preg.baby.size}
-                          </div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {preg.baby.lengthCm} cm · {preg.baby.weightG} g
-                          </div>
-                        </div>
-                        <div className="rounded-2xl bg-white/70 p-3 text-center">
-                          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                            Baby kicks
-                          </div>
-                          <div className="font-display text-lg text-foreground">
-                            {preg.baby.kicksToday} today
-                          </div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {preg.baby.movement} <Footprints className="inline h-3 w-3" />
-                          </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Row label="Baby size" value={preg.baby.size} />
+                          <Row label="Current stage" value={trimesterLabel} />
+                          <Row
+                            label="Next milestone"
+                            value={`Week ${nextMilestone.week} · ${nextMilestone.size}`}
+                          />
+                          <Row
+                            label="Kicks today"
+                            value={`${preg.baby.kicksToday}`}
+                            icon={<Footprints className="h-3.5 w-3.5 text-[#A77ACB]" />}
+                          />
                         </div>
                       </div>
                     </div>
-                  </div>
-                  <TimelineDialog currentWeek={preg.week} />
-                  <div className="mt-4 grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => act("feel_kick")}
-                      className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
-                    >
-                      Feel baby kick
-                    </button>
-                    <button
-                      onClick={() => act("count_kick")}
-                      className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
-                    >
-                      Count a kick
-                    </button>
-                    <button
-                      onClick={() => act("appointment")}
-                      className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
-                    >
-                      Appointment
-                    </button>
-                    <button
-                      onClick={() => act("ultrasound")}
-                      className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
-                    >
-                      Ultrasound
-                    </button>
-                    {!preg.delivered && (
-                      <>
-                        <button
-                          onClick={() => act("water_break")}
-                          className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
-                        >
-                          Water break
-                        </button>
-                        <button
-                          onClick={() => act("contractions")}
-                          className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
-                        >
-                          Contractions
-                        </button>
-                        <button
-                          onClick={() => act("go_to_hospital")}
-                          className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
-                        >
-                          Go to hospital
-                        </button>
-                        <button
-                          onClick={() => act("birth")}
-                          className="rounded-full bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--lavender-deep)] hover:bg-white"
-                        >
-                          Birth
-                        </button>
-                      </>
+                    <TimelineDialog currentWeek={preg.week} />
+                    <div className="mt-3 grid grid-cols-4 gap-2">
+                      <button
+                        onClick={() => act("feel_kick")}
+                        className="hud-action min-h-10"
+                      >
+                        Feel kick
+                      </button>
+                      <button onClick={() => act("count_kick")} className="hud-action min-h-10">
+                        Count kick
+                      </button>
+                      <button onClick={() => act("appointment")} className="hud-action min-h-10">
+                        Appointment
+                      </button>
+                      <button onClick={() => act("ultrasound")} className="hud-action min-h-10">
+                        Ultrasound
+                      </button>
+                      {!preg.delivered && (
+                        <>
+                          <button onClick={() => act("water_break")} className="hud-action min-h-10">
+                            Water break
+                          </button>
+                          <button onClick={() => act("contractions")} className="hud-action min-h-10">
+                            Contractions
+                          </button>
+                          <button onClick={() => act("go_to_hospital")} className="hud-action min-h-10">
+                            Hospital
+                          </button>
+                          <button onClick={() => act("birth")} className="hud-action min-h-10">
+                            Birth
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {preg.labor && preg.labor.stage !== "none" && (
+                      <p className="mt-2 text-center hud-muted">
+                        {preg.labor.waterBroken ? "Water has broken. " : ""}
+                        {preg.labor.stage === "contractions" || preg.labor.intensity > 0
+                          ? `Contractions ${preg.labor.intensity}% · ${preg.labor.contractionMinutes} min`
+                          : preg.labor.stage.replace("_", " ")}
+                      </p>
                     )}
-                  </div>
-                  {preg.labor && preg.labor.stage !== "none" && (
-                    <p className="mt-3 text-center text-xs text-[color:var(--lavender-deep)]">
-                      {preg.labor.waterBroken ? "Water has broken. " : ""}
-                      {preg.labor.stage === "contractions" || preg.labor.intensity > 0
-                        ? `Contractions ${preg.labor.intensity}% · ${preg.labor.contractionMinutes} min`
-                        : preg.labor.stage.replace("_", " ")}
-                    </p>
-                  )}
-                </Panel>
-              </section>
-            )}
+                  </Panel>
+                </div>
+              )}
 
-            {/* Baby */}
-            {show("baby", "pregnancy") && (
-              <section className="col-span-12 @min-[1024px]:col-span-4">
-                <Panel>
-                  <PanelHeader
-                    eyebrow="Baby"
-                    title={
-                      preg.babyName ? `All about ${preg.babyName}` : "All about your little one"
-                    }
-                  />
-                  <div className="relative mx-auto aspect-square w-44 rounded-full overflow-hidden ring-4 ring-white/70 shadow-cloud mb-4">
-                    <img
-                      src={babyHero}
-                      alt="Baby"
-                      width={400}
-                      height={400}
-                      className="h-full w-full object-cover"
-                      loading="lazy"
+              {active === "baby" && (
+                <div className="hud-page">
+                  <Panel className="is-scroll">
+                    <PanelHeader
+                      eyebrow="Baby"
+                      title={preg.babyName ? `All about ${preg.babyName}` : "All about your little one"}
                     />
-                  </div>
-                  <div className="space-y-2.5 text-sm">
-                    <Row
-                      label="Heartbeat"
-                      value={preg.baby.heartbeat ? `${preg.baby.heartbeat} bpm` : "Too early"}
-                      icon={<Heart className="h-3.5 w-3.5 text-[color:var(--blush)]" />}
-                    />
-                    <Row label="Movement" value={preg.baby.movement} />
-                    <Row label="Position" value={preg.baby.position} />
-                    <Row label="Weight" value={`${(preg.baby.weightG / 453.6).toFixed(1)} lbs`} />
-                    <Row label="Length" value={`${(preg.baby.lengthCm / 2.54).toFixed(1)} in`} />
-                  </div>
-                  <p className="mt-3 text-center text-xs italic text-muted-foreground">
-                    {preg.baby.note}
-                  </p>
-                  <PrimaryButton onClick={() => act("kick")}>Log a kick 👶</PrimaryButton>
-                  <ScrapbookDialog
-                    ultrasounds={data.ultrasounds}
-                    newCount={data.newUltrasounds}
-                    babyName={preg.babyName}
-                    onOpened={() => {
-                      if (data.newUltrasounds > 0)
-                        act("ultrasound_seen", undefined, { silent: true });
-                    }}
-                  />
-                </Panel>
-              </section>
-            )}
-
-            {/* Health */}
-            {show("health") && (
-              <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
-                <Panel>
-                  <PanelHeader eyebrow="Health" title="Monitor your well-being" />
-                  <div className="space-y-4">
-                    <Meter icon={Zap} label="Energy" value={stats.energy} />
-                    <Meter icon={Activity} label="Immunity" value={stats.immunity} />
-                    <Meter icon={Smile} label="Mood" value={stats.mood} tone="blush" />
-                    <Meter icon={Droplet} label="Hydration" value={stats.hydration} />
-                  </div>
-                  <div className="mt-5 rounded-2xl bg-white/60 px-4 py-3 flex items-start gap-3">
-                    <div className="h-8 w-8 rounded-full bg-[color:var(--lavender)] flex items-center justify-center shrink-0">
-                      <Sparkles className="h-4 w-4 text-white" />
+                    <div className="grid grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)] items-center gap-3">
+                      <div className="relative mx-auto aspect-square w-full max-w-[160px] overflow-hidden rounded-full ring-4 ring-white/70">
+                        <img src={babyHero} alt="Baby" className="h-full w-full object-cover" loading="lazy" />
+                      </div>
+                      <div className="min-w-0 space-y-2">
+                        <Row label="Baby size" value={preg.baby.size} />
+                        <Row
+                          label="Heartbeat"
+                          value={preg.baby.heartbeat ? `${preg.baby.heartbeat} bpm` : "Too early"}
+                          icon={<Heart className="h-3.5 w-3.5 text-[#F6C6D6]" />}
+                        />
+                        <Row label="Movement" value={preg.baby.movement} />
+                        <Row label="Weight" value={`${(preg.baby.weightG / 453.6).toFixed(1)} lbs`} />
+                        <Row label="Length" value={`${(preg.baby.lengthCm / 2.54).toFixed(1)} in`} />
+                        <Row label="Kicks today" value={`${preg.baby.kicksToday}`} />
+                      </div>
                     </div>
-                    <p className="text-xs italic text-muted-foreground">
-                      {data.wellness >= 75
-                        ? "You're doing great! Keep taking care of yourself."
-                        : data.wellness >= 50
-                          ? "A little self-care would feel lovely right now."
-                          : "Baby needs you rested — drink, eat and take a break."}{" "}
-                      <span className="text-[color:var(--blush)]">♥</span>
-                    </p>
-                  </div>
-                  <PrimaryButton onClick={() => act("doctor")}>
-                    <span className="inline-flex items-center gap-2">
-                      <Stethoscope className="h-4 w-4" /> Visit the doctor
-                    </span>
-                  </PrimaryButton>
-                </Panel>
-              </section>
-            )}
+                    <p className="mt-2 text-center hud-muted italic">{preg.baby.note}</p>
+                    <PrimaryButton onClick={() => act("kick")}>Log a kick</PrimaryButton>
+                    <ScrapbookDialog
+                      ultrasounds={data.ultrasounds}
+                      newCount={data.newUltrasounds}
+                      babyName={preg.babyName}
+                      onOpened={() => {
+                        if (data.newUltrasounds > 0) act("ultrasound_seen", undefined, { silent: true });
+                      }}
+                    />
+                  </Panel>
+                </div>
+              )}
 
-            {show("health", "care", "home") && data.mood && (
-              <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
-                <Panel>
-                  <PanelHeader eyebrow="Mood" title={`${data.mood.emoji} ${data.mood.label}`} />
-                  <p className="text-center text-sm text-muted-foreground">{data.mood.hint}</p>
-                  <p className="mt-2 text-center text-xs italic text-muted-foreground">
-                    Mood swings pop up on their own. Your meters only nudge which feeling is more
-                    likely — they never lock one in.
-                  </p>
-                </Panel>
-              </section>
-            )}
-
-            {/* Symptoms */}
-            {show("health") && (
-              <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
-                <Panel>
-                  <PanelHeader eyebrow="Symptoms" title="Track how you feel" />
-                  <div className="space-y-3">
-                    {data.symptoms.map((s) => (
-                      <div key={s.name}>
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className="font-medium text-foreground">{s.name}</span>
-                          <span className="text-muted-foreground italic">{s.label}</span>
+              {active === "health" && (
+                <div className="hud-page">
+                  <Panel className="is-scroll">
+                    <PanelHeader eyebrow="Health" title="Monitor your well-being" />
+                    <div className="hud-meters">
+                      <Meter icon={Heart} label="Sickness" value={stats.sickness} tone="blush" />
+                      <Meter icon={Utensils} label="Hunger" value={stats.hunger} />
+                      <Meter icon={Droplet} label="Bladder" value={stats.bladder} />
+                      <Meter icon={Zap} label="Energy" value={stats.energy} />
+                      <Meter icon={Smile} label="Mood" value={stats.mood} tone="blush" />
+                      <Meter icon={Droplet} label="Hydration" value={stats.hydration} />
+                      <Meter icon={Activity} label="Immunity" value={stats.immunity} />
+                    </div>
+                    {data.mood && (
+                      <div className="mt-3 rounded-2xl bg-white/70 px-3 py-2">
+                        <div className="hud-copy font-semibold">
+                          {data.mood.emoji} {data.mood.label}
                         </div>
-                        <CloudBar value={s.severity} tone="blush" />
+                        <p className="hud-muted mt-1">{data.mood.hint}</p>
                       </div>
-                    ))}
-                  </div>
-                  <SymptomsDialog
-                    symptoms={data.symptoms}
-                    onSave={(name, severity) => act("symptom_log", { name, severity })}
-                  />
-                </Panel>
-              </section>
-            )}
-
-            {/* Care & Comfort */}
-            {show("care") && (
-              <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
-                <Panel>
-                  <PanelHeader eyebrow="Care & Comfort" title="Take care of your needs" />
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      {
-                        icon: Moon,
-                        label: "Rest",
-                        val: stats.rest,
-                        actionLabel: "Rest",
-                        action: "rest",
-                      },
-                      {
-                        icon: Droplet,
-                        label: "Water",
-                        val: stats.hydration,
-                        actionLabel: "Drink",
-                        action: "drink_water",
-                      },
-                      {
-                        icon: Pill,
-                        label: "Vitamins",
-                        val: stats.vitamins,
-                        actionLabel: "Take",
-                        action: "vitamins",
-                      },
-                      {
-                        icon: Stethoscope,
-                        label: "Medicine",
-                        val: 100 - stats.sickness,
-                        actionLabel: "Take",
-                        action: "medicine",
-                      },
-                      {
-                        icon: Heart,
-                        label: "Comfort",
-                        val: stats.comfort,
-                        actionLabel: "Cozy up",
-                        action: "comfort",
-                      },
-                      {
-                        icon: Moon,
-                        label: "Sleep",
-                        val: stats.energy,
-                        actionLabel: "Sleep",
-                        action: "sleep",
-                      },
-                      {
-                        icon: Bath,
-                        label: "Bathroom",
-                        val: stats.bladder,
-                        actionLabel: "Go",
-                        action: "bathroom",
-                      },
-                      {
-                        icon: CloudRain,
-                        label: "Vomiting",
-                        val: 100 - stats.sickness,
-                        actionLabel: "Be sick",
-                        action: "vomit",
-                      },
-                      {
-                        icon: Smile,
-                        label: "Cry",
-                        val: stats.mood,
-                        actionLabel: "Let it out",
-                        action: "cry",
-                      },
-                    ].map(({ icon: Icon, label, val, actionLabel, action: name }) => (
-                      <div key={label} className="rounded-2xl bg-white/70 p-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="h-8 w-8 rounded-full bg-[color:var(--lavender)]/30 flex items-center justify-center">
-                            <Icon className="h-4 w-4 text-[color:var(--lavender-deep)]" />
-                          </div>
-                          <div className="flex-1">
-                            <div className="text-xs font-semibold">{label}</div>
-                            <div className="text-[10px] text-muted-foreground">
-                              {Math.round(val)}%
-                            </div>
-                          </div>
-                        </div>
-                        <CloudBar value={val} />
-                        <button
-                          onClick={() => act(name)}
-                          disabled={action.isPending}
-                          className="mt-2 w-full rounded-full py-1 text-[10px] font-medium bg-[color:var(--lavender)]/20 text-[color:var(--lavender-deep)] hover:bg-[color:var(--lavender)]/40 transition disabled:opacity-50"
-                        >
-                          {actionLabel}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <PrimaryButton onClick={() => act("pack_bag")}>
-                    <span className="inline-flex items-center gap-2">
-                      <Briefcase className="h-4 w-4" /> Pack hospital bag
-                    </span>
-                  </PrimaryButton>
-                  <p className="mt-2 text-center text-[11px] italic text-muted-foreground">
-                    Talks to the worn hospital bag on the same channel as the chair. Wear the bag
-                    first.
-                  </p>
-                  {data.partner.linked && (
+                    )}
+                    <div className="mt-3 rounded-2xl bg-white/60 px-3 py-2">
+                      <p className="hud-muted italic">
+                        {data.wellness >= 75
+                          ? "You're doing great! Keep taking care of yourself."
+                          : data.wellness >= 50
+                            ? "A little self-care would feel lovely right now."
+                            : "Baby needs you rested — drink, eat and take a break."}
+                      </p>
+                    </div>
+                    <PrimaryButton onClick={() => act("doctor")}>
+                      <span className="inline-flex items-center gap-2">
+                        <Stethoscope className="h-4 w-4" /> Visit the doctor
+                      </span>
+                    </PrimaryButton>
                     <button
-                      onClick={() =>
-                        act("ask_partner", {
-                          request: `${data.user.name} could use a little support right now.`,
-                        })
-                      }
-                      className="mt-2 w-full rounded-full py-2 text-xs font-medium bg-white/70 text-[color:var(--lavender-deep)] hover:bg-white"
+                      type="button"
+                      onClick={() => setActive("nutrition")}
+                      className="mt-2 w-full rounded-full bg-white/70 py-2 hud-copy font-semibold text-[#A77ACB]"
                     >
-                      Ask partner for support
+                      Open nutrition
                     </button>
-                  )}
-                </Panel>
-              </section>
-            )}
-
-            {/* Partner */}
-            {show("partner") && (
-              <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-5">
-                <Panel>
-                  <PanelHeader eyebrow="Partner" title="Stronger together" />
-                  {data.partner.linked ? (
-                    <>
-                      <div className="rounded-2xl bg-white/70 p-4 mb-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <div>
-                            <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                              Partner Support
-                            </div>
-                            <div className="font-display text-lg text-foreground">
-                              {data.partner.name}
-                            </div>
+                  </Panel>
+                  <Panel className="is-scroll">
+                    <PanelHeader eyebrow="Symptoms" title="Track how you feel" />
+                    <div className="space-y-2">
+                      {data.symptoms.map((s) => (
+                        <div key={s.name}>
+                          <div className="mb-1 flex justify-between">
+                            <span className="hud-copy font-medium">{s.name}</span>
+                            <span className="hud-muted italic">{s.label}</span>
                           </div>
-                          <div className="text-2xl font-display text-[color:var(--lavender-deep)]">
-                            {data.partner.support}%
-                          </div>
+                          <CloudBar value={s.severity} tone="blush" />
                         </div>
-                        <CloudBar value={data.partner.support} />
-                      </div>
-                      <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">
-                        Recent activities
-                      </div>
-                      <ul className="space-y-2">
-                        {data.partner.activities.length === 0 && (
-                          <li className="rounded-xl bg-white/50 px-3 py-2 text-sm text-muted-foreground italic">
-                            No activities yet — they'll appear when your partner uses their HUD.
-                          </li>
-                        )}
-                        {data.partner.activities.map((a, i) => (
-                          <li
-                            key={i}
-                            className="flex items-center justify-between rounded-xl bg-white/50 px-3 py-2 text-sm"
+                      ))}
+                    </div>
+                    <SymptomsDialog
+                      symptoms={data.symptoms}
+                      onSave={(name, severity) => act("symptom_log", { name, severity })}
+                    />
+                  </Panel>
+                </div>
+              )}
+
+              {active === "care" && (
+                <div className="hud-page">
+                  <Panel className="is-scroll">
+                    <PanelHeader eyebrow="Care & Comfort" title="Take care of your needs" />
+                    <div className="grid grid-cols-3 gap-2 min-[900px]:grid-cols-4">
+                      {[
+                        { icon: Moon, label: "Rest", val: stats.rest, actionLabel: "Rest", action: "rest" },
+                        {
+                          icon: Droplet,
+                          label: "Water",
+                          val: stats.hydration,
+                          actionLabel: "Drink",
+                          action: "drink_water",
+                        },
+                        {
+                          icon: Pill,
+                          label: "Vitamins",
+                          val: stats.vitamins,
+                          actionLabel: "Take",
+                          action: "vitamins",
+                        },
+                        {
+                          icon: Stethoscope,
+                          label: "Medicine",
+                          val: 100 - stats.sickness,
+                          actionLabel: "Take",
+                          action: "medicine",
+                        },
+                        {
+                          icon: Heart,
+                          label: "Comfort",
+                          val: stats.comfort,
+                          actionLabel: "Cozy up",
+                          action: "comfort",
+                        },
+                        { icon: Moon, label: "Sleep", val: stats.energy, actionLabel: "Sleep", action: "sleep" },
+                        {
+                          icon: Bath,
+                          label: "Bathroom",
+                          val: stats.bladder,
+                          actionLabel: "Go",
+                          action: "bathroom",
+                        },
+                        {
+                          icon: CloudRain,
+                          label: "Vomiting",
+                          val: 100 - stats.sickness,
+                          actionLabel: "Be sick",
+                          action: "vomit",
+                        },
+                        { icon: Smile, label: "Cry", val: stats.mood, actionLabel: "Let it out", action: "cry" },
+                      ].map(({ icon: Icon, label, val, actionLabel, action: name }) => (
+                        <div key={label} className="min-w-0 rounded-2xl bg-white/70 p-2">
+                          <div className="mb-1 flex items-center gap-2">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#D6C6E7]/40">
+                              <Icon className="h-4 w-4 text-[#A77ACB]" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="hud-copy truncate font-semibold">{label}</div>
+                              <div className="hud-muted">{Math.round(val)}%</div>
+                            </div>
+                          </div>
+                          <CloudBar value={val} />
+                          <button
+                            onClick={() => act(name)}
+                            disabled={action.isPending}
+                            className="mt-2 min-h-8 w-full rounded-full bg-[#D6C6E7]/30 py-1 text-[11px] font-semibold text-[#4D405E] disabled:opacity-50"
                           >
-                            <span className="flex items-center gap-2">
-                              <Heart className="h-3.5 w-3.5 text-[color:var(--blush)]" />{" "}
-                              {a.activity}
-                            </span>
-                            <span className="text-xs text-muted-foreground italic">
-                              {new Date(a.created_at).toLocaleDateString(undefined, {
-                                month: "short",
-                                day: "numeric",
-                              })}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                      <PrimaryButton
+                            {actionLabel}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <PrimaryButton onClick={() => act("pack_bag")}>
+                      <span className="inline-flex items-center gap-2">
+                        <Briefcase className="h-4 w-4" /> Pack hospital bag
+                      </span>
+                    </PrimaryButton>
+                    <p className="mt-2 text-center hud-muted italic">
+                      Talks to the worn hospital bag on the same channel as the chair. Wear the bag first.
+                    </p>
+                    {data.partner.linked && (
+                      <button
                         onClick={() =>
                           act("ask_partner", {
                             request: `${data.user.name} could use a little support right now.`,
                           })
                         }
+                        className="mt-2 w-full rounded-full bg-white/70 py-2 hud-copy font-semibold text-[#A77ACB]"
                       >
                         Ask partner for support
-                      </PrimaryButton>
-                      <PrimaryButton onClick={() => act("hug")}>
-                        Send a hug in-world ♥
-                      </PrimaryButton>
-                    </>
-                  ) : (
-                    <div className="text-center">
-                      <p className="text-sm text-muted-foreground mb-4">
-                        Give this pairing code to your partner. They enter it in their{" "}
-                        <b>Nestoria Partner HUD</b> to join your journey.
-                      </p>
-                      <PairingCode code={data.partner.code} />
-                      <p className="mt-4 text-xs italic text-muted-foreground">
-                        Once linked, their hugs, water runs and sweet messages show up here — and
-                        reach you in-world.
-                      </p>
-                    </div>
-                  )}
-                </Panel>
-              </section>
-            )}
-
-            {/* Journal */}
-            {show("journal") && (
-              <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-4">
-                <Panel>
-                  <PanelHeader eyebrow="Journal" title="Capture every moment" />
-                  <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
-                    {data.journal.length === 0 && (
-                      <p className="text-center text-sm italic text-muted-foreground">
-                        Your story starts here — add your first entry.
-                      </p>
+                      </button>
                     )}
-                    {data.journal.map((m) => {
-                      const Icon =
-                        m.kind === "milestone"
-                          ? Sparkles
-                          : m.kind === "memory"
-                            ? Camera
-                            : m.kind === "appointment"
-                              ? Stethoscope
-                              : BookHeart;
-                      const photo = journalPhotoSrc(m.photo_url, token);
-                      return (
-                        <div
-                          key={m.id}
-                          className="flex items-center gap-3 rounded-2xl bg-white/60 px-3 py-2.5"
-                        >
-                          {photo ? (
-                            <img
-                              src={photo}
-                              alt=""
-                              className="h-9 w-9 shrink-0 rounded-xl object-cover"
-                            />
-                          ) : (
-                            <div className="h-9 w-9 shrink-0 rounded-full bg-[color:var(--lavender)]/30 flex items-center justify-center">
-                              <Icon className="h-4 w-4 text-[color:var(--lavender-deep)]" />
+                  </Panel>
+                </div>
+              )}
+
+              {active === "partner" && (
+                <div className="hud-page">
+                  <Panel className="is-scroll">
+                    <PanelHeader eyebrow="Partner" title="Stronger together" />
+                    {data.partner.linked ? (
+                      <>
+                        <div className="mb-3 rounded-2xl bg-white/70 p-3">
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="hud-label">Connected partner</div>
+                              <div className="hud-title truncate">{data.partner.name}</div>
+                              <div className="hud-muted">Linked · {data.partner.support}% support</div>
                             </div>
+                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F6C6D6]/50">
+                              <Heart className="h-5 w-5 text-[#A77ACB]" />
+                            </div>
+                          </div>
+                          <CloudBar value={data.partner.support} tone="blush" />
+                        </div>
+                        <div className="mb-3 grid grid-cols-2 gap-2 min-[800px]:grid-cols-4">
+                          <button type="button" className="hud-action min-h-11" onClick={() => act("hug")}>
+                            <HandHeart className="h-4 w-4 text-[#A77ACB]" />
+                            <span>Send hug</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="hud-action min-h-11"
+                            onClick={() => act("ask_partner", { request: `${data.user.name} could use water.` })}
+                          >
+                            <Droplet className="h-4 w-4 text-[#A77ACB]" />
+                            <span>Ask for water</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="hud-action min-h-11"
+                            onClick={() => act("ask_partner", { request: `${data.user.name} could use rest.` })}
+                          >
+                            <Moon className="h-4 w-4 text-[#A77ACB]" />
+                            <span>Ask to rest</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="hud-action min-h-11"
+                            onClick={() =>
+                              act("ask_partner", {
+                                request: `${data.user.name} could use a little support right now.`,
+                              })
+                            }
+                          >
+                            <MessageCircle className="h-4 w-4 text-[#A77ACB]" />
+                            <span>Support</span>
+                          </button>
+                        </div>
+                        <div className="hud-label mb-1">Recent activities</div>
+                        <ul className="space-y-1.5">
+                          {data.partner.activities.length === 0 && (
+                            <li className="rounded-xl bg-white/50 px-3 py-2 hud-muted italic">
+                              No activities yet — they'll appear when your partner uses their HUD.
+                            </li>
                           )}
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-semibold truncate">{m.title}</div>
-                            <div className="text-[11px] text-muted-foreground italic">
-                              {new Date(m.created_at).toLocaleDateString(undefined, {
-                                month: "long",
+                          {data.partner.activities.map((a, i) => (
+                            <li
+                              key={i}
+                              className="flex items-center justify-between rounded-xl bg-white/50 px-3 py-2 hud-copy"
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                <Heart className="h-3.5 w-3.5 shrink-0 text-[#F6C6D6]" />
+                                <span className="truncate">{a.activity}</span>
+                              </span>
+                              <span className="hud-muted shrink-0 italic">
+                                {new Date(a.created_at).toLocaleDateString(undefined, {
+                                  month: "short",
+                                  day: "numeric",
+                                })}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <div className="text-center">
+                        <p className="mb-3 hud-copy text-muted-foreground">
+                          Give this pairing code to your partner. They enter it in their{" "}
+                          <b>Nestoria Partner HUD</b> to join your journey.
+                        </p>
+                        <PairingCode code={data.partner.code} />
+                        <p className="mt-3 hud-muted italic">
+                          Once linked, their hugs, water runs and sweet messages show up here — and reach you
+                          in-world.
+                        </p>
+                      </div>
+                    )}
+                  </Panel>
+                </div>
+              )}
+
+              {active === "journal" && (
+                <div className="hud-page">
+                  <Panel className="is-scroll">
+                    <PanelHeader eyebrow="Journal" title="Capture every moment" />
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      <JournalDialog token={token} onSave={(entry) => act("journal_add", entry)} />
+                      <MemoryDialog onSave={(entry) => act("memory", entry)} />
+                      <EventDialog onSave={(entry) => act("event", entry)} />
+                    </div>
+                    <div className="space-y-2">
+                      {data.journal.length === 0 && (
+                        <p className="text-center hud-muted italic">Your story starts here — add your first entry.</p>
+                      )}
+                      {data.journal.map((m) => {
+                        const Icon =
+                          m.kind === "milestone"
+                            ? Trophy
+                            : m.kind === "memory"
+                              ? Camera
+                              : m.kind === "appointment"
+                                ? Stethoscope
+                                : BookHeart;
+                        const photo = journalPhotoSrc(m.photo_url, token);
+                        return (
+                          <div key={m.id} className="flex min-w-0 items-center gap-3 rounded-2xl bg-white/60 px-3 py-2">
+                            {photo ? (
+                              <img src={photo} alt="" className="h-9 w-9 shrink-0 rounded-xl object-cover" />
+                            ) : (
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#D6C6E7]/40">
+                                <Icon className="h-4 w-4 text-[#A77ACB]" />
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className="hud-copy truncate font-semibold">{m.title}</div>
+                              <div className="hud-muted italic">
+                                {new Date(m.created_at).toLocaleDateString(undefined, {
+                                  month: "long",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })}
+                              </div>
+                            </div>
+                            <div
+                              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] ${m.completed ? "bg-[#D6C6E7] text-white" : "border border-[#D6C6E7]/50"}`}
+                            >
+                              {m.completed ? "✓" : ""}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </Panel>
+                </div>
+              )}
+
+              {active === "nutrition" && (
+                <div className="hud-page">
+                  <Panel className="is-scroll">
+                    <PanelHeader eyebrow="Nutrition" title="Eat well, feel well" />
+                    <NutritionRing
+                      value={Math.round((stats.hunger + stats.hydration + stats.vitamins) / 3)}
+                    />
+                    <div className="space-y-2 text-xs">
+                      {(
+                        [
+                          ["Meals", stats.hunger],
+                          ["Water", stats.hydration],
+                          ["Vitamins", stats.vitamins],
+                        ] as const
+                      ).map(([n, v]) => (
+                        <div key={n}>
+                          <div className="mb-0.5 flex justify-between">
+                            <span className="font-medium">{n}</span>
+                            <span className="hud-muted">{Math.round(v)}%</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-white/60">
+                            <div
+                              className="h-full rounded-full"
+                              style={{ width: `${v}%`, background: "var(--gradient-lavender)" }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 max-h-[40vh] space-y-3 overflow-y-auto pr-1">
+                      {FOOD_CATEGORIES.map((category) => {
+                        const items = data.foods.filter((food) => food.category === category);
+                        if (!items.length) return null;
+                        return (
+                          <div key={category}>
+                            <div className="mb-1 hud-label">
+                              {FOOD_CATEGORY_LABELS[category as FoodCategory] ?? category}
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {items.map((food) => (
+                                <button
+                                  key={food.key}
+                                  onClick={() => act("food_eat", { food: food.key })}
+                                  className="rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-medium text-[#A77ACB] hover:bg-white"
+                                >
+                                  {food.name}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <PrimaryButton onClick={() => act("craving_roll")}>
+                      <span className="inline-flex items-center gap-2">
+                        <Sparkles className="h-4 w-4" /> Roll a craving
+                      </span>
+                    </PrimaryButton>
+                  </Panel>
+                </div>
+              )}
+
+              {active === "notifications" && (
+                <div className="hud-page">
+                  <Panel className="is-scroll">
+                    <PanelHeader eyebrow="Notifications" title="Little updates" />
+                    <div className="space-y-2">
+                      {data.notifications.length === 0 && (
+                        <p className="text-center hud-muted italic">All quiet for now</p>
+                      )}
+                      {data.notifications.map((n) => (
+                        <div
+                          key={n.id}
+                          className={`rounded-2xl px-3 py-2 ${n.read ? "bg-white/40" : "bg-white/80 ring-1 ring-[#D6C6E7]/50"}`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="hud-copy min-w-0 truncate font-semibold">{n.title}</div>
+                            <div className="hud-muted shrink-0 italic">
+                              {new Date(n.created_at).toLocaleString(undefined, {
+                                month: "short",
                                 day: "numeric",
-                                year: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
                               })}
                             </div>
                           </div>
-                          <div
-                            className={`h-5 w-5 shrink-0 rounded-full flex items-center justify-center text-[10px] ${m.completed ? "bg-[color:var(--lavender)] text-white" : "border border-[color:var(--lavender)]/50"}`}
-                          >
-                            {m.completed ? "✓" : ""}
-                          </div>
+                          {n.body && <p className="mt-0.5 hud-muted">{n.body}</p>}
                         </div>
-                      );
-                    })}
-                  </div>
-                  <JournalDialog
-                    token={token}
-                    onSave={(entry) => act("journal_add", entry)}
-                  />
-                </Panel>
-              </section>
-            )}
-
-            {/* Nutrition */}
-            {show("health", "care", "nutrition") && (
-              <section className="col-span-12 @min-[768px]:col-span-6 @min-[1024px]:col-span-3">
-                <Panel>
-                  <PanelHeader eyebrow="Nutrition" title="Eat well, feel well" />
-                  <NutritionRing
-                    value={Math.round((stats.hunger + stats.hydration + stats.vitamins) / 3)}
-                  />
-                  <div className="space-y-2 text-xs">
-                    {(
-                      [
-                        ["Meals", stats.hunger],
-                        ["Water", stats.hydration],
-                        ["Vitamins", stats.vitamins],
-                      ] as const
-                    ).map(([n, v]) => (
-                      <div key={n}>
-                        <div className="flex justify-between mb-0.5">
-                          <span className="font-medium">{n}</span>
-                          <span className="text-muted-foreground">{Math.round(v)}%</span>
-                        </div>
-                        <div className="h-2 rounded-full bg-white/60 overflow-hidden">
-                          <div
-                            className="h-full rounded-full"
-                            style={{ width: `${v}%`, background: "var(--gradient-lavender)" }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-4 space-y-3 max-h-72 overflow-y-auto pr-1">
-                    {FOOD_CATEGORIES.map((category) => {
-                      const items = data.foods.filter((food) => food.category === category);
-                      if (!items.length) return null;
-                      return (
-                        <div key={category}>
-                          <div className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                            {FOOD_CATEGORY_LABELS[category as FoodCategory] ?? category}
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {items.map((food) => (
-                              <button
-                                key={food.key}
-                                onClick={() => act("food_eat", { food: food.key })}
-                                className="rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-medium text-[color:var(--lavender-deep)] hover:bg-white"
-                              >
-                                {food.name}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <PrimaryButton onClick={() => act("craving_roll")}>
-                    <span className="inline-flex items-center gap-2">
-                      <Sparkles className="h-4 w-4" /> Roll a craving
-                    </span>
-                  </PrimaryButton>
-                </Panel>
-              </section>
-            )}
-
-            {/* Today's well-being */}
-            {show("care", "health") && (
-              <section className="col-span-12">
-                <Panel>
-                  <PanelHeader eyebrow="Meters in context" title="Today's well-being" />
-                  <div className="grid grid-cols-2 @min-[640px]:grid-cols-3 @min-[1024px]:grid-cols-6 gap-4">
-                    <Meter icon={Utensils} label="Hunger" value={stats.hunger} />
-                    <Meter icon={Droplet} label="Bladder" value={stats.bladder} />
-                    <Meter icon={Heart} label="Sickness" value={stats.sickness} tone="blush" />
-                    <Meter icon={Zap} label="Energy" value={stats.energy} />
-                    <Meter icon={Smile} label="Mood" value={stats.mood} tone="blush" />
-                    <Meter icon={Droplet} label="Hydration" value={stats.hydration} />
-                  </div>
-                  {stats.bladder < 30 && (
-                    <button
-                      onClick={() => act("bathroom")}
-                      className="mx-auto mt-4 block rounded-full bg-white/70 px-5 py-2 text-sm font-medium text-[color:var(--lavender-deep)] hover:bg-white transition"
-                    >
-                      🚻 Quick bathroom break
-                    </button>
-                  )}
-                </Panel>
-              </section>
-            )}
-
-            {/* Notifications */}
-            {active === "notifications" && (
-              <section className="col-span-12 @min-[768px]:col-span-9 @min-[1024px]:col-span-6">
-                <Panel>
-                  <PanelHeader eyebrow="Notifications" title="Little updates" />
-                  <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
-                    {data.notifications.length === 0 && (
-                      <p className="text-center text-sm italic text-muted-foreground">
-                        All quiet for now ♥
-                      </p>
-                    )}
-                    {data.notifications.map((n) => (
-                      <div
-                        key={n.id}
-                        className={`rounded-2xl px-4 py-3 ${n.read ? "bg-white/40" : "bg-white/80 ring-1 ring-[color:var(--lavender)]/40"}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="text-sm font-semibold">{n.title}</div>
-                          <div className="text-[10px] text-muted-foreground italic">
-                            {new Date(n.created_at).toLocaleString(undefined, {
-                              month: "short",
-                              day: "numeric",
-                              hour: "numeric",
-                              minute: "2-digit",
-                            })}
-                          </div>
-                        </div>
-                        {n.body && <p className="mt-0.5 text-xs text-muted-foreground">{n.body}</p>}
-                      </div>
-                    ))}
-                  </div>
-                  {data.unread > 0 && (
-                    <PrimaryButton onClick={() => act("notifications_read")}>
-                      Mark all as read
-                    </PrimaryButton>
-                  )}
-                </Panel>
-              </section>
-            )}
-
-            {/* Settings */}
-            {active === "settings" && (
-              <SettingsPanel
-                key={preg.id + preg.babyGender + (preg.babyName ?? "") + preg.durationDays}
-                data={data}
-                onSave={(params) => act("settings_update", params)}
-              />
-            )}
-
-            {show("pregnancy", "care", "baby", "partner", "journal", "health", "nutrition") && (
-              <ActionConsole data={data} onAction={act} />
-            )}
-
-            {/* Quick actions */}
-            {show("pregnancy", "care", "baby", "partner", "journal", "health") && (
-              <section className="col-span-12 @min-[768px]:col-span-8">
-                <Panel>
-                  <div className="flex items-center gap-6 flex-wrap justify-center">
-                    <div className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                      Quick Actions
+                      ))}
                     </div>
-                    <QuickAction icon={Heart} label="Hug" onClick={() => act("hug")} />
-                    <QuickAction icon={Droplet} label="Water" onClick={() => act("drink_water")} />
-                    <QuickAction icon={Pill} label="Vitamins" onClick={() => act("vitamins")} />
-                    <QuickAction
-                      icon={Stethoscope}
-                      label="Medicine"
-                      onClick={() => act("medicine")}
-                    />
-                    <QuickAction icon={Moon} label="Rest" onClick={() => act("rest")} />
-                    <QuickAction
-                      icon={MessageCircle}
-                      label="Support"
-                      onClick={() => act("support")}
-                    />
-                    <QuickAction icon={Stethoscope} label="Doctor" onClick={() => act("doctor")} />
-                    <MemoryDialog onSave={(entry) => act("memory", entry)} />
-                    <EventDialog onSave={(entry) => act("event", entry)} />
-                  </div>
-                </Panel>
-              </section>
-            )}
+                    {data.unread > 0 && (
+                      <PrimaryButton onClick={() => act("notifications_read")}>Mark all as read</PrimaryButton>
+                    )}
+                  </Panel>
+                </div>
+              )}
 
-            {show("pregnancy", "care", "baby", "partner", "journal", "health") && (
-              <section className="col-span-12 @min-[768px]:col-span-4">
-                <Panel className="h-full flex flex-col justify-center text-center">
-                  <div className="font-display italic text-lg text-[color:var(--lavender-deep)] leading-snug">
-                    “Small steps today,
-                    <br /> beautiful moments forever.”
-                  </div>
-                  <div className="mt-3 flex items-center justify-center gap-1 text-xs text-muted-foreground">
-                    <Sparkles className="h-3 w-3" /> Nestoria HUD v1.0
-                  </div>
-                </Panel>
-              </section>
-            )}
+              {active === "settings" && (
+                <div className="hud-page">
+                  <SettingsPanel
+                    key={preg.id + preg.babyGender + (preg.babyName ?? "") + preg.durationDays}
+                    data={data}
+                    onSave={(params) => act("settings_update", params)}
+                  />
+                  <ActionConsole data={data} onAction={act} />
+                </div>
+              )}
+            </main>
           </div>
-        </main>
-
-        <footer className="relative z-10 pb-6 text-center text-xs text-muted-foreground">
-          <p className="font-script text-lg text-[color:var(--lavender-deep)]">Nestoria</p>
-          <p>Where every family journey begins - Pregnancy & Family HUD for Second Life</p>
-        </footer>
+        </div>
       </HudFrame>
       <Toaster position="top-center" />
     </Shell>
@@ -1600,34 +1128,27 @@ function SetupWizard({
   return (
     <Shell>
       <HudFrame {...hudZoom}>
-        <div className="mx-auto flex min-h-screen max-w-4xl items-center justify-center px-4 py-8">
+        <div className="hud-main is-scroll">
           <Panel className="w-full">
-            {/*
-            Container queries, not `lg:` — inside the frame the breakpoints have
-            to key off the scaled canvas, or zooming in keeps the two-column
-            layout and squeezes both halves.
-          */}
-            <div className="grid gap-6 @min-[1024px]:grid-cols-[0.9fr_1.1fr]">
-              <div className="flex flex-col justify-between rounded-3xl bg-white/65 p-5">
+            <div className="grid min-w-0 gap-4 min-[900px]:grid-cols-[0.9fr_1.1fr]">
+              <div className="flex min-w-0 flex-col justify-between rounded-3xl bg-white/65 p-4">
                 <div>
                   <img
                     src={logo}
                     alt="Nestoria logo"
-                    width={88}
-                    height={88}
-                    className="h-16 w-16"
+                    width={56}
+                    height={56}
+                    className="h-12 w-12"
                   />
-                  <h1 className="mt-3 font-display text-4xl font-semibold text-[color:var(--lavender-deep)]">
-                    Welcome to Nestoria
-                  </h1>
-                  <p className="mt-2 text-sm text-muted-foreground">
+                  <h1 className="hud-brand mt-2">Welcome to Nestoria</h1>
+                  <p className="mt-2 hud-muted">
                     Create the pregnancy profile that this MOAP HUD will sync with Render, Postgres,
                     and your Second Life attachment.
                   </p>
                 </div>
-                <div className="mt-6 rounded-2xl bg-white/70 p-4 text-sm">
-                  <div className="font-semibold text-foreground">Profile Summary</div>
-                  <div className="mt-2 space-y-1 text-muted-foreground">
+                <div className="mt-4 rounded-2xl bg-white/70 p-3 hud-copy">
+                  <div className="font-semibold">Profile Summary</div>
+                  <div className="mt-2 space-y-1 hud-muted">
                     <div>Mom: {momName || "Not set"}</div>
                     <div>
                       Pregnancy: {week} weeks + {day} days
@@ -1903,8 +1424,8 @@ function ActionConsole({
   ];
 
   return (
-    <section className="col-span-12">
-      <Panel>
+    <section className="min-w-0">
+      <Panel className="is-scroll">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-[color:var(--lavender-deep)]/70">
@@ -1918,7 +1439,7 @@ function ActionConsole({
             Current craving: <span className="font-semibold text-foreground">{craving}</span>
           </div>
         </div>
-        <div className="grid gap-3 @min-[768px]:grid-cols-2 @min-[1280px]:grid-cols-3">
+        <div className="grid gap-3 min-[768px]:grid-cols-2 min-[1280px]:grid-cols-3">
           {actionGroups.map((group) => (
             <div key={group.title} className="rounded-2xl bg-white/60 p-3">
               <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
@@ -1929,7 +1450,7 @@ function ActionConsole({
                   <button
                     key={`${group.title}-${label}`}
                     onClick={() => onAction(action, params)}
-                    className="flex h-20 flex-col items-center justify-center gap-1 rounded-2xl bg-white/75 px-2 text-center text-[11px] font-semibold leading-tight text-[color:var(--lavender-deep)] shadow-soft transition hover:bg-white"
+                    className="flex h-14 min-h-[44px] flex-col items-center justify-center gap-1 rounded-2xl bg-white/75 px-2 text-center text-[11px] font-semibold leading-tight text-[color:var(--lavender-deep)] shadow-soft transition hover:bg-white"
                   >
                     <Icon className="h-4 w-4" />
                     <span>{label}</span>
@@ -1966,7 +1487,7 @@ function QuickAction({
 function NutritionRing({ value }: { value: number }) {
   return (
     <div className="flex flex-col items-center mb-4">
-      <div className="relative h-28 w-28">
+      <div className="relative h-20 w-20">
         <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
           <circle
             cx="50"
@@ -2403,7 +1924,7 @@ function SettingsPanel({
   const [babyGender, setBabyGender] = useState(data.pregnancy.babyGender);
   const [durationDays, setDurationDays] = useState(String(data.pregnancy.durationDays));
   return (
-    <section className="col-span-12 @min-[768px]:col-span-9 @min-[1024px]:col-span-6">
+    <section className="min-w-0">
       <Panel>
         <PanelHeader eyebrow="Settings" title="Your journey, your way" />
         <div className="space-y-4">

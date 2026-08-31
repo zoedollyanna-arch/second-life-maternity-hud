@@ -35,13 +35,11 @@ function PartnerPage() {
     return (
       <Shell>
         <HudFrame {...hudZoom}>
-          <div className="flex min-h-screen items-center justify-center px-6">
-            <Panel className="max-w-lg text-center">
+          <div className="flex h-full min-h-0 items-center justify-center">
+            <Panel className="w-full max-w-[36rem] text-center">
               <img src={logo} alt="Nestoria" className="mx-auto h-16 w-16" />
-              <h1 className="mt-3 font-display text-3xl text-[color:var(--lavender-deep)]">
-                Nestoria Partner
-              </h1>
-              <p className="mt-3 text-sm text-muted-foreground">
+              <h1 className="hud-brand mt-3">Nestoria Partner</h1>
+              <p className="mt-3 hud-copy">
                 Wear the Partner HUD in Second Life and enter her pairing code. This screen loads
                 automatically on the HUD face.
               </p>
@@ -56,9 +54,11 @@ function PartnerPage() {
   if (state.isLoading) {
     return (
       <Shell>
-        <div className="flex min-h-[60vh] items-center justify-center">
-          <Loader2 className="h-10 w-10 animate-spin text-[color:var(--lavender-deep)]" />
-        </div>
+        <HudFrame {...hudZoom}>
+          <div className="flex min-h-full items-center justify-center">
+            <Loader2 className="h-10 w-10 animate-spin text-[color:var(--lavender-deep)]" />
+          </div>
+        </HudFrame>
       </Shell>
     );
   }
@@ -67,10 +67,10 @@ function PartnerPage() {
     return (
       <Shell>
         <HudFrame {...hudZoom}>
-          <div className="flex min-h-[60vh] items-center justify-center px-6">
-            <Panel className="max-w-md text-center">
+          <div className="flex h-full min-h-0 items-center justify-center px-6">
+            <Panel className="w-full max-w-[36rem] text-center">
               <PanelHeader title="Not linked yet" />
-              <p className="text-sm text-muted-foreground">
+              <p className="hud-copy">
                 Touch the Partner HUD and enter the 6-character code from her Partner panel.
               </p>
             </Panel>
@@ -117,23 +117,20 @@ function PartnerDashboard({ token }: { token: string }) {
   return (
     <Shell>
       <HudFrame {...hudZoom}>
-        <header className="mx-auto max-w-[1680px] px-6 pt-4 pb-3">
-          <div className="flex items-center gap-3">
-            <img src={logo} alt="Nestoria" className="h-12 w-12" />
-            <div>
-              <h1 className="font-display text-3xl text-[color:var(--lavender-deep)]">
-                Partner HUD
-              </h1>
-              <p className="font-script text-sm text-[color:var(--lavender-deep)]/70">
-                stay close · stay present
-              </p>
+        <div className="hud-app">
+          <header className="hud-topbar">
+            <div className="flex min-w-0 items-center gap-2">
+              <img src={logo} alt="" className="h-9 w-9 shrink-0 rounded-xl" />
+              <div className="min-w-0">
+                <div className="hud-brand truncate">NESTORIA</div>
+                <div className="hud-muted truncate">Partner · stay close</div>
+              </div>
             </div>
-          </div>
-        </header>
+            <div className="hud-copy truncate font-semibold">{data.user.name.split(" ")[0]}</div>
+          </header>
 
-        <main className="mx-auto max-w-[1680px] px-6 pb-20">
-          <div className="grid grid-cols-12 gap-4">
-            <section className="col-span-12 @min-[768px]:col-span-5">
+          <main className="hud-main is-scroll">
+            <div className="grid min-w-0 grid-cols-1 gap-2 min-[800px]:grid-cols-2">
               <Panel>
                 <PanelHeader
                   eyebrow="How she is"
@@ -146,31 +143,29 @@ function PartnerDashboard({ token }: { token: string }) {
                 />
                 {data.mood && (
                   <>
-                    <p className="text-center text-sm text-muted-foreground">{data.mood.hint}</p>
-                    <p className="mt-2 text-center text-xs italic text-muted-foreground">
+                    <p className="text-center hud-copy">{data.mood.hint}</p>
+                    <p className="mt-2 text-center hud-muted italic">
                       Every swing pings you. Hunger, rest, and stress make some feelings more likely.
                     </p>
                   </>
                 )}
                 {preg.delivered && (
-                  <p className="mt-3 text-center text-sm text-[color:var(--lavender-deep)]">
+                  <p className="mt-3 text-center hud-copy">
                     This pregnancy is marked delivered. Stay with her for the new chapter.
                   </p>
                 )}
                 {inLabor && (
-                  <div className="mt-4 rounded-2xl bg-[color:var(--blush)]/20 px-4 py-3 text-center text-sm">
+                  <div className="mt-3 rounded-2xl bg-[#F6C6D6]/30 px-3 py-2 text-center hud-copy">
                     {labor.waterBroken ? "Water has broken. " : ""}
                     {labor.stage === "hospital" ? "She is at the hospital. " : ""}
                     Contractions {labor.intensity}%. She needs you.
                   </div>
                 )}
               </Panel>
-            </section>
 
-            <section className="col-span-12 @min-[768px]:col-span-7">
               <Panel>
                 <PanelHeader eyebrow="Support" title="Be there" />
-                <div className="grid grid-cols-2 @min-[640px]:grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   {[
                     { icon: Heart, label: "Comfort", action: "partner_comfort" },
                     { icon: Users, label: "Hug", action: "hug" },
@@ -186,21 +181,19 @@ function PartnerDashboard({ token }: { token: string }) {
                       key={name}
                       onClick={() => act(name)}
                       disabled={action.isPending}
-                      className="rounded-2xl bg-white/70 px-3 py-3 text-xs font-semibold text-[color:var(--lavender-deep)] hover:bg-white disabled:opacity-50"
+                      className="hud-action min-h-11 disabled:opacity-50"
                     >
-                      <Icon className="mx-auto mb-1 h-4 w-4" />
-                      {label}
+                      <Icon className="h-4 w-4 text-[#A77ACB]" />
+                      <span>{label}</span>
                     </button>
                   ))}
                 </div>
               </Panel>
-            </section>
 
-            {inLabor && (
-              <section className="col-span-12">
-                <Panel>
+              {inLabor && (
+                <Panel className="min-[800px]:col-span-2">
                   <PanelHeader eyebrow="Labor" title="Stay with her" />
-                  <div className="grid grid-cols-2 @min-[640px]:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 gap-2 min-[800px]:grid-cols-4">
                     <PrimaryButton onClick={() => act("partner_labor_support")}>
                       Hold her hand
                     </PrimaryButton>
@@ -214,7 +207,7 @@ function PartnerDashboard({ token }: { token: string }) {
                       Stay strong
                     </PrimaryButton>
                   </div>
-                  <p className="mt-3 text-center text-xs italic text-muted-foreground">
+                  <p className="mt-2 text-center hud-muted italic">
                     Optional reactions if the scene goes that way — they do not replace being
                     present.
                   </p>
@@ -233,22 +226,18 @@ function PartnerDashboard({ token }: { token: string }) {
                     </button>
                   </div>
                 </Panel>
-              </section>
-            )}
+              )}
 
-            <section className="col-span-12 @min-[768px]:col-span-7">
-              <Panel>
+              <Panel className="is-scroll">
                 <PanelHeader eyebrow="Alerts" title="What she needs" />
-                <div className="space-y-2 max-h-64 overflow-y-auto">
+                <div className="space-y-2">
                   {data.notifications.length === 0 && (
-                    <p className="text-center text-sm italic text-muted-foreground">
-                      Quiet for now. Stay close.
-                    </p>
+                    <p className="text-center hud-muted italic">Quiet for now. Stay close.</p>
                   )}
                   {data.notifications.map((n) => (
                     <div key={n.id} className="rounded-2xl bg-white/60 px-3 py-2">
-                      <div className="text-sm font-semibold">{n.title}</div>
-                      {n.body && <p className="text-xs text-muted-foreground">{n.body}</p>}
+                      <div className="hud-copy font-semibold">{n.title}</div>
+                      {n.body && <p className="hud-muted">{n.body}</p>}
                     </div>
                   ))}
                 </div>
@@ -258,22 +247,20 @@ function PartnerDashboard({ token }: { token: string }) {
                   </PrimaryButton>
                 )}
               </Panel>
-            </section>
 
-            <section className="col-span-12 @min-[768px]:col-span-5">
-              <Panel>
+              <Panel className="is-scroll">
                 <PanelHeader eyebrow="Together" title="Recent moments" />
                 <ul className="space-y-2">
                   {data.partner.activities.map((a, i) => (
-                    <li key={i} className="rounded-xl bg-white/60 px-3 py-2 text-sm">
+                    <li key={i} className="rounded-xl bg-white/60 px-3 py-2 hud-copy">
                       {a.activity}
                     </li>
                   ))}
                 </ul>
               </Panel>
-            </section>
-          </div>
-        </main>
+            </div>
+          </main>
+        </div>
       </HudFrame>
       <Toaster position="top-center" />
     </Shell>

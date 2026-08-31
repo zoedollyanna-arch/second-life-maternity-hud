@@ -2,7 +2,7 @@
 // NESTORIA PREGNANCY HUD — Main HUD script
 // ----------------------------------------------------------------------------
 // Drop this script into the root prim of the HUD object. Shared media (MOAP)
-// is shown on face 4 only. API_BASE is the live Render host.
+// is shown on link 2, face 4. API_BASE is the live Render host.
 //
 // SETUP (edit these two lines before saving):
 //   API_BASE   = your deployed Nestoria server, no trailing slash
@@ -29,7 +29,8 @@
 string  API_BASE   = "https://second-life-maternity-hud-t2b3.onrender.com";
 string  API_SECRET = "2175039403870ed15116d0dcf330095af3f6a398e83bca01";  // same value as SL_API_SECRET in the server .env
 
-integer MOAP_FACE     = 4;      // dashboard media is always this face
+integer MOAP_LINK     = 2;      // child prim that is the screen
+integer MOAP_FACE     = 4;      // face on that prim
 integer POLL_SECONDS  = 30;     // fallback poll when push is unavailable
 float   VOLUME        = 0.7;
 
@@ -47,6 +48,10 @@ integer gChairChannel;
 integer gChairListen;
 string  gDialogKind  = "";
 string  gDialogEvent = "";
+float   gPollWait    = 30.0;
+integer gFailStreak  = 0;
+float   gNextHttp    = 0.0;
+integer gMediaReady  = FALSE;
 
 // Private channel shared with the rezzed comfort chair (same formula there).
 integer comfortChannel()
@@ -72,10 +77,7 @@ startAnimByName(string name)
         if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
         {
             llStartAnimation(name);
-            llSetTimerEvent(0.0);
-            // stop after a few seconds via a dedicated short timer is overkill;
-            // most action anims are self-limiting loops — stop on next poll.
-            llSetTimerEvent((float)POLL_SECONDS);
+            llSetTimerEvent(gPollWait);
         }
     }
 }
@@ -106,38 +108,146 @@ heartsBurst()
     // event queue. The burst ends itself.
 }
 
-// The screen's resolution. The dashboard is authored against exactly this
-// width (HUD_DESIGN_WIDTH in src/routes/index.tsx) — keep the two in step or
-// the whole page renders permanently scaled down.
-integer SCREEN_WIDTH  = 1280;
-integer SCREEN_HEIGHT = 720;
+// The screen's resolution. 1024×824 matches the in-world tablet face
+// (~0.51268m × 0.41277m, ratio 1.242:1). AUTO_SCALE is off so the page
+// fills the face without a second browser zoom.
+integer SCREEN_WIDTH  = 1024;
+integer SCREEN_HEIGHT = 824;
 
-setMoap(string url)
+integer hudPrimCount()
 {
-    if (url == "") return;
+    integer n = llList2Integer(llGetObjectDetails(llGetKey(), [OBJECT_PRIM_COUNT]), 0);
+    if (n < 1) n = MOAP_LINK;
+    if (llGetLinkNumber() == 0) n = 1;
+    return n;
+}
 
-    integer sides = llGetNumberOfSides();
-    integer face;
-    for (face = 0; face < sides; ++face)
-        llClearLinkMedia(LINK_THIS, face);
+integer moapLink()
+{
+    // Unlinked single prim: llGetLinkNumber is 0 and link 2 does not exist.
+    if (llGetLinkNumber() == 0) return LINK_THIS;
+    integer me = llGetLinkNumber();
+    if (me == MOAP_LINK) return LINK_THIS;
+    integer n = hudPrimCount();
+    if (MOAP_LINK >= 1 && MOAP_LINK <= n) return MOAP_LINK;
+    return LINK_THIS;
+}
 
-    list media = [
+integer moapFace(integer link)
+{
+    integer sides = llGetLinkNumberOfSides(link);
+    if (MOAP_FACE >= 0 && MOAP_FACE < sides) return MOAP_FACE;
+    return 0;
+}
+
+prepMoapFace(integer link, integer face)
+{
+    llSetLinkPrimitiveParamsFast(link, [
+        PRIM_COLOR, face, <1.0, 1.0, 1.0>, 1.0,
+        PRIM_FULLBRIGHT, face, TRUE,
+        PRIM_GLOW, face, 0.0,
+        PRIM_TEXTURE, face, TEXTURE_BLANK, <1.0, 1.0, 0.0>, ZERO_VECTOR, 0.0
+    ]);
+}
+
+integer applyMoap(integer link, integer face, string url, string home)
+{
+    prepMoapFace(link, face);
+    return llSetLinkMedia(link, face, [
         PRIM_MEDIA_CURRENT_URL, url,
-        PRIM_MEDIA_HOME_URL, url,
+        PRIM_MEDIA_HOME_URL, home,
         PRIM_MEDIA_AUTO_PLAY, TRUE,
-        PRIM_MEDIA_AUTO_SCALE, TRUE,
-        PRIM_MEDIA_PERMS_INTERACT, PRIM_MEDIA_PERM_OWNER,
+        PRIM_MEDIA_AUTO_SCALE, FALSE,
+        PRIM_MEDIA_AUTO_LOOP, FALSE,
+        PRIM_MEDIA_AUTO_ZOOM, FALSE,
+        PRIM_MEDIA_FIRST_CLICK_INTERACT, TRUE,
+        PRIM_MEDIA_WHITELIST_ENABLE, FALSE,
+        PRIM_MEDIA_WHITELIST, "",
+        PRIM_MEDIA_PERMS_INTERACT, PRIM_MEDIA_PERM_ANYONE,
         PRIM_MEDIA_PERMS_CONTROL, PRIM_MEDIA_PERM_NONE,
         PRIM_MEDIA_CONTROLS, PRIM_MEDIA_CONTROLS_MINI,
         PRIM_MEDIA_WIDTH_PIXELS, SCREEN_WIDTH,
         PRIM_MEDIA_HEIGHT_PIXELS, SCREEN_HEIGHT
+    ]);
+}
+
+setMoap(string url)
+{
+    if (url == "") url = API_BASE + "/";
+    gMoapUrl = url;
+
+    string nav = url;
+    if (llSubStringIndex(nav, "#") == -1) nav += "#n" + (string)llGetUnixTime();
+
+    integer link = moapLink();
+    integer face = moapFace(link);
+
+    if (!gMediaReady)
+    {
+        integer f;
+        integer sides = llGetLinkNumberOfSides(link);
+        for (f = 0; f < sides; ++f)
+        {
+            if (f != face) llClearLinkMedia(link, f);
+        }
+        gMediaReady = TRUE;
+    }
+
+    integer status = applyMoap(link, face, nav, url);
+    if (status != STATUS_OK && link != LINK_THIS)
+        status = applyMoap(LINK_THIS, face, nav, url);
+    if (status != STATUS_OK && face != 0)
+        status = applyMoap(link, 0, nav, url);
+}
+
+list httpOpts(string method, integer withJson)
+{
+    list opts = [
+        HTTP_METHOD, method,
+        HTTP_BODY_MAXLENGTH, 16384,
+        HTTP_VERBOSE_THROTTLE, FALSE,
+        HTTP_PRAGMA_NO_CACHE, TRUE
     ];
-    llSetLinkMedia(LINK_THIS, MOAP_FACE, media);
-    llSetPrimMediaParams(MOAP_FACE, media);
+    if (withJson) opts += [HTTP_MIMETYPE, "application/json"];
+    return opts;
+}
+
+noteHttpStatus(integer status)
+{
+    if (status >= 500 || status <= 0)
+    {
+        ++gFailStreak;
+        gPollWait = 90.0 * (float)gFailStreak;
+        if (gPollWait > 600.0) gPollWait = 600.0;
+        gNextHttp = llGetTime() + gPollWait;
+        llSetTimerEvent(gPollWait);
+    }
+    else if (status == 429)
+    {
+        gPollWait = 90.0;
+        gNextHttp = llGetTime() + gPollWait;
+        llSetTimerEvent(gPollWait);
+    }
+    else
+    {
+        gFailStreak = 0;
+        gPollWait = (float)POLL_SECONDS;
+        gNextHttp = 0.0;
+        llSetTimerEvent(gPollWait);
+    }
+}
+
+integer httpIdle()
+{
+    if (gRegisterReq != NULL_KEY) return FALSE;
+    if (gPollReq != NULL_KEY) return FALSE;
+    if (llGetTime() < gNextHttp) return FALSE;
+    return TRUE;
 }
 
 registerWithServer()
 {
+    if (!httpIdle()) return;
     string body = llList2Json(JSON_OBJECT, [
         "secret", API_SECRET,
         "kind", "hud",
@@ -145,26 +255,16 @@ registerWithServer()
         "object_key", (string)llGetKey(),
         "region", llGetRegionName()
     ]);
-    gRegisterReq = llHTTPRequest(API_BASE + "/api/sl/register", [
-        HTTP_METHOD, "POST",
-        HTTP_MIMETYPE, "application/json",
-        HTTP_BODY_MAXLENGTH, 16384
-    ], body);
+    gRegisterReq = llHTTPRequest(API_BASE + "/api/sl/register", httpOpts("POST", TRUE), body);
 }
 
 pollServer()
 {
-    // No token means registration never succeeded. Retry it here rather than
-    // returning: the timer is the only thing that runs on its own, so bailing
-    // out left a HUD whose first register failed dead until somebody touched
-    // it — and one cold start on the server is enough to lose that first
-    // attempt. nestoria_belly.lsl has always done it this way.
+    if (!httpIdle()) return;
     if (gToken == "") { registerWithServer(); return; }
     gPollReq = llHTTPRequest(
-        API_BASE + "/api/sl/poll?token=" + gToken + "&kind=hud", [
-        HTTP_METHOD, "GET",
-        HTTP_BODY_MAXLENGTH, 16384
-    ], "");
+        API_BASE + "/api/sl/poll?token=" + gToken + "&kind=hud",
+        httpOpts("GET", FALSE), "");
 }
 
 postAction(string action, string params)
@@ -172,11 +272,7 @@ postAction(string action, string params)
     if (gToken == "") return;
     if (params == "") params = "{}";
     string body = "{\"token\":\"" + gToken + "\",\"action\":\"" + action + "\",\"params\":" + params + "}";
-    gActionReq = llHTTPRequest(API_BASE + "/api/hud/action", [
-        HTTP_METHOD, "POST",
-        HTTP_MIMETYPE, "application/json",
-        HTTP_BODY_MAXLENGTH, 16384
-    ], body);
+    gActionReq = llHTTPRequest(API_BASE + "/api/hud/action", httpOpts("POST", TRUE), body);
 }
 
 rezChair()
@@ -432,12 +528,10 @@ default
         llRequestPermissions(llGetOwner(), PERMISSION_TRIGGER_ANIMATION);
         gChairChannel = comfortChannel();
         gChairListen = llListen(gChairChannel, "", NULL_KEY, "");
+        setMoap(API_BASE + "/");
         requestPushUrl();
-        // Safety net: every retry path lives in the timer, but until now the
-        // timer was only ever started from an http_response. If llRequestURL
-        // never came back, nothing retried and the HUD stayed blank forever.
-        // pollServer() re-registers on its own when there is no token yet.
-        llSetTimerEvent((float)POLL_SECONDS);
+        gPollWait = 8.0;
+        llSetTimerEvent(gPollWait);
     }
 
     attach(key id)
@@ -445,6 +539,9 @@ default
         if (id != NULL_KEY)
         {
             llRequestPermissions(llGetOwner(), PERMISSION_TRIGGER_ANIMATION);
+            gMediaReady = FALSE;
+            if (gMoapUrl == "") setMoap(API_BASE + "/");
+            else setMoap(gMoapUrl);
             requestPushUrl();
         }
     }
@@ -453,7 +550,8 @@ default
     {
         if (change & (CHANGED_REGION | CHANGED_TELEPORT | CHANGED_REGION_START))
         {
-            // http-in URLs die on region change — get a new one and re-register
+            gMediaReady = FALSE;
+            if (gMoapUrl != "") setMoap(gMoapUrl);
             requestPushUrl();
         }
         if (change & CHANGED_OWNER) llResetScript();
@@ -489,26 +587,29 @@ default
         if (id == gRegisterReq)
         {
             gRegisterReq = NULL_KEY;
-            if (status != 200)
-            {
-                llSetTimerEvent(60.0);
-                return;
-            }
-            gToken   = llJsonGetValue(body, ["token"]);
-            gMoapUrl = llJsonGetValue(body, ["moap_url"]);
-            setMoap(gMoapUrl);
-            llSetTimerEvent((float)POLL_SECONDS);
+            noteHttpStatus(status);
+            if (status != 200) return;
+            string token = llJsonGetValue(body, ["token"]);
+            string moap = llJsonGetValue(body, ["moap_url"]);
+            if (token != JSON_INVALID && token != "") gToken = token;
+            if (moap != JSON_INVALID && moap != "") setMoap(moap);
+            else if (gToken != "") setMoap(API_BASE + "/?token=" + gToken);
         }
         else if (id == gPollReq)
         {
             gPollReq = NULL_KEY;
+            noteHttpStatus(status);
             if (status == 401)
             {
-                // session expired — re-register
-                registerWithServer();
+                gToken = "";
                 return;
             }
             if (status == 200) processCommands(body);
+        }
+        else if (id == gActionReq)
+        {
+            gActionReq = NULL_KEY;
+            if (status >= 500 || status <= 0 || status == 429) noteHttpStatus(status);
         }
     }
 
@@ -521,9 +622,9 @@ default
     {
         if (llDetectedKey(0) != llGetOwner()) return;
 
-        setMoap(gMoapUrl);
+        if (gMoapUrl == "") setMoap(API_BASE + "/");
+        else setMoap(gMoapUrl);
         registerWithServer();
-        llSetTimerEvent((float)POLL_SECONDS);
     }
 
     listen(integer channel, string name, key id, string message)
