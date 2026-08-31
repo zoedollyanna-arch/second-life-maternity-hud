@@ -36,11 +36,46 @@ export function slIdentity(request: Request): { avatarKey: string; avatarName: s
 
 export function checkSecret(body: Record<string, unknown>): boolean {
   const provided = typeof body.secret === "string" ? body.secret.trim() : "";
-  const expected = apiSecret().trim();
-  if (provided.length !== expected.length) return false;
+  let expected = "";
+  try {
+    expected = apiSecret().trim();
+  } catch {
+    return false;
+  }
+  if (!provided || !expected || provided.length !== expected.length) return false;
   let diff = 0;
   for (let i = 0; i < expected.length; i++) diff |= provided.charCodeAt(i) ^ expected.charCodeAt(i);
   return diff === 0;
+}
+
+/**
+ * Second Life blocks an object after five HTTP 5xx replies in a short window
+ * ("Too many erroneous (5XX) HTTP responses too fast"). SL-facing handlers
+ * must never leak those — return 429 JSON instead and let the script back off.
+ */
+export function slBusy(error?: unknown, retrySeconds = 90): Response {
+  if (error) console.error(error);
+  const raw = error instanceof Error ? error.message : error ? String(error) : "";
+  const message = /DATABASE_URL|Postgres|ECONN|ssl|password|tenant|not found/i.test(raw)
+    ? "Database is not reachable yet. The HUD will retry."
+    : "Server is busy. The HUD will retry.";
+  return json({ ok: false, error: message, retry_seconds: retrySeconds }, 429);
+}
+
+export async function runSlHandler(fn: () => Promise<Response>): Promise<Response> {
+  try {
+    return await fn();
+  } catch (error) {
+    return slBusy(error);
+  }
+}
+
+export function isSlApiRequest(request: Request): boolean {
+  try {
+    return new URL(request.url).pathname.startsWith("/api/sl/");
+  } catch {
+    return false;
+  }
 }
 
 /** Prevent the push worker from becoming an arbitrary server-side HTTP client. */

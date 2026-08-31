@@ -6,10 +6,15 @@ export const Route = createFileRoute("/api/hud/state")({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const user = await sessionFromRequest(request);
-        if (!user) return json({ error: "unauthorized" }, 401);
-        const state = await getDashboardState(user);
-        return json(state);
+        try {
+          const user = await sessionFromRequest(request);
+          if (!user) return json({ error: "unauthorized" }, 401);
+          const state = await getDashboardState(user);
+          return json(state);
+        } catch (error) {
+          console.error(error);
+          return json({ error: "unavailable" });
+        }
       },
     },
   },

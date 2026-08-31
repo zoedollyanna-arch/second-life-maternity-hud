@@ -586,17 +586,11 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       </button>
                       {!preg.delivered && (
                         <>
-                          <button onClick={() => act("water_break")} className="hud-action">
-                            Water break
-                          </button>
                           <button onClick={() => act("contractions")} className="hud-action">
                             Contractions
                           </button>
                           <button onClick={() => act("go_to_hospital")} className="hud-action">
                             Hospital
-                          </button>
-                          <button onClick={() => act("birth")} className="hud-action">
-                            Birth
                           </button>
                         </>
                       )}
@@ -1243,9 +1237,7 @@ function ActionConsole({
         { icon: Stethoscope, label: "Appointment", action: "appointment" },
         { icon: Footprints, label: "Feel Kick", action: "feel_kick" },
         { icon: HeartPulse, label: "Contractions", action: "contractions" },
-        { icon: Droplet, label: "Water Break", action: "water_break" },
         { icon: Hospital, label: "Hospital", action: "go_to_hospital" },
-        { icon: Baby, label: "Birth", action: "birth" },
         {
           icon: Sparkles,
           label: "Due Date",

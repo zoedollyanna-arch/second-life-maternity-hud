@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { json, readJson, sessionFromRequest } from "@/lib/server/http";
+import { json, readJson, sessionFromRequest, runSlHandler } from "@/lib/server/http";
 import { performAction } from "@/lib/server/game";
 
 // Actions the in-world scripts (mainly the partner HUD) may trigger.
@@ -54,17 +54,18 @@ const SL_ACTIONS = new Set([
 export const Route = createFileRoute("/api/sl/action")({
   server: {
     handlers: {
-      POST: async ({ request }) => {
-        const body = await readJson(request);
-        const user = await sessionFromRequest(request, body);
-        if (!user) return json({ error: "unauthorized" }, 401);
+      POST: async ({ request }) =>
+        runSlHandler(async () => {
+          const body = await readJson(request);
+          const user = await sessionFromRequest(request, body);
+          if (!user) return json({ error: "unauthorized" }, 401);
 
-        const action = typeof body.action === "string" ? body.action : "";
-        if (!SL_ACTIONS.has(action)) return json({ error: "unknown action" }, 400);
+          const action = typeof body.action === "string" ? body.action : "";
+          if (!SL_ACTIONS.has(action)) return json({ error: "unknown action" }, 400);
 
-        const result = await performAction(user, action, body, "sl");
-        return json(result, result.ok ? 200 : 400);
-      },
+          const result = await performAction(user, action, body, "sl");
+          return json(result, result.ok ? 200 : 400);
+        }),
     },
   },
 });

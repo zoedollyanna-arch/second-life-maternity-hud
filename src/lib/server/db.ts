@@ -19,12 +19,38 @@ export function db(): pg.Pool {
   return pool;
 }
 
+const SHIPPED_LSL_SECRET = "2175039403870ed15116d0dcf330095af3f6a398e83bca01";
+const PRODUCTION_APP_URL = "https://second-life-maternity-hud-t2b3.onrender.com";
+
 export function apiSecret(): string {
-  const secret = process.env.SL_API_SECRET;
-  if (!secret) throw new Error("SL_API_SECRET is not set");
-  return secret;
+  const secret = process.env.SL_API_SECRET?.trim();
+  // Never throw: a missing env var used to 500 every HUD register/poll and
+  // Second Life then throttles the object ("Too many erroneous (5XX)…").
+  if (secret) return secret;
+  return SHIPPED_LSL_SECRET;
 }
 
-export function appUrl(): string {
-  return (process.env.APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+function stripSlash(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+function isLocalHost(value: string): boolean {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(value);
+}
+
+/** Public origin the in-world media browser can actually load. */
+export function appUrl(request?: Request): string {
+  const configured = process.env.APP_URL?.trim();
+  if (configured) {
+    const url = stripSlash(configured);
+    if (!isLocalHost(url)) return url;
+  }
+  const render = process.env.RENDER_EXTERNAL_URL?.trim();
+  if (render) return stripSlash(render);
+  if (request) {
+    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+    const proto = request.headers.get("x-forwarded-proto") ?? "https";
+    if (host) return stripSlash(`${proto}://${host}`);
+  }
+  return PRODUCTION_APP_URL;
 }

@@ -26,6 +26,9 @@ key     gRegisterReq = NULL_KEY;
 key     gPollReq = NULL_KEY;
 key     gEventReq = NULL_KEY;
 float   gNextKick = 0.0;
+float   gPollWait = 60.0;
+integer gFailStreak = 0;
+float   gNextHttp = 0.0;
 
 playSoundByName(string name)
 {
@@ -47,40 +50,80 @@ applyWeek(integer week)
     gKicksEnabled = (week >= 16);
 }
 
+list httpOpts(string method, integer withJson)
+{
+    list opts = [
+        HTTP_METHOD, method,
+        HTTP_BODY_MAXLENGTH, 16384,
+        HTTP_VERBOSE_THROTTLE, FALSE,
+        HTTP_PRAGMA_NO_CACHE, TRUE
+    ];
+    if (withJson) opts += [HTTP_MIMETYPE, "application/json"];
+    return opts;
+}
+
+noteHttpStatus(integer status)
+{
+    if (status >= 500 || status <= 0)
+    {
+        ++gFailStreak;
+        gPollWait = 90.0 * (float)gFailStreak;
+        if (gPollWait > 600.0) gPollWait = 600.0;
+        gNextHttp = llGetTime() + gPollWait;
+        llSetTimerEvent(gPollWait);
+    }
+    else if (status == 429)
+    {
+        gPollWait = 90.0;
+        gNextHttp = llGetTime() + gPollWait;
+        llSetTimerEvent(gPollWait);
+    }
+    else
+    {
+        gFailStreak = 0;
+        gPollWait = (float)POLL_SECONDS;
+        gNextHttp = 0.0;
+        llSetTimerEvent(gPollWait);
+    }
+}
+
+integer httpIdle()
+{
+    if (gRegisterReq != NULL_KEY) return FALSE;
+    if (gPollReq != NULL_KEY) return FALSE;
+    if (llGetTime() < gNextHttp) return FALSE;
+    return TRUE;
+}
+
 registerWithServer()
 {
+    if (!httpIdle()) return;
     string body = llList2Json(JSON_OBJECT, [
         "secret", API_SECRET,
         "kind", "belly",
         "object_key", (string)llGetKey(),
         "region", llGetRegionName()
     ]);
-    gRegisterReq = llHTTPRequest(API_BASE + "/api/sl/register", [
-        HTTP_METHOD, "POST",
-        HTTP_MIMETYPE, "application/json",
-        HTTP_BODY_MAXLENGTH, 16384
-    ], body);
+    gRegisterReq = llHTTPRequest(API_BASE + "/api/sl/register", httpOpts("POST", TRUE), body);
 }
 
 pollServer()
 {
+    if (!httpIdle()) return;
     if (gToken == "") { registerWithServer(); return; }
     gPollReq = llHTTPRequest(
-        API_BASE + "/api/sl/poll?token=" + gToken + "&kind=belly", [
-        HTTP_METHOD, "GET",
-        HTTP_BODY_MAXLENGTH, 16384
-    ], "");
+        API_BASE + "/api/sl/poll?token=" + gToken + "&kind=belly",
+        httpOpts("GET", FALSE), "");
 }
 
 sendEvent(string type, string extraKey, string extraVal)
 {
+    if (gToken == "") return;
+    if (llGetTime() < gNextHttp) return;
     list fields = ["token", gToken, "type", type];
     if (extraKey != "") fields += [extraKey, extraVal];
-    gEventReq = llHTTPRequest(API_BASE + "/api/sl/event", [
-        HTTP_METHOD, "POST",
-        HTTP_MIMETYPE, "application/json",
-        HTTP_BODY_MAXLENGTH, 16384
-    ], llList2Json(JSON_OBJECT, fields));
+    gEventReq = llHTTPRequest(API_BASE + "/api/sl/event", httpOpts("POST", TRUE),
+        llList2Json(JSON_OBJECT, fields));
 }
 
 doKick()
@@ -104,7 +147,7 @@ default
         llResetTime();
         scheduleNextKick();
         registerWithServer();
-        llSetTimerEvent((float)POLL_SECONDS);
+        llSetTimerEvent(gPollWait);
     }
 
     attach(key id)
@@ -127,19 +170,21 @@ default
         if (id == gRegisterReq)
         {
             gRegisterReq = NULL_KEY;
+            noteHttpStatus(status);
             if (status != 200) return;
-            gToken = llJsonGetValue(body, ["token"]);
+            string token = llJsonGetValue(body, ["token"]);
+            if (token != JSON_INVALID && token != "") gToken = token;
             string week = llJsonGetValue(body, ["week"]);
             if (week != JSON_INVALID) applyWeek((integer)week);
         }
         else if (id == gPollReq)
         {
             gPollReq = NULL_KEY;
-            if (status == 401) { gToken = ""; registerWithServer(); return; }
+            noteHttpStatus(status);
+            if (status == 401) { gToken = ""; return; }
             if (status != 200) return;
             string week = llJsonGetValue(body, ["week"]);
             if (week != JSON_INVALID) applyWeek((integer)week);
-            // server-queued belly commands (e.g. kicks triggered from the web)
             integer i = 0;
             while (llJsonValueType(body, ["commands", i]) != JSON_INVALID)
             {
@@ -150,6 +195,11 @@ default
                     llOwnerSay("♥ " + llJsonGetValue(body, ["commands", i, "params", "text"]));
                 i++;
             }
+        }
+        else if (id == gEventReq)
+        {
+            gEventReq = NULL_KEY;
+            if (status >= 500 || status <= 0 || status == 429) noteHttpStatus(status);
         }
     }
 

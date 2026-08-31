@@ -1,5 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { json, readJson, slIdentity, checkSecret, slCallbackUrl } from "@/lib/server/http";
+import {
+  json,
+  readJson,
+  slIdentity,
+  checkSecret,
+  slCallbackUrl,
+  runSlHandler,
+} from "@/lib/server/http";
 import { appUrl, db } from "@/lib/server/db";
 import {
   getOrCreateUser,
@@ -12,7 +19,8 @@ import {
 export const Route = createFileRoute("/api/sl/partner-link")({
   server: {
     handlers: {
-      POST: async ({ request }) => {
+      POST: async ({ request }) =>
+        runSlHandler(async () => {
         const body = await readJson(request);
         if (!checkSecret(body))
           return json({ error: "Bad secret — update API_SECRET in the LSL script." }, 403);
@@ -51,7 +59,7 @@ export const Route = createFileRoute("/api/sl/partner-link")({
           typeof body.region === "string" ? body.region : null,
         );
         const token = await createSession(partner.id);
-        const moapUrl = `${appUrl()}/partner?token=${token}`;
+        const moapUrl = `${appUrl(request)}/partner?token=${token}`;
 
         await addNotification(
           preg.user_id,
@@ -70,7 +78,7 @@ export const Route = createFileRoute("/api/sl/partner-link")({
           moap_url: moapUrl,
           message: `Paired with ${preg.mom_name} ♥ The Partner HUD screen is now live.`,
         });
-      },
+        }),
     },
   },
 });

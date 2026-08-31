@@ -2,6 +2,7 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { isSlApiRequest, slBusy } from "./lib/server/http";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -49,9 +50,14 @@ export default {
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
+      if (isSlApiRequest(request) && response.status >= 500) {
+        console.error(`SL API ${new URL(request.url).pathname} returned ${response.status}`);
+        return slBusy(consumeLastCapturedError() ?? new Error(`upstream ${response.status}`));
+      }
       return await normalizeCatastrophicSsrResponse(response);
     } catch (error) {
       console.error(error);
+      if (isSlApiRequest(request)) return slBusy(error);
       return new Response(renderErrorPage(), {
         status: 500,
         headers: { "content-type": "text/html; charset=utf-8" },

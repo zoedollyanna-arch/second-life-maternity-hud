@@ -2219,6 +2219,7 @@ export async function registerDevice(opts: {
   objectKey: string;
   callbackUrl: string | null;
   region: string | null;
+  publicUrl?: string;
 }) {
   const role = opts.kind === "partner" ? "partner" : "mom";
   const user = await getOrCreateUser(opts.avatarKey, opts.avatarName, role);
@@ -2235,10 +2236,11 @@ export async function registerDevice(opts: {
 
   const token = await createSession(user.id);
   const path = opts.kind === "partner" ? "/partner" : "/";
+  const origin = opts.publicUrl || appUrl();
   return {
     token,
     week,
-    moap_url: `${appUrl()}${path}?token=${token}`,
+    moap_url: `${origin}${path}?token=${token}`,
     welcome: `Welcome back, ${user.avatar_name.split(" ")[0]} - Week ${week} - touch the screen to open your dashboard.`,
   };
 }
