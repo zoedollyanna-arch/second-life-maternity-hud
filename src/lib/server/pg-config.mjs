@@ -75,9 +75,15 @@ export function pgClientConfig(raw) {
 }
 
 export function pgPoolConfig(raw) {
+  // Supabase pooler plans cap total clients (session mode allows 15), and that
+  // budget is shared with anything else connected to the same project. Keep the
+  // default for the web process, but let a test run or a second worker ask for
+  // a smaller slice instead of starving the live app.
+  const configured = Number(process.env.PGPOOL_MAX);
+  const max = Number.isFinite(configured) && configured > 0 ? Math.min(20, configured) : 10;
   return {
     ...pgClientConfig(raw),
-    max: 10,
+    max,
     idleTimeoutMillis: 30_000,
   };
 }

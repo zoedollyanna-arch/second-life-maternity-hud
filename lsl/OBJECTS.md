@@ -50,7 +50,7 @@ Sounds (optional): `nestoria_kick`, `nestoria_heartbeat`
 | Item                        | Notes                                                                                                                                 |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Simple prim for now         | Wearable box/prim is enough until the custom bag mesh is ready. Name it `nestoria_hospital_bag`. Drop `nestoria_hospital_bag.lsl` in it. She or partner wears it. Swap the prim for the mesh later — the script stays the same. |
-| `nestoria_hospital_bag.lsl` | Hears `nestoria_bag_pack` on the same owner channel as the chair. Care → Pack hospital bag talks to it. Touch also packs.             |
+| `nestoria_hospital_bag.lsl` | Hears `nestoria_bag_pack` on the same owner channel as the chair. Bag → Open the worn bag talks to it. Touch also packs. The 18-item checklist on the HUD is shared with the Partner HUD and is separate from this object — the two complement each other. |
 
 ## 3d. Toilet (physical bathroom)
 
@@ -64,7 +64,7 @@ Sounds (optional): `nestoria_kick`, `nestoria_heartbeat`
 | Item                        | Notes                                                                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Hospital bed mesh           | Place in-world **or** put a copy named `nestoria_hospital_bed` in the Main HUD. Go to Hospital rezzes it if present, and always talks to any bed already out. |
-| `nestoria_hospital_bed.lsl` | Sit for the scene. HUD starts water break / contractions / birth; the bed does the in-world RP. HUD-rezzed beds expire if unused.         |
+| `nestoria_hospital_bed.lsl` | Sit for the scene. The **server** starts water break / contractions / birth when the pregnancy reaches term — nobody presses a button for it — and the HUD forwards `nestoria_labor_water` / `nestoria_labor_contractions` / `nestoria_labor_birth` to the bed. HUD-rezzed beds expire if unused. |
 
 ## 4. Partner HUD (recommended)
 
@@ -73,8 +73,19 @@ Sounds (optional): `nestoria_kick`, `nestoria_heartbeat`
 | Tablet/screen mesh or prim      | Worn as a HUD. **Face 4** loads `/partner?token=…`. Touch pairs or refreshes the screen. Support actions are on the page only. |
 | `nestoria_partner_hud.lsl`      | Included — goes in the root prim.                                                                                        |
 
-Optional: `nestoria_chime` sound, couple hug animation (extend the script's
-`Hug` branch with `llRequestPermissions` + `llStartAnimation` if you add one).
+Pairing is now two-sided: entering her code sends her a request, and the
+screen stays on "Not linked yet" until she accepts on her own HUD. It unlocks
+by itself when she does — no need to touch the HUD again.
+
+Optional animations (full perm, dropped into the Partner HUD, named exactly).
+Missing ones are skipped silently:
+
+- `nestoria_faint` — used by the optional birth reaction "Feel faint"
+- `nestoria_vomit` — used by the optional birth reaction "Get queasy"
+
+Both reactions are pure roleplay: the server ignores them when deciding
+anything about her labor. They are off unless the wearer picks them under
+More → My reactions, and `nestoria_chime` remains an optional sound.
 
 ## 5. Hand-held props — foods, water bottle, vitamins (recommended)
 

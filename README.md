@@ -30,13 +30,37 @@ back in-world through a Postgres-backed API and LSL scripts.
    — or picked up on its 30-second poll as a fallback.
 3. The **Belly** grows with the pregnancy week, plays random kicks from week
    16, and reports kicks/touches back to the server.
-4. The **Partner HUD** pairs using the code shown in the Partner panel and
-   gives the partner support actions that raise the support meter and reach
-   the mom in-world.
+4. The **Partner HUD** pairs using the code shown in the Partner panel. The
+   code creates a *request* the mom accepts — it is not access on its own —
+   and every partner action afterwards is checked against the permissions she
+   controls. Both HUDs read the same pregnancy record, so neither can drift.
 
 Meters (hunger, hydration, energy, bladder, …) decay in real time on the
 server; pregnancy progression is time-based and configurable (Settings →
 pregnancy length in real days).
+
+### Labor is decided by the server
+
+There is no button, on either HUD, that starts contractions, breaks the waters
+or delivers the baby. When a pregnancy is created the server draws a private
+labor plan — an onset somewhere in weeks 37–42 (bell-shaped around 39.5, like
+real term birth) and a randomised running order for the phases, the waters and
+the hospital call. From then on `src/lib/server/labor.ts` advances the pregnancy
+lazily: every dashboard read and every in-world poll, by either partner, moves
+it to wherever real time says it should be.
+
+That means labor arrives unannounced, and both people find out in the same
+moment. It also means the two HUDs cannot disagree, because neither of them is
+computing anything — they are both reading one row.
+
+Onset is stored as a *gestational fraction* rather than a timestamp, so
+changing the pregnancy length in Settings keeps labor at the same point in the
+pregnancy instead of teleporting it. Each transition is a guarded `UPDATE` and
+each announcement carries a dedupe key, so simultaneous polls from both HUDs
+cannot double-deliver a baby.
+
+The only labor choices left to a player are the ones that really are choices:
+breathing through a contraction, and deciding when to leave for the hospital.
 
 ## Setup
 
@@ -131,7 +155,7 @@ the dashboard on the HUD and hear its sounds.
 | `GET /api/sl/poll`          | scripts             | Fetch queued in-world commands + current week          |
 | `POST /api/sl/event`        | belly               | Kicks, belly touches                                   |
 | `POST /api/sl/action`       | partner HUD         | Support actions from in-world menus                    |
-| `POST /api/sl/partner-link` | partner HUD         | Redeem pairing code                                    |
+| `POST /api/sl/partner-link` | partner HUD         | Redeem pairing code (creates a request she accepts)    |
 | `GET /api/hud/state`        | dashboard           | Full dashboard state (token auth)                      |
 | `POST /api/hud/action`      | dashboard           | All web buttons (token auth)                           |
 | `POST /api/hud/demo`        | browser             | Throwaway demo session (disable with `DISABLE_DEMO=1`) |
@@ -141,7 +165,16 @@ the dashboard on the HUD and hear its sounds.
 - First-attach setup wizard stores mom name, week/day, baby count, gender,
   baby names, privacy, and popup frequency.
 - The MOAP action console exposes Home, Pregnancy, Health, Baby, Care, Partner,
-  Journal, Nutrition, craving, and random RP event actions with short buttons.
+  Labor, Hospital bag, Milestones, Journal, Nutrition, craving, and random RP
+  event actions with short buttons.
+- The Partner HUD (`/partner`) has its own five-screen console — Home, Mom,
+  Labor, Bag, More. Buttons are enabled only when the action can really happen
+  and say why when they cannot, rather than failing silently.
+- Physical actions (hug, kiss, feeling a kick) reach the mom as a request she
+  accepts or declines; fetching and carrying (water, vitamins, ice chips) is
+  immediate. She can flip any of them either way in Partner → privacy.
+- The hospital bag is a shared 18-item checklist synced between both HUDs,
+  with "packed by" attribution. The worn in-world bag object still works.
 - Cravings, wellness logs, random event history, and expanded baby wellness
   meters persist in Postgres.
 - Food items are integrated into nutrition and cravings: ham sub, spaghetti,

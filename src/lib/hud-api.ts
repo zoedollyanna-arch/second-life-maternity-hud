@@ -32,6 +32,24 @@ export interface JournalEntry {
   photo_url?: string | null;
 }
 
+export type LaborPhaseName =
+  | "none"
+  | "prelabor"
+  | "early"
+  | "active"
+  | "transition"
+  | "pushing"
+  | "delivered";
+
+export type EventSeverityName =
+  | "info"
+  | "milestone"
+  | "request"
+  | "important"
+  | "labor"
+  | "urgent"
+  | "birth";
+
 export interface HudState {
   error?: string;
   user: { name: string; avatarKey: string; role: "mom" | "partner" };
@@ -56,6 +74,10 @@ export interface HudState {
     privacyMode: string;
     labor?: {
       stage: string;
+      phase: LaborPhaseName;
+      inLabor: boolean;
+      hospitalAdvised: boolean;
+      minutesToBirth: number | null;
       intensity: number;
       waterBroken: boolean;
       atHospital: boolean;
@@ -96,7 +118,59 @@ export interface HudState {
     code: string;
     support: number;
     activities: { actor_name: string; activity: string; created_at: string }[];
+    pendingLinks: {
+      id: string;
+      partner_user_id: string;
+      requested_at: string;
+      avatar_name: string;
+      display_name: string | null;
+    }[];
+    permissions: (Record<string, boolean> & { autoAccept: Record<string, boolean> }) | null;
   };
+  requests: {
+    incoming: {
+      id: string;
+      actionType: string;
+      label: string;
+      from: string;
+      line: string;
+      createdAt: string;
+      expiresAt: string;
+    }[];
+    outgoing: { id: string; actionType: string; label: string; expiresAt: string }[];
+  };
+  hospitalBag: {
+    items: {
+      key: string;
+      label: string;
+      group: "Mom" | "Personal" | "Baby";
+      checked: boolean;
+      checkedBy: string | null;
+      checkedAt: string | null;
+    }[];
+    packed: number;
+    total: number;
+    percent: number;
+    ready: boolean;
+  } | null;
+  milestones: {
+    id: string;
+    key: string;
+    title: string;
+    body: string | null;
+    week: number | null;
+    celebratedBy: string[];
+    createdAt: string;
+  }[];
+  sharedEvents: {
+    id: string;
+    type: string;
+    severity: EventSeverityName;
+    title: string;
+    body: string | null;
+    metadata: Record<string, unknown>;
+    created_at: string;
+  }[];
   notifications: {
     id: string;
     title: string;
@@ -197,11 +271,30 @@ export async function uploadJournalPhoto(token: string, file: File): Promise<{ i
   return { id: payload.id, url: payload.url };
 }
 
+/**
+ * How often to re-read server state.
+ *
+ * Both HUDs are pure readers of one authoritative pregnancy, so freshness is
+ * everything during labor and almost nothing the rest of the time. A resting
+ * pregnancy polls lazily; an active labor, an unanswered request or an
+ * imminent birth tightens the loop. Nothing here ever polls per-second.
+ */
+export function pollIntervalFor(data: HudState | undefined): number {
+  if (!data) return 15_000;
+  const labor = data.pregnancy?.labor;
+  if (labor?.phase === "pushing") return 3_000;
+  if (labor?.inLabor) return 4_000;
+  if (data.requests?.incoming?.length || data.requests?.outgoing?.length) return 4_000;
+  if (labor?.phase === "prelabor") return 8_000;
+  if (data.partner?.pendingLinks?.length) return 8_000;
+  return 15_000;
+}
+
 export function useHudState(token: string | null) {
   return useQuery<HudState>({
     queryKey: ["hud-state", token],
     enabled: !!token,
-    refetchInterval: 15_000,
+    refetchInterval: (query) => pollIntervalFor(query.state.data),
     refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,

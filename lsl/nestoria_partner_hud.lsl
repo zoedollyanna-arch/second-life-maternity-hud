@@ -33,6 +33,39 @@ integer gMediaReady = FALSE;
 
 say(string msg) { llOwnerSay("♥ Nestoria Partner: " + msg); }
 
+// Optional flourish — a missing animation or particle texture is skipped, never
+// an error, so the HUD works with nothing but the script inside it.
+heartsBurst()
+{
+    llParticleSystem([
+        PSYS_PART_FLAGS, PSYS_PART_EMISSIVE_MASK | PSYS_PART_INTERP_COLOR_MASK,
+        PSYS_SRC_PATTERN, PSYS_SRC_PATTERN_EXPLODE,
+        PSYS_PART_START_COLOR, <1.0, 0.72, 0.84>,
+        PSYS_PART_END_ALPHA, 0.0,
+        PSYS_PART_START_SCALE, <0.14, 0.14, 0.0>,
+        PSYS_PART_MAX_AGE, 1.6,
+        PSYS_SRC_BURST_RATE, 0.02,
+        PSYS_SRC_BURST_PART_COUNT, 12,
+        PSYS_SRC_BURST_RADIUS, 0.2,
+        PSYS_SRC_BURST_SPEED_MIN, 0.2,
+        PSYS_SRC_BURST_SPEED_MAX, 0.5,
+        PSYS_SRC_MAX_AGE, 2.0
+    ]);
+    llSetTimerEvent(2.5);
+}
+
+// Roleplay reactions the wearer opted into on the More → My reactions screen.
+// They never touch her labor — the server has already decided everything.
+reactAnim(string anim, string line)
+{
+    say(line);
+    if (llGetInventoryType(anim) == INVENTORY_ANIMATION)
+    {
+        if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) llStartAnimation(anim);
+        else llRequestPermissions(llGetOwner(), PERMISSION_TRIGGER_ANIMATION);
+    }
+}
+
 integer hudPrimCount()
 {
     integer n = llList2Integer(llGetObjectDetails(llGetKey(), [OBJECT_PRIM_COUNT]), 0);
@@ -231,8 +264,12 @@ default
             integer i = 0;
             while (llJsonValueType(body, ["commands", i]) != JSON_INVALID)
             {
+                string cmd  = llJsonGetValue(body, ["commands", i, "command"]);
                 string text = llJsonGetValue(body, ["commands", i, "params", "text"]);
-                if (text != JSON_INVALID) say(text);
+                if (text != JSON_INVALID && text != "") say(text);
+                if (cmd == "hearts")      heartsBurst();
+                else if (cmd == "faint")  reactAnim("nestoria_faint", "The room tilts. You sit down hard.");
+                else if (cmd == "vomit")  reactAnim("nestoria_vomit", "Your stomach turns.");
                 i++;
             }
             return;
@@ -270,6 +307,11 @@ default
             gMediaReady = FALSE;
             if (gMoapUrl != "") setMoap(gMoapUrl);
         }
+    }
+
+    run_time_permissions(integer perms)
+    {
+        if (perms & PERMISSION_TRIGGER_ANIMATION) llOwnerSay("Reactions enabled.");
     }
 
     on_rez(integer start) { }

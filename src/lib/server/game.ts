@@ -17,6 +17,28 @@ import {
   foodForCraving,
   foodSummary,
 } from "../foods";
+import {
+  PARTNER_ACTIONS,
+  HOSPITAL_BAG_ITEMS,
+  KICK_FRESH_MS,
+  REACTION_STYLES,
+  PARTNER_TITLES,
+  type PartnerPermission,
+} from "../partner";
+import {
+  queueCommand,
+  takePendingCommands,
+  addNotification,
+  publishEvent,
+  recentEvents,
+  type EventSeverity,
+} from "./bus";
+import { runLaborEngine, snapshotOf, laborStageFor, type LaborTransition } from "./labor";
+import * as partnerSvc from "./partner";
+
+// Re-exported so existing importers of game.ts keep working after the command
+// queue and notification helpers moved into bus.ts.
+export { queueCommand, takePendingCommands, addNotification };
 export interface HudUser {
   id: string;
   avatar_key: string;
@@ -229,24 +251,38 @@ async function latestPregnancyForMom(userId: string) {
   return rows[0] ?? null;
 }
 
-/** For partners: find the pregnancy (and mom) they're linked to. */
+/**
+ * For partners: find the pregnancy they hold an ACTIVE link to.
+ *
+ * The join against pregnancy_partner_links is the authorisation boundary — a
+ * pending, declined or removed partner resolves to nothing, and no pregnancy id
+ * supplied by a browser is ever consulted, so knowing one grants no access.
+ *
+ * Every read of a pregnancy also advances the labor engine, which is how labor
+ * progresses without a cron: either HUD looking at the pregnancy moves it.
+ */
 export async function pregnancyForUser(user: HudUser) {
   if (user.role === "partner") {
     const { rows } = await db().query(
       `select p.*, u.avatar_key as mom_avatar_key, u.avatar_name as mom_avatar_name,
               u.id as mom_user_id
-       from pregnancies p join hud_users u on u.id = p.user_id
-       where p.partner_user_id = $1
+       from pregnancies p
+       join pregnancy_partner_links l
+         on l.pregnancy_id = p.id and l.status = 'active'
+       join hud_users u on u.id = p.user_id
+       where l.partner_user_id = $1
        order by case when p.status = 'active' then 0 else 1 end, p.updated_at desc
        limit 1`,
       [user.id],
     );
-    return rows[0] ?? null;
+    if (!rows[0]) return null;
+    return await tickLabor(rows[0]);
   }
   const existing = await latestPregnancyForMom(user.id);
   const preg = existing ?? (await ensureActivePregnancy(user.id));
+  const ticked = await tickLabor(preg);
   return {
-    ...preg,
+    ...ticked,
     mom_avatar_key: user.avatar_key,
     mom_avatar_name: user.avatar_name,
     mom_user_id: user.id,
@@ -507,14 +543,6 @@ async function recordEvent(
 // Notifications / journal / partner feed
 // ---------------------------------------------------------------------------
 
-export async function addNotification(userId: string, title: string, body?: string) {
-  await db().query(`insert into notifications (user_id, title, body) values ($1, $2, $3)`, [
-    userId,
-    title,
-    body ?? null,
-  ]);
-}
-
 async function addJournal(
   userId: string,
   title: string,
@@ -581,14 +609,239 @@ async function setRecentEmotion(userId: string, emotion: string, rpText?: string
   );
 }
 
+/**
+ * Tell the partner something. Gated on the permission Mom controls, so a
+ * category she has switched off never reaches their HUD at all — and recorded
+ * on the shared event bus so it survives them being offline.
+ */
 async function notifyPartner(
-  preg: { partner_user_id?: string | null },
+  preg: { id?: string; user_id?: string; partner_user_id?: string | null },
   title: string,
   body: string,
+  options: {
+    severity?: EventSeverity;
+    eventType?: string;
+    permission?: PartnerPermission;
+    actorId?: string | null;
+    metadata?: Record<string, unknown>;
+  } = {},
 ) {
-  if (!preg.partner_user_id) return;
-  await addNotification(preg.partner_user_id, title, body);
-  await queueCommand(preg.partner_user_id, "partner", "say", { text: `${title}: ${body}` });
+  if (!preg.id || !preg.partner_user_id) return;
+  if (options.permission && preg.user_id) {
+    const perms = await partnerSvc.permissionsForPregnancy(preg.id, preg.user_id);
+    if (!perms[options.permission]) return;
+  }
+  await addNotification(preg.partner_user_id, title, body, {
+    severity: options.severity ?? "info",
+    pregnancyId: preg.id,
+    senderId: options.actorId ?? null,
+    eventType: options.eventType ?? null,
+    metadata: options.metadata,
+  });
+  await queueCommand(preg.partner_user_id, "partner", "say", { text: title + ": " + body });
+}
+
+// ---------------------------------------------------------------------------
+// Labor engine wiring
+//
+// labor.ts decides *what* happened. This turns each transition into the
+// wellbeing changes, journal entries and in-world effects the rest of the
+// pregnancy system already speaks.
+// ---------------------------------------------------------------------------
+
+async function applyLaborTransitions(
+  preg: Record<string, any>,
+  transitions: LaborTransition[],
+): Promise<void> {
+  if (!transitions.length) return;
+  const momId: string = preg.user_id;
+  const momName: string = preg.mom_avatar_name ?? "She";
+  const progress = computeProgress(new Date(preg.conceived_at), preg.duration_days);
+
+  for (const t of transitions) {
+    if (t.kind === "water") {
+      await applyCare(momId, preg.id, "water_break", { stress: 12, comfort: -10, hydration: -6 }, "Water broke");
+      await addJournal(momId, "Water broke", "It is really happening.", "milestone");
+      await addNotification(momId, "Your water broke", "Ice chips only from here on — no water.", {
+        severity: "labor",
+        pregnancyId: preg.id,
+        eventType: "WATER_BROKE",
+      });
+      await queueCommand(momId, "hud", "labor_water", {});
+      await queueCommand(momId, "hud", "say", { text: "Your water just broke." });
+      await publishEvent(preg.id, "WATER_BROKE", "Water broke", {
+        severity: "labor",
+        body: momName + "'s water has broken.",
+        dedupeKey: "water_broke",
+      });
+      await notifyPartner(preg, "Her water broke", "Ice chips only now — no water.", {
+        severity: "labor",
+        eventType: "WATER_BROKE",
+        permission: "viewLabor",
+      });
+      await partnerSvc.ensureMilestone(preg.id, "water_broke", "Water broke", {
+        week: progress.week,
+      });
+      continue;
+    }
+
+    if (t.kind === "hospital_advised") {
+      await addNotification(momId, "Time to go to the hospital", "Labor is established.", {
+        severity: "urgent",
+        pregnancyId: preg.id,
+        eventType: "GO_TO_HOSPITAL",
+      });
+      await queueCommand(momId, "hud", "say", { text: "It is time to head to the hospital." });
+      await notifyPartner(preg, "Time for the hospital", "Labor is established. Get her in.", {
+        severity: "urgent",
+        eventType: "GO_TO_HOSPITAL",
+        permission: "viewLabor",
+      });
+      continue;
+    }
+
+    switch (t.phase) {
+      case "prelabor":
+        await addNotification(momId, "Something is starting", "Twinges and tightening. Not long now.", {
+          severity: "labor",
+          pregnancyId: preg.id,
+          eventType: "LABOR_PHASE_CHANGED",
+        });
+        await queueCommand(momId, "hud", "say", { text: "A strange tightening low down..." });
+        await publishEvent(preg.id, "LABOR_PHASE_CHANGED", "Early signs", {
+          severity: "labor",
+          body: "Twinges and tightening.",
+          dedupeKey: "phase_prelabor",
+        });
+        break;
+
+      case "early":
+        await applyCare(momId, preg.id, "contractions", { stress: 8, comfort: -8, energy: -6 }, "Labor began");
+        await addJournal(momId, "Labor started", "Contractions have begun.", "milestone");
+        await addNotification(momId, "Labor has started", "Contractions have begun. Breathe.", {
+          severity: "labor",
+          pregnancyId: preg.id,
+          eventType: "LABOR_STARTED",
+        });
+        await queueCommand(momId, "hud", "labor_contractions", { intensity: 30 });
+        await publishEvent(preg.id, "LABOR_STARTED", "Labor started", {
+          severity: "labor",
+          body: momName + " is in early labor.",
+          dedupeKey: "labor_started",
+        });
+        await notifyPartner(preg, "She is in labor", "Contractions have started. Go to her.", {
+          severity: "labor",
+          eventType: "LABOR_STARTED",
+          permission: "viewLabor",
+        });
+        await partnerSvc.ensureMilestone(preg.id, "labor_started", "Labor started", {
+          week: progress.week,
+        });
+        break;
+
+      case "active":
+        await applyCare(momId, preg.id, "contractions", { stress: 10, comfort: -10, energy: -8 }, "Active labor");
+        await queueCommand(momId, "hud", "labor_contractions", { intensity: 60 });
+        await publishEvent(preg.id, "LABOR_PHASE_CHANGED", "Active labor", {
+          severity: "labor",
+          body: momName + " is in active labor.",
+          dedupeKey: "phase_active",
+        });
+        await notifyPartner(preg, "Contractions are stronger", "Active labor. Guide her breathing.", {
+          severity: "labor",
+          eventType: "CONTRACTION_INTENSITY_CHANGED",
+          permission: "viewLabor",
+        });
+        break;
+
+      case "transition":
+        await applyCare(momId, preg.id, "contractions", { stress: 14, comfort: -12, energy: -10 }, "Transition");
+        await queueCommand(momId, "hud", "labor_contractions", { intensity: 85 });
+        await publishEvent(preg.id, "LABOR_PHASE_CHANGED", "Transition", {
+          severity: "urgent",
+          body: "The hardest part.",
+          dedupeKey: "phase_transition",
+        });
+        await notifyPartner(preg, "Transition — the hardest part", "Stay right beside her.", {
+          severity: "urgent",
+          eventType: "LABOR_PHASE_CHANGED",
+          permission: "viewLabor",
+        });
+        break;
+
+      case "pushing":
+        await queueCommand(momId, "hud", "say", { text: "It is time to push." });
+        await addNotification(momId, "Time to push", "Almost there.", {
+          severity: "urgent",
+          pregnancyId: preg.id,
+          eventType: "BIRTH_STARTED",
+        });
+        await publishEvent(preg.id, "BIRTH_STARTED", "The baby is coming", {
+          severity: "urgent",
+          body: momName + " is pushing.",
+          dedupeKey: "birth_started",
+        });
+        await notifyPartner(preg, "The baby is coming", "She is pushing. Be there.", {
+          severity: "urgent",
+          eventType: "BIRTH_STARTED",
+          permission: "viewLabor",
+        });
+        break;
+
+      case "delivered": {
+        const baby = preg.baby_name ? preg.baby_name : "the baby";
+        await applyCare(
+          momId,
+          preg.id,
+          "birth",
+          { mood: 20, stress: -15, comfort: 8, baby_bond: 20, energy: -20 },
+          "Birth",
+        );
+        await addJournal(momId, "Birth", baby + " is here. The family just grew.", "milestone");
+        await addNotification(momId, "Congratulations", baby + " has arrived ♥", {
+          severity: "birth",
+          pregnancyId: preg.id,
+          eventType: "BABY_BORN",
+        });
+        await queueCommand(momId, "hud", "labor_birth", {});
+        await queueCommand(momId, "hud", "hearts", {});
+        await queueCommand(momId, "hud", "say", { text: baby + " is here. Congratulations." });
+        await publishEvent(preg.id, "BABY_BORN", "Baby born", {
+          severity: "birth",
+          body: baby + " has arrived.",
+          dedupeKey: "baby_born",
+        });
+        await notifyPartner(preg, "The baby is here", baby + " has arrived ♥", {
+          severity: "birth",
+          eventType: "BABY_BORN",
+          permission: "viewLabor",
+        });
+        await partnerSvc.ensureMilestone(preg.id, "baby_born", "Baby born", {
+          body: baby + " arrived.",
+          week: progress.week,
+        });
+        break;
+      }
+    }
+  }
+}
+
+/**
+ * Run the labor engine for this pregnancy and apply whatever it decided.
+ * Safe to call from any request, by either partner, as often as you like.
+ */
+export async function tickLabor(preg: Record<string, any>): Promise<Record<string, any>> {
+  try {
+    const { preg: updated, transitions } = await runLaborEngine(preg as any);
+    const merged = { ...preg, ...updated };
+    if (transitions.length) await applyLaborTransitions(merged, transitions);
+    return merged;
+  } catch (error) {
+    // The partner layer is supplementary: a labor engine fault must never take
+    // the pregnancy HUD down with it.
+    console.error("labor engine", error);
+    return preg;
+  }
 }
 
 async function setLaborStage(
@@ -633,87 +886,6 @@ async function addPartnerActivity(
   );
 }
 
-// ---------------------------------------------------------------------------
-// SL command queue + push
-// ---------------------------------------------------------------------------
-
-export async function queueCommand(
-  userId: string,
-  deviceKind: "hud" | "belly" | "partner",
-  command: string,
-  params: Record<string, unknown> = {},
-) {
-  await db().query(
-    `insert into sl_commands (user_id, device_kind, command, params)
-     values ($1, $2, $3, $4)`,
-    [userId, deviceKind, command, JSON.stringify(params)],
-  );
-  // best-effort push to the in-world object; polling is the fallback
-  void pushPending(userId, deviceKind).catch(() => {});
-}
-
-type PendingCommand = {
-  id: string;
-  command: string;
-  params: Record<string, unknown>;
-};
-
-async function claimPendingCommands(userId: string, kind: string): Promise<PendingCommand[]> {
-  // housekeeping: drop delivered commands and stale pending ones (a device
-  // that was offline for a day shouldn't replay a burst of old effects)
-  await db().query(
-    `delete from sl_commands
-     where user_id = $1
-       and ((status = 'sent' and sent_at < now() - interval '2 days')
-         or (status = 'pending' and created_at < now() - interval '1 day'))`,
-    [userId],
-  );
-  const { rows } = await db().query(
-    `update sl_commands set status = 'sent', sent_at = now()
-     where id in (
-       select id from sl_commands
-       where user_id = $1 and device_kind = $2 and status = 'pending'
-       order by created_at limit 10
-       for update skip locked
-     ) and status = 'pending'
-     returning id, command, params`,
-    [userId, kind],
-  );
-  return rows as PendingCommand[];
-}
-
-export async function takePendingCommands(userId: string, kind: string) {
-  const commands = await claimPendingCommands(userId, kind);
-  return commands.map(({ command, params }) => ({ command, params }));
-}
-
-async function pushPending(userId: string, kind: "hud" | "belly" | "partner") {
-  const { rows } = await db().query(
-    `select callback_url from sl_devices where user_id = $1 and kind = $2`,
-    [userId, kind],
-  );
-  const url = rows[0]?.callback_url as string | undefined;
-  if (!url) return;
-  const claimed = await claimPendingCommands(userId, kind);
-  const commands = claimed.map(({ command, params }) => ({ command, params }));
-  if (!commands.length) return;
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ secret: apiSecret(), commands }),
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!response.ok) throw new Error(`Second Life callback returned HTTP ${response.status}`);
-  } catch {
-    // object offline/URL dead — requeue so the next poll picks them up
-    await db().query(
-      `update sl_commands set status = 'pending', sent_at = null
-       where id = any($1::uuid[]) and status = 'sent'`,
-      [claimed.map((item) => item.id)],
-    );
-  }
-}
 
 async function syncEventSchedule(
   user: HudUser,
@@ -847,6 +1019,21 @@ export async function getDashboardState(user: HudUser) {
     db().query(`select settings from user_settings where user_id = $1`, [momId]),
   ]);
 
+  // Partner layer. Every piece is independently optional: if any of it fails
+  // the pregnancy dashboard still renders, because the partner system is
+  // supplementary to the pregnancy system and never load-bearing for it.
+  const [bag, milestones, sharedEvents, incoming, outgoing, pendingLinks, permissions] =
+    await Promise.all([
+      partnerSvc.hospitalBag(preg.id).catch(() => null),
+      partnerSvc.milestonesFor(preg.id).catch(() => []),
+      recentEvents(preg.id, 25).catch(() => []),
+      partnerSvc.pendingRequestsFor(user.id, preg.id).catch(() => []),
+      partnerSvc.outgoingRequests(user.id, preg.id).catch(() => []),
+      user.role === "mom" ? partnerSvc.pendingLinksForMom(preg.id).catch(() => []) : Promise.resolve([]),
+      partnerSvc.permissionsForPregnancy(preg.id, momId).catch(() => null),
+    ]);
+  const labor = snapshotOf(preg as any);
+
   const wellness = Math.round(
     (stats.energy +
       stats.hydration +
@@ -901,6 +1088,10 @@ export async function getDashboardState(user: HudUser) {
       privacyMode: preg.privacy_mode ?? "partner",
       labor: {
         stage: preg.labor_stage ?? "none",
+        phase: labor.phase,
+        inLabor: labor.inLabor,
+        hospitalAdvised: labor.hospitalAdvised,
+        minutesToBirth: labor.minutesToBirth,
         intensity: Number(preg.contraction_intensity ?? 0),
         waterBroken: Boolean(preg.water_broken_at),
         atHospital: Boolean(preg.hospital_at),
@@ -954,7 +1145,13 @@ export async function getDashboardState(user: HudUser) {
       code: preg.partner_code,
       support: Math.min(100, 20 + (supportRow.rows[0].pts as number)),
       activities: activities.rows,
+      pendingLinks,
+      permissions,
     },
+    requests: { incoming, outgoing },
+    hospitalBag: bag,
+    milestones,
+    sharedEvents,
     notifications: notifications.rows,
     unread: Number(unreadCount.rows[0].n),
     currentCraving: craving ?? null,
@@ -979,6 +1176,328 @@ export interface ActionResult {
   [key: string]: unknown;
 }
 
+// ---------------------------------------------------------------------------
+// Partner action gate + effects
+// ---------------------------------------------------------------------------
+
+/** Was there a kick recently enough for the partner to still share it? */
+async function hasFreshKick(pregnancyId: string): Promise<boolean> {
+  const { rows } = await db().query(
+    `select 1 from kick_events
+      where pregnancy_id = $1 and created_at > now() - ($2::int * interval '1 millisecond')
+      limit 1`,
+    [pregnancyId, KICK_FRESH_MS],
+  );
+  return Boolean(rows[0]);
+}
+
+/**
+ * The one place that decides whether a partner may do a thing right now:
+ * permission Mom granted, state the pregnancy is actually in, and whether she
+ * wants to be asked first. Returns the reason when the answer is no, so the
+ * HUD can say it rather than failing silently.
+ */
+async function partnerActionGate(
+  ctx: partnerSvc.PartnerContext,
+  preg: Record<string, any>,
+  action: string,
+): Promise<{ ok: boolean; message: string; needsConsent: boolean }> {
+  const def = PARTNER_ACTIONS[action];
+  if (!def) return { ok: false, message: "Unknown action.", needsConsent: false };
+
+  if (!ctx.permissions[def.permission]) {
+    return { ok: false, message: def.unavailable, needsConsent: false };
+  }
+
+  const labor = snapshotOf(preg as any);
+  const delivered = isDeliveredPregnancy(preg);
+
+  switch (def.availability) {
+    case "labor":
+      if (delivered) return { ok: false, message: "Labor is over — she did it.", needsConsent: false };
+      if (!labor.inLabor) return { ok: false, message: def.unavailable, needsConsent: false };
+      break;
+    case "birth":
+      if (labor.phase !== "pushing") {
+        return { ok: false, message: def.unavailable, needsConsent: false };
+      }
+      break;
+    case "kick":
+      if (!(await hasFreshKick(preg.id))) {
+        return { ok: false, message: def.unavailable, needsConsent: false };
+      }
+      break;
+    case "delivered":
+      if (!delivered) return { ok: false, message: def.unavailable, needsConsent: false };
+      break;
+  }
+
+  // No water once labor starts — ice chips only.
+  if (action === "partner_water" && labor.inLabor) {
+    return {
+      ok: false,
+      message: "No water during labor — offer ice chips instead.",
+      needsConsent: false,
+    };
+  }
+
+  const needsConsent = def.consent && ctx.permissions.autoAccept[action] !== true;
+  return { ok: true, message: "", needsConsent };
+}
+
+interface PartnerMove {
+  deltas: Partial<Record<StatName, number>>;
+  activity: string;
+  pts: number;
+  /** `{a}` = partner, `{m}` = mom. */
+  line: string;
+  eventType?: string;
+  severity?: EventSeverity;
+}
+
+const PARTNER_MOVES: Record<string, PartnerMove> = {
+  hug: {
+    deltas: { mood: 10, comfort: 10 },
+    activity: "Gave affection",
+    pts: 8,
+    line: "{a} wraps {m} in a warm hug.",
+  },
+  kiss: {
+    deltas: { mood: 12, comfort: 8, stress: -4 },
+    activity: "Shared a kiss",
+    pts: 8,
+    line: "{a} kisses {m} softly.",
+  },
+  feel_baby_kick: {
+    deltas: { mood: 8, baby_bond: 10 },
+    activity: "Felt the baby kick",
+    pts: 10,
+    line: "{a} rests a hand on the bump and feels the baby move.",
+    eventType: "BABY_KICKED",
+  },
+  partner_comfort: {
+    deltas: { comfort: 14, mood: 8, stress: -6 },
+    activity: "Comforted mom",
+    pts: 8,
+    line: "{a} comforts {m}.",
+  },
+  partner_check_on: {
+    deltas: { mood: 5, comfort: 4 },
+    activity: "Checked on mom",
+    pts: 5,
+    line: "{a} checks in: \"How are you feeling?\"",
+  },
+  partner_ice_chips: {
+    deltas: { hydration: 10, comfort: 8, sickness: -4 },
+    activity: "Brought ice chips",
+    pts: 6,
+    line: "{a} offers {m} ice chips.",
+  },
+  partner_help_rest: {
+    deltas: { rest: 12, energy: 8, comfort: 6, stress: -5 },
+    activity: "Helped mom rest",
+    pts: 7,
+    line: "{a} helps {m} rest.",
+  },
+  partner_medicine: {
+    deltas: { vitamins: 18, sickness: -12, comfort: 5 },
+    activity: "Brought vitamins",
+    pts: 6,
+    line: "{a} brings {m} her prenatal vitamins.",
+  },
+  partner_water: {
+    deltas: { hydration: 20 },
+    activity: "Brought a glass of water",
+    pts: 5,
+    line: "{a} brings {m} a glass of water.",
+  },
+  partner_backrub: {
+    deltas: { comfort: 20, mood: 8 },
+    activity: "Gave a back rub",
+    pts: 7,
+    line: "{a} gives {m} a gentle back rub.",
+  },
+  partner_labor_support: {
+    deltas: { comfort: 10, mood: 8, stress: -10 },
+    activity: "Held her hand through a contraction",
+    pts: 12,
+    line: "{a} holds {m}'s hand through the wave.",
+    severity: "labor",
+  },
+  partner_breathing: {
+    deltas: { stress: -12, mood: 6, comfort: 6 },
+    activity: "Guided breathing",
+    pts: 8,
+    line: "{a} breathes with {m}. In... and out.",
+    severity: "labor",
+  },
+  partner_stay_strong: {
+    deltas: { mood: 10, comfort: 8, stress: -8 },
+    activity: "Stayed calm",
+    pts: 10,
+    line: "{a} stays steady: \"I've got you. We're okay.\"",
+    severity: "labor",
+  },
+  partner_celebrate: {
+    deltas: { mood: 12, baby_bond: 6 },
+    activity: "Celebrated a milestone",
+    pts: 8,
+    line: "{a} celebrates with {m}.",
+    severity: "milestone",
+  },
+  partner_faint: {
+    deltas: { mood: 2 },
+    activity: "Got dizzy and needed a moment",
+    pts: 2,
+    line: "{a} goes pale and sits down hard. Still here.",
+  },
+  partner_vomit_react: {
+    deltas: { mood: 1 },
+    activity: "Got queasy in the delivery room",
+    pts: 2,
+    line: "{a} looks a little green... then steadies.",
+  },
+};
+
+/** Land an approved partner action. Called directly, or after Mom accepts. */
+async function applyPartnerMove(
+  preg: Record<string, any>,
+  partnerUser: HudUser,
+  action: string,
+  actorName: string,
+  momName: string,
+): Promise<ActionResult> {
+  const move = PARTNER_MOVES[action];
+  if (!move) return { ok: false, message: "Unknown action." };
+  const momId: string = preg.user_id ?? preg.mom_user_id;
+  const line = move.line.replace(/\{a\}/g, actorName).replace(/\{m\}/g, momName);
+
+  await bumpStats(momId, move.deltas);
+  await addPartnerActivity(preg.id, actorName, move.activity, move.pts);
+  await addNotification(momId, move.activity, line, {
+    severity: move.severity ?? "info",
+    pregnancyId: preg.id,
+    senderId: partnerUser.id,
+  });
+  await publishEvent(preg.id, move.eventType ?? "PARTNER_SUPPORT", move.activity, {
+    severity: move.severity ?? "info",
+    body: line,
+    actorId: partnerUser.id,
+    metadata: { action },
+  });
+
+  // Reactions play on the partner's own HUD; everything else reaches hers.
+  if (action === "partner_faint" || action === "partner_vomit_react") {
+    await queueCommand(partnerUser.id, "partner", action === "partner_faint" ? "faint" : "vomit", {});
+    await queueCommand(momId, "hud", "say", { text: line });
+  } else if (action === "hug" || action === "kiss" || action === "partner_stay_strong") {
+    await queueCommand(momId, "hud", "hearts", {});
+    await queueCommand(momId, "hud", "say", { text: line });
+  } else if (action === "feel_baby_kick") {
+    await queueCommand(momId, "belly", "kick", {});
+    await queueCommand(momId, "hud", "say", { text: line });
+  } else {
+    await queueCommand(momId, "hud", "say", { text: line });
+  }
+
+  return { ok: true, message: line, anim: action };
+}
+
+export interface MomStatusSummary {
+  line: string;
+  week: number | null;
+  day: number | null;
+  stage: string | null;
+  mood: string | null;
+  symptom: string | null;
+  lastEvent: string | null;
+  labor: string;
+  wellbeing: string | null;
+}
+
+/**
+ * "Check on her" — a safe, summarised status. Only what Mom has permitted, in
+ * words rather than raw meter numbers, and never internal state.
+ */
+async function checkOnMom(
+  preg: Record<string, any>,
+  permissions: ReturnType<typeof partnerSvc.resolvePermissions> | null,
+): Promise<MomStatusSummary> {
+  const momId: string = preg.user_id ?? preg.mom_user_id;
+  const allow = (key: PartnerPermission) => !permissions || permissions[key];
+  const progress = computeProgress(new Date(preg.conceived_at), preg.duration_days);
+  const labor = snapshotOf(preg as any);
+
+  const [statsRow, symptomRow, settingsRow, eventRow] = await Promise.all([
+    allow("viewWellness") ? getStatsWithDecay(momId, progress.trimester) : Promise.resolve(null),
+    allow("viewSymptoms")
+      ? db().query(
+          `select name, severity from symptoms where pregnancy_id = $1
+            order by severity desc limit 1`,
+          [preg.id],
+        )
+      : Promise.resolve(null),
+    allow("viewMood")
+      ? db().query(`select settings from user_settings where user_id = $1`, [momId])
+      : Promise.resolve(null),
+    db().query(
+      `select title from pregnancy_events where pregnancy_id = $1
+        order by created_at desc limit 1`,
+      [preg.id],
+    ),
+  ]);
+
+  const stats = statsRow as Awaited<ReturnType<typeof getStatsWithDecay>> | null;
+  const wellbeing = stats
+    ? stats.energy > 65 && stats.rest > 60
+      ? "Comfortable"
+      : stats.energy < 35 || stats.rest < 35
+        ? "Worn out"
+        : "Managing"
+    : null;
+
+  const moodKey = settingsRow?.rows[0]?.settings?.lastEmotion;
+  const mood = allow("viewMood") ? moodFromKey(typeof moodKey === "string" ? moodKey : "calm").label : null;
+  const topSymptom = symptomRow?.rows[0];
+  const symptom =
+    topSymptom && Number(topSymptom.severity) > 5
+      ? `${topSymptom.name} (${severityLabel(Number(topSymptom.severity))})`
+      : null;
+
+  const laborText = isDeliveredPregnancy(preg)
+    ? "Delivered ♥"
+    : labor.inLabor
+      ? `${labor.phase === "pushing" ? "Pushing" : "In labor"} · ${labor.intensity}%`
+      : labor.phase === "prelabor"
+        ? "Early signs"
+        : "Not active";
+
+  const parts: string[] = [];
+  if (allow("viewWeek")) parts.push(`Week ${progress.week}+${progress.day}`);
+  if (mood) parts.push(`Mood: ${mood}`);
+  if (wellbeing) parts.push(wellbeing);
+  if (symptom) parts.push(symptom);
+  if (allow("viewLabor")) parts.push(`Labor: ${laborText}`);
+
+  return {
+    line: parts.length ? parts.join(" · ") : "She has kept the details private.",
+    week: allow("viewWeek") ? progress.week : null,
+    day: allow("viewWeek") ? progress.day : null,
+    stage: allow("viewStage")
+      ? progress.trimester === 1
+        ? "1st Trimester"
+        : progress.trimester === 2
+          ? "2nd Trimester"
+          : "3rd Trimester"
+      : null,
+    mood,
+    symptom,
+    lastEvent: (eventRow.rows[0]?.title as string) ?? null,
+    labor: allow("viewLabor") ? laborText : "Private",
+    wellbeing,
+  };
+}
+
 export async function performAction(
   user: HudUser,
   action: string,
@@ -991,6 +1510,28 @@ export async function performAction(
   const momName: string = preg.mom_avatar_name;
   const actorName = user.display_name ?? user.avatar_name;
   const isPartner = user.role === "partner";
+
+  // Actions a partner may call that predate the gated block above still have to
+  // respect the permissions she set. Never trust the client to have hidden the
+  // button — check the link here too.
+  if (isPartner) {
+    const LEGACY_PARTNER_PERMISSION: Record<string, PartnerPermission> = {
+      support: "allowComfort",
+      partner_message: "allowComfort",
+      partner_appointment: "viewAppointments",
+      partner_status: "allowComfort",
+      bag_item: "allowHospitalBag",
+      bag_rez: "allowHospitalBag",
+      milestone_celebrate: "viewMilestones",
+    };
+    const needed = LEGACY_PARTNER_PERMISSION[action];
+    if (needed) {
+      const perms = await partnerSvc.permissionsForPregnancy(preg.id, momId);
+      if (!perms[needed]) {
+        return { ok: false, message: "She has turned that off in her privacy settings." };
+      }
+    }
+  }
 
   await db().query(
     `insert into action_log (user_id, action, source, payload) values ($1, $2, $3, $4)`,
@@ -1375,19 +1916,6 @@ export async function performAction(
       return { ok: true, message: "Snack logged." };
 
     // ---- affection & partner ----------------------------------------------
-    case "hug": {
-      await bumpStats(momId, { mood: 10, comfort: 10 });
-      await queueCommand(momId, "hud", "hearts", {});
-      await queueCommand(momId, "belly", "say", { text: "Baby feels the love." });
-      if (isPartner) {
-        await addPartnerActivity(preg.id, actorName, "Gave affection", 8);
-        await queueCommand(momId, "hud", "say", { text: `${actorName} wraps you in a warm hug.` });
-        return { ok: true, message: `You hug ${momName} tight.`, anim: "hug" };
-      }
-      await addNotification(momId, "Self care ♥", "You took a moment for yourself and baby.");
-      return { ok: true, message: "You wrap your arms around your bump ♥" };
-    }
-
     case "support": {
       await bumpStats(momId, { mood: 8 });
       if (isPartner) {
@@ -1428,22 +1956,6 @@ export async function performAction(
       return { ok: true, message: "Message delivered." };
     }
 
-    case "partner_water":
-      await bumpStats(momId, { hydration: 20 });
-      await addPartnerActivity(preg.id, actorName, "Brought a glass of water", 5);
-      await queueCommand(momId, "hud", "say", {
-        text: `${actorName} brings you a glass of water.`,
-      });
-      return { ok: true, message: `You bring ${momName} some water.` };
-
-    case "partner_backrub":
-      await bumpStats(momId, { comfort: 20, mood: 8 });
-      await addPartnerActivity(preg.id, actorName, "Gave a back rub", 7);
-      await queueCommand(momId, "hud", "say", {
-        text: `${actorName} gives you a gentle back rub.`,
-      });
-      return { ok: true, message: "A soothing back rub." };
-
     case "partner_appointment":
       await addPartnerActivity(preg.id, actorName, "Attended an appointment", 10);
       await addJournal(
@@ -1456,15 +1968,6 @@ export async function performAction(
         text: `${actorName} joined you at your appointment.`,
       });
       return { ok: true, message: "Appointment attended together." };
-
-    case "partner_status": {
-      const progress = computeProgress(new Date(preg.conceived_at), preg.duration_days);
-      const stats = await getStatsWithDecay(momId, progress.trimester);
-      return {
-        ok: true,
-        message: `${momName} - week ${progress.week}+${progress.day} (${progress.progressPct}%). Mood ${stats.mood}%, energy ${stats.energy}%, hydration ${stats.hydration}%.`,
-      };
-    }
 
     // ---- cravings / random events -----------------------------------------
     case "craving_roll": {
@@ -1988,8 +2491,19 @@ export async function performAction(
       await applyCare(momId, preg.id, action, { mood: 6, baby_bond: 4, baby_movement: 8 }, "Felt a kick");
       await queueCommand(momId, "belly", "kick", {});
       await queueCommand(momId, "hud", "kick", { text: "Baby is kicking!" });
-      await notifyPartner(preg, "Baby kicked", `${momName} felt the baby kick. Want to feel?`);
-      return { ok: true, message: "Baby kick felt. Partner can share the moment." };
+      await publishEvent(preg.id, "BABY_KICKED", "Baby kicked", {
+        severity: "info",
+        body: momName + " felt the baby kick.",
+        metadata: { at: new Date().toISOString() },
+      });
+      await notifyPartner(preg, "Baby is kicking 💕", momName + " felt the baby kick. Want to feel?", {
+        eventType: "BABY_KICKED",
+        permission: "viewKicks",
+      });
+      await partnerSvc.ensureMilestone(preg.id, "first_kick", "First kick", {
+        body: "The first flutter you could really feel.",
+      });
+      return { ok: true, message: "Baby kick felt. Your partner can share the moment." };
 
     case "count_kick":
       await db().query(`insert into kick_events (pregnancy_id, source) values ($1, 'web')`, [
@@ -1998,75 +2512,67 @@ export async function performAction(
       await applyCare(momId, preg.id, action, { baby_movement: 5, baby_bond: 2 }, "Counted a kick");
       return { ok: true, message: "Kick counted for today's session." };
 
-    case "water_break":
-      await setLaborStage(preg.id, "water_broken");
-      await applyCare(momId, preg.id, action, { stress: 12, comfort: -10, hydration: -6 }, "Water broke");
-      await addJournal(
-        momId,
-        "Water broke",
-        "Labor is starting. Time to breathe and get ready.",
-        "milestone",
-      );
-      await addNotification(momId, "Water broke", "Call your partner. The hospital bag can be rezzed from Care.");
-      await queueCommand(momId, "hud", "labor_water", {});
-      await queueCommand(momId, "hud", "say", { text: `${actorName}'s water has broken.` });
-      await notifyPartner(preg, "Water broke", `${momName}'s water broke. She needs you.`);
-      return { ok: true, message: "Water broke. Partner has been alerted." };
+    // Labor is owned by the engine (labor.ts). There is deliberately no
+    // water_break or birth action any more — reaching term causes those, and
+    // both HUDs find out together. What is left here are the two things that
+    // are genuinely a player's choice during labor.
 
     case "contractions": {
-      const intensity = Math.min(100, Math.max(35, Number(preg.contraction_intensity ?? 0) + 15));
-      await setLaborStage(preg.id, "contractions", { intensity });
+      const labor = snapshotOf(preg as any);
+      if (!labor.inLabor) {
+        return { ok: false, message: "You are not in labor yet. Your body will tell you." };
+      }
       await applyCare(
         momId,
         preg.id,
         action,
-        { stress: 8, comfort: -8, energy: -6, mood: -3 },
-        "Contractions",
+        { stress: 6, comfort: -6, energy: -4 },
+        "Breathed through a contraction",
       );
-      await queueCommand(momId, "hud", "labor_contractions", { intensity });
-      await queueCommand(momId, "hud", "say", {
-        text: `A contraction wave. Intensity ${intensity}%. Breathe.`,
+      await queueCommand(momId, "hud", "labor_contractions", { intensity: labor.intensity });
+      await notifyPartner(preg, "A contraction", `Intensity ${labor.intensity}%. Breathe with her.`, {
+        severity: "labor",
+        eventType: "CONTRACTION_STARTED",
+        permission: "viewLabor",
       });
-      await notifyPartner(
-        preg,
-        "Contractions started",
-        `${momName} is having contractions (${intensity}%). Guide breathing or stay close.`,
-      );
-      return { ok: true, message: `Contractions at ${intensity}% intensity. Breathe through it.` };
+      return {
+        ok: true,
+        message: `You breathe through it. Intensity ${labor.intensity}%.`,
+        intensity: labor.intensity,
+      };
     }
 
-    case "go_to_hospital":
-      await setLaborStage(preg.id, "hospital");
+    case "go_to_hospital": {
+      const labor = snapshotOf(preg as any);
+      if (!labor.inLabor) {
+        return { ok: false, message: "There is no need to go anywhere yet." };
+      }
+      if (preg.hospital_at) return { ok: true, message: "You are already at the hospital." };
+      await db().query(
+        `update pregnancies
+            set hospital_at = coalesce(hospital_at, now()),
+                labor_stage = $2, updated_at = now()
+          where id = $1`,
+        [
+          preg.id,
+          laborStageFor({ phase: labor.phase as any, waterBroken: labor.waterBroken, atHospital: true }),
+        ],
+      );
       await applyCare(momId, preg.id, action, { stress: -4, comfort: 4 }, "Went to hospital");
       await addJournal(momId, "Arrived at the hospital", "The next chapter is starting.", "milestone");
       await queueCommand(momId, "hud", "rez_bed", {});
-      await notifyPartner(
-        preg,
-        "Heading to the hospital",
-        `${momName} is going to the hospital. Meet her at the bed.`,
-      );
+      await publishEvent(preg.id, "HOSPITAL_ARRIVED", "At the hospital", {
+        severity: "labor",
+        body: momName + " has arrived at the hospital.",
+        dedupeKey: "hospital_arrived",
+      });
+      await partnerSvc.ensureMilestone(preg.id, "hospital_arrival", "Hospital arrival");
+      await notifyPartner(preg, "She is at the hospital", "Meet her at the bed.", {
+        severity: "urgent",
+        eventType: "HOSPITAL_ARRIVED",
+        permission: "viewLabor",
+      });
       return { ok: true, message: "Hospital scene started. Sit the bed if it is out." };
-
-    case "birth": {
-      if (isDeliveredPregnancy(preg)) {
-        return { ok: true, message: "This pregnancy is already marked delivered." };
-      }
-      await setLaborStage(preg.id, "delivered");
-      await applyCare(
-        momId,
-        preg.id,
-        action,
-        { mood: 20, stress: -15, comfort: 8, baby_bond: 20, energy: -20 },
-        "Birth",
-      );
-      const baby = preg.baby_name ? preg.baby_name : "the baby";
-      await addJournal(momId, "Birth", `${baby} is here. The family just grew.`, "milestone");
-      await addNotification(momId, "Congratulations", `${baby} has arrived ♥`);
-      await queueCommand(momId, "hud", "labor_birth", {});
-      await queueCommand(momId, "hud", "hearts", {});
-      await queueCommand(momId, "hud", "say", { text: `${baby} is here. Congratulations.` });
-      await notifyPartner(preg, "The baby is here", `${baby} has arrived. Celebrate with ${momName}.`);
-      return { ok: true, message: `${baby} is here. Congratulations ♥` };
     }
 
     case "pack_bag":
@@ -2098,109 +2604,207 @@ export async function performAction(
       await notifyPartner(preg, "Bag is packed", "The hospital bag is ready.");
       return { ok: true, message: "The hospital bag is packed and ready." };
 
+    // ---- partner support --------------------------------------------------
+    //
+    // Every partner move funnels through one gate: does the link exist, has Mom
+    // allowed this category, is the pregnancy in a state where it makes sense,
+    // and does she want to be asked first? Only then does the effect land.
+    case "hug":
+    case "kiss":
+    case "feel_baby_kick":
     case "partner_comfort":
     case "partner_check_on":
     case "partner_ice_chips":
     case "partner_help_rest":
     case "partner_medicine":
+    case "partner_water":
+    case "partner_backrub":
     case "partner_labor_support":
     case "partner_breathing":
     case "partner_celebrate":
-    case "partner_pack_bag":
+    case "partner_stay_strong":
     case "partner_faint":
-    case "partner_vomit_react":
-    case "partner_stay_strong": {
-      if (!isPartner && action.startsWith("partner_")) {
-        // Mom can still trigger a request-shaped version for some of these
+    case "partner_vomit_react": {
+      // Mom pressing "hug" is hugging her own bump, not a partner interaction.
+      if (!isPartner && action === "hug") {
+        await bumpStats(momId, { mood: 10, comfort: 10 });
+        await queueCommand(momId, "hud", "hearts", {});
+        await queueCommand(momId, "belly", "say", { text: "Baby feels the love." });
+        await addNotification(momId, "Self care ♥", "You took a moment for yourself and baby.");
+        return { ok: true, message: "You wrap your arms around your bump ♥" };
       }
-      const partnerMoves: Record<
-        string,
-        { deltas: Partial<Record<StatName, number>>; activity: string; pts: number; message: string }
-      > = {
-        partner_comfort: {
-          deltas: { comfort: 14, mood: 8, stress: -6 },
-          activity: "Comforted mom",
-          pts: 8,
-          message: `${actorName} comforts ${momName}.`,
-        },
-        partner_check_on: {
-          deltas: { mood: 5, comfort: 4 },
-          activity: "Checked on mom",
-          pts: 5,
-          message: `${actorName} checks in: "How are you feeling?"`,
-        },
-        partner_ice_chips: {
-          deltas: { hydration: 10, comfort: 8, sickness: -4 },
-          activity: "Brought ice chips",
-          pts: 6,
-          message: `${actorName} offers ice chips.`,
-        },
-        partner_help_rest: {
-          deltas: { rest: 12, energy: 8, comfort: 6, stress: -5 },
-          activity: "Helped mom rest",
-          pts: 7,
-          message: `${actorName} helps ${momName} rest.`,
-        },
-        partner_medicine: {
-          deltas: { sickness: -18, comfort: 5, stress: -2 },
-          activity: "Brought medicine",
-          pts: 6,
-          message: `${actorName} brings nausea medicine.`,
-        },
-        partner_labor_support: {
-          deltas: { comfort: 10, mood: 8, stress: -10 },
-          activity: "Supported during labor",
-          pts: 12,
-          message: `${actorName} stays close through a contraction.`,
-        },
-        partner_breathing: {
-          deltas: { stress: -12, mood: 6, comfort: 6 },
-          activity: "Guided breathing",
-          pts: 8,
-          message: `${actorName} guides ${momName} through breathing.`,
-        },
-        partner_celebrate: {
-          deltas: { mood: 12, baby_bond: 6 },
-          activity: "Celebrated a milestone",
-          pts: 8,
-          message: `${actorName} celebrates with ${momName}.`,
-        },
-        partner_pack_bag: {
-          deltas: { stress: -4, mood: 4 },
-          activity: "Helped pack the hospital bag",
-          pts: 7,
-          message: `${actorName} helps pack the hospital bag.`,
-        },
-        partner_faint: {
-          deltas: { mood: 2 },
-          activity: "Got dizzy and needed a moment",
-          pts: 2,
-          message: `${actorName} feels faint and sits down. Still here.`,
-        },
-        partner_vomit_react: {
-          deltas: { mood: 1 },
-          activity: "Got queasy in the delivery room",
-          pts: 2,
-          message: `${actorName} looks a little green... then steadies.`,
-        },
-        partner_stay_strong: {
-          deltas: { mood: 10, comfort: 8, stress: -8 },
-          activity: "Stayed strong",
-          pts: 10,
-          message: `${actorName} stays steady: "I've got you. We're okay."`,
-        },
-      };
-      const move = partnerMoves[action];
-      await bumpStats(momId, move.deltas);
-      if (isPartner) await addPartnerActivity(preg.id, actorName, move.activity, move.pts);
-      await addNotification(momId, move.activity, move.message);
-      await queueCommand(momId, "hud", action === "partner_stay_strong" ? "hearts" : "say", {
-        text: move.message,
+      if (!isPartner) {
+        return { ok: false, message: "That is a Partner HUD action." };
+      }
+
+      const ctx = await partnerSvc.partnerContext(user);
+      if (!ctx) return { ok: false, message: "You are not linked to a pregnancy." };
+
+      const gate = await partnerActionGate(ctx, preg, action);
+      if (!gate.ok) return { ok: false, message: gate.message };
+
+      if (gate.needsConsent) {
+        return await partnerSvc.createInteractionRequest({
+          pregnancyId: preg.id,
+          senderId: user.id,
+          senderName: actorName,
+          recipientId: momId,
+          actionType: action,
+          payload: { note: str("note", 160) },
+        });
+      }
+      return await applyPartnerMove(preg, user, action, actorName, momName);
+    }
+
+    // Mom answers a partner request.
+    case "request_respond": {
+      const requestId = str("requestId", 64);
+      const accept = params.accept === true || params.accept === "true";
+      if (!/^[0-9a-f-]{36}$/i.test(requestId)) {
+        return { ok: false, message: "That request is no longer waiting." };
+      }
+      const claimed = await partnerSvc.claimRequest(
+        requestId,
+        user.id,
+        accept ? "accepted" : "declined",
+      );
+      if (!claimed) return { ok: false, message: "That request already expired or was answered." };
+
+      const def = PARTNER_ACTIONS[claimed.action_type as string];
+      const senderRow = await db().query(
+        `select id, avatar_name, display_name, avatar_key, role from hud_users where id = $1`,
+        [claimed.sender_id],
+      );
+      const sender = senderRow.rows[0] as HudUser | undefined;
+      const senderName = sender ? (sender.display_name ?? sender.avatar_name) : "Your partner";
+
+      if (!accept) {
+        await addNotification(claimed.sender_id, "Not right now", `${momName} declined: ${def?.label ?? claimed.action_type}.`, {
+          severity: "info",
+          pregnancyId: preg.id,
+        });
+        await queueCommand(claimed.sender_id, "partner", "say", { text: "Not right now ♥" });
+        return { ok: true, message: "Declined." };
+      }
+
+      const result = sender
+        ? await applyPartnerMove(preg, sender, claimed.action_type as string, senderName, momName)
+        : { ok: false, message: "That partner is no longer linked." };
+      await addNotification(claimed.sender_id, "She said yes ♥", def?.label ?? claimed.action_type, {
+        severity: "info",
+        pregnancyId: preg.id,
       });
-      if (action === "partner_pack_bag") await queueCommand(momId, "hud", "bag_pack", {});
-      if (action === "partner_faint") await queueCommand(user.id, "partner", "faint", {});
-      if (action === "partner_vomit_react") await queueCommand(user.id, "partner", "vomit", {});
-      return { ok: true, message: move.message };
+      await queueCommand(claimed.sender_id, "partner", "hearts", {});
+      return { ok: result.ok, message: result.ok ? `${senderName}: ${def?.label ?? "done"} ♥` : result.message };
+    }
+
+    case "request_cancel": {
+      const requestId = str("requestId", 64);
+      if (!/^[0-9a-f-]{36}$/i.test(requestId)) return { ok: false, message: "Unknown request." };
+      const cancelled = await partnerSvc.cancelRequestBySender(requestId, user.id);
+      return cancelled
+        ? { ok: true, message: "Withdrawn." }
+        : { ok: false, message: "Nothing to withdraw." };
+    }
+
+    // ---- partner linking (Mom's side) --------------------------------------
+    case "partner_link_respond": {
+      if (isPartner) return { ok: false, message: "Only she can answer that." };
+      const linkId = str("linkId", 64);
+      if (!/^[0-9a-f-]{36}$/i.test(linkId)) return { ok: false, message: "Unknown request." };
+      return await partnerSvc.respondToLink(
+        user,
+        preg.id,
+        linkId,
+        params.accept === true || params.accept === "true",
+      );
+    }
+
+    case "partner_remove": {
+      if (isPartner) return { ok: false, message: "Only she can remove the link." };
+      return await partnerSvc.removePartner(preg.id, user.id);
+    }
+
+    case "partner_permissions": {
+      if (isPartner) return { ok: false, message: "Only she can change these." };
+      const patch =
+        typeof params.permissions === "object" && params.permissions !== null
+          ? (params.permissions as Record<string, unknown>)
+          : {};
+      await partnerSvc.updateLinkPermissions(preg.id, patch);
+      return { ok: true, message: "Privacy settings saved ✓" };
+    }
+
+    // ---- shared hospital bag ------------------------------------------------
+    case "bag_item": {
+      if (isPartner) {
+        const ctx = await partnerSvc.partnerContext(user);
+        if (!ctx) return { ok: false, message: "You are not linked to a pregnancy." };
+        if (!ctx.permissions.allowHospitalBag) {
+          return { ok: false, message: PARTNER_ACTIONS.partner_celebrate.unavailable };
+        }
+      }
+      const result = await partnerSvc.setBagItem({
+        pregnancyId: preg.id,
+        itemKey: str("itemKey", 64),
+        checked: params.checked === true || params.checked === "true",
+        userId: user.id,
+        userName: actorName,
+      });
+      if (result.changed && isPartner) {
+        await addPartnerActivity(preg.id, actorName, "Packed the hospital bag", 3);
+      }
+      return { ok: result.ok, message: result.message };
+    }
+
+    case "bag_rez":
+      await queueCommand(momId, "hud", "bag_pack", {});
+      return { ok: true, message: "The worn hospital bag should open to pack." };
+
+    // ---- shared milestones ---------------------------------------------------
+    case "milestone_celebrate": {
+      const milestoneId = str("milestoneId", 64);
+      if (!/^[0-9a-f-]{36}$/i.test(milestoneId)) return { ok: false, message: "Unknown milestone." };
+      const result = await partnerSvc.celebrateMilestone(preg.id, milestoneId, user.id, actorName);
+      if (result.first) {
+        await bumpStats(momId, { mood: 6, baby_bond: 3 });
+        const other = isPartner ? momId : preg.partner_user_id;
+        if (other) {
+          await queueCommand(other, isPartner ? "hud" : "partner", "hearts", {});
+        }
+      }
+      return { ok: result.ok, message: result.message };
+    }
+
+    // ---- partner-only preferences -------------------------------------------
+    case "partner_reaction_settings": {
+      if (!isPartner) return { ok: false, message: "That is a Partner HUD setting." };
+      const mode = String(params.mode ?? "");
+      const style = String(params.style ?? "");
+      const patch: Record<string, unknown> = {};
+      if (["manual", "auto", "off"].includes(mode)) patch.reactionMode = mode;
+      if (REACTION_STYLES.some((r) => r.key === style)) patch.reactionStyle = style;
+      const title = String(params.title ?? "");
+      if ((PARTNER_TITLES as readonly string[]).includes(title)) patch.partnerTitle = title;
+      if (!Object.keys(patch).length) return { ok: false, message: "Nothing to save." };
+      await db().query(
+        `insert into user_settings (user_id, settings) values ($1, $2)
+         on conflict (user_id) do update set settings = user_settings.settings || excluded.settings`,
+        [user.id, JSON.stringify(patch)],
+      );
+      return { ok: true, message: "Saved ✓" };
+    }
+
+    // ---- "check on her" -------------------------------------------------------
+    case "partner_status": {
+      const ctx = isPartner ? await partnerSvc.partnerContext(user) : null;
+      if (isPartner && !ctx) return { ok: false, message: "You are not linked to a pregnancy." };
+      const summary = await checkOnMom(preg, ctx?.permissions ?? null);
+      if (isPartner) {
+        await addPartnerActivity(preg.id, actorName, "Checked on mom", 3);
+        await queueCommand(momId, "hud", "say", { text: actorName + " is checking in on you." });
+      }
+      return { ok: true, message: summary.line, summary };
     }
 
     default:

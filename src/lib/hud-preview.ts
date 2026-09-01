@@ -24,6 +24,10 @@ export const LAYOUT_PREVIEW_STATE: HudState = {
     privacyMode: "partner",
     labor: {
       stage: "none",
+      phase: "none",
+      inLabor: false,
+      hospitalAdvised: false,
+      minutesToBirth: null,
       intensity: 0,
       waterBroken: false,
       atHospital: false,
@@ -95,6 +99,8 @@ export const LAYOUT_PREVIEW_STATE: HudState = {
     linked: true,
     code: "NEST12",
     support: 84,
+    pendingLinks: [],
+    permissions: null,
     activities: [
       {
         actor_name: "Alex Parker",
@@ -118,6 +124,10 @@ export const LAYOUT_PREVIEW_STATE: HudState = {
   newUltrasounds: 0,
   foods: [],
   recentEvents: [],
+  requests: { incoming: [], outgoing: [] },
+  hospitalBag: null,
+  milestones: [],
+  sharedEvents: [],
   popupFrequencyMinutes: 20,
   nextEventAt: null,
   settings: {},

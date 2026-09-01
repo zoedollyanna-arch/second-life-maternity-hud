@@ -39,6 +39,7 @@ import {
   HeartPulse,
   Hospital,
   MoreHorizontal,
+  Activity,
 } from "lucide-react";
 import logo from "@/assets/nestoria-logo.png";
 import pregnancyHero from "@/assets/pregnancy-hero.jpg";
@@ -71,6 +72,14 @@ import {
   type HudState,
   type HudStats,
 } from "@/lib/hud-api";
+import {
+  RequestInbox,
+  LinkApprovals,
+  PartnerPrivacy,
+  HospitalBagPanels,
+  MilestonesPanel,
+  MomLaborPanels,
+} from "@/components/hud/partner-panels";
 import { BABY_GROWTH } from "@/lib/pregnancy";
 import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, type FoodCategory } from "@/lib/foods";
 import { playForAction, playChime, playError, playHearts } from "@/lib/sounds";
@@ -101,6 +110,9 @@ type NavKey =
   | "baby"
   | "care"
   | "partner"
+  | "labor"
+  | "bag"
+  | "milestones"
   | "journal"
   | "nutrition"
   | "notifications"
@@ -118,8 +130,10 @@ const DOCK_NAV: { key: NavKey; label: string; icon: React.ComponentType<{ classN
 const MORE_APPS: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: "care", label: "Care", icon: HandHeart },
   { key: "partner", label: "Partner", icon: Users },
+  { key: "labor", label: "Labor", icon: Activity },
+  { key: "bag", label: "Hospital bag", icon: Briefcase },
   { key: "journal", label: "Journal", icon: BookHeart },
-  { key: "journal", label: "Milestones", icon: Trophy },
+  { key: "milestones", label: "Milestones", icon: Trophy },
   { key: "nutrition", label: "Nutrition", icon: Apple },
   { key: "notifications", label: "Alerts", icon: Bell },
   { key: "settings", label: "Settings", icon: Settings },
@@ -128,6 +142,7 @@ const MORE_APPS: { key: NavKey; label: string; icon: React.ComponentType<{ class
 function dockKey(active: NavKey): NavKey {
   if (active === "home" || active === "pregnancy" || active === "baby" || active === "more") return active;
   if (active === "health" || active === "nutrition") return "health";
+  if (active === "labor") return "pregnancy";
   return "more";
 }
 
@@ -399,8 +414,8 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
       { key: "partner", label: "Partner", icon: Users },
       { key: "journal", label: "Journal", icon: BookHeart },
       { key: "baby", label: "Baby", icon: Baby },
-      { key: "journal", label: "Milestones", icon: Trophy },
-      { key: "settings", label: "Settings", icon: Settings },
+      { key: "bag", label: "Hospital bag", icon: Briefcase },
+      { key: "milestones", label: "Milestones", icon: Trophy },
     ];
 
   if (!preg.setupComplete && data.user.role === "mom") {
@@ -461,6 +476,16 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
             <main className={`hud-main ${pageScrolls ? "is-scroll" : ""}`}>
               {active === "home" && (
                 <div className="hud-home">
+                  {(data.requests?.incoming?.length ?? 0) > 0 && (
+                    <section>
+                      <RequestInbox data={data} act={act} pending={action.isPending} />
+                    </section>
+                  )}
+                  {(data.partner?.pendingLinks?.length ?? 0) > 0 && (
+                    <section>
+                      <LinkApprovals data={data} act={act} pending={action.isPending} />
+                    </section>
+                  )}
                   <section>
                     <button
                       type="button"
@@ -731,6 +756,8 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
 
               {active === "partner" && (
                 <AppPage title="Partner" onBack={goBack}>
+                  <LinkApprovals data={data} act={act} pending={action.isPending} />
+                  <RequestInbox data={data} act={act} pending={action.isPending} />
                   <Panel className="is-scroll">
                     {data.partner.linked ? (
                       <>
@@ -821,6 +848,25 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       </div>
                     )}
                   </Panel>
+                  <PartnerPrivacy data={data} act={act} pending={action.isPending} />
+                </AppPage>
+              )}
+
+              {active === "labor" && (
+                <AppPage title="Labor" onBack={goBack}>
+                  <MomLaborPanels data={data} act={act} pending={action.isPending} />
+                </AppPage>
+              )}
+
+              {active === "bag" && (
+                <AppPage title="Hospital bag" onBack={goBack}>
+                  <HospitalBagPanels data={data} act={act} pending={action.isPending} />
+                </AppPage>
+              )}
+
+              {active === "milestones" && (
+                <AppPage title="Milestones" onBack={goBack}>
+                  <MilestonesPanel data={data} act={act} pending={action.isPending} />
                 </AppPage>
               )}
 
