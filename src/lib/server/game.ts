@@ -839,8 +839,14 @@ async function answerEvent(
   prefs: HudPreferences,
   explicitEventId?: string,
 ): Promise<ActionResult> {
-  const choice: EventChoice | undefined = choiceByKey(choiceKey);
+  let choice: EventChoice | undefined = choiceByKey(choiceKey);
   if (!choice) return { ok: false, message: "That is not one of the options." };
+
+  // Same rule, one more doorway: an event that offered "drink some water"
+  // before labor started quietly becomes ice chips rather than dead-ending.
+  if (choice.key === "water" && snapshotOf(preg as any).inLabor) {
+    choice = choiceByKey("ice_chips") ?? choice;
+  }
 
   const params: unknown[] = [preg.id, choice.key];
   let where = "pregnancy_id = $1 and answered_at is null";
@@ -1999,6 +2005,7 @@ export async function performAction(
   };
   const actionProgress = computeProgress(new Date(preg.conceived_at), preg.duration_days);
   const stats = await getStatsWithDecay(momId, actionProgress.trimester);
+  const actionLabor = snapshotOf(preg as any);
 
   switch (action) {
     // ---- setup / pregnancy controls ---------------------------------------
@@ -2222,7 +2229,16 @@ export async function performAction(
       return { ok: true, message: "Appointment scheduled." };
 
     // ---- self care (mom) --------------------------------------------------
-    case "drink_water":
+    case "drink_water": {
+      // No water once labor starts — ice chips only. The partner's "bring
+      // water" already refused here; hers has to as well, or the rule is
+      // decoration.
+      if (actionLabor.inLabor) {
+        return {
+          ok: false,
+          message: "No water during labor — ice chips only. Try Ice chips instead.",
+        };
+      }
       await applyCare(
         momId,
         preg.id,
@@ -2235,6 +2251,25 @@ export async function performAction(
         text: "You sip some refreshing water. Hydration +25.",
       });
       return { ok: true, message: "You drink some water. Hydration restored." };
+    }
+
+    /**
+     * Ice chips: the one thing she may have during labor, and a perfectly
+     * ordinary cold drink the rest of the time. Its own action rather than a
+     * food_eat parameter so the Care screen can offer it as a button and swap
+     * it in for Water once labor begins.
+     */
+    case "ice_chips": {
+      const chips = foodByKey("ice_chips") ?? FOOD_ITEMS[0];
+      await applyCare(momId, preg.id, "ice_chips", chips.deltas, "Ice chips");
+      await queueAnim(momId, "hud", "drink");
+      await queueCommand(momId, "hud", "say", {
+        text: actionLabor.inLabor
+          ? `${momName} crunches a mouthful of ice chips between contractions.`
+          : `${momName} crunches some cold ice chips.`,
+      });
+      return { ok: true, message: "Cool and welcome. Ice chips it is." };
+    }
 
     case "eat":
     case "food_eat": {

@@ -802,10 +802,19 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
               {active === "care" && (
                 <AppPage title="Care" onBack={goBack}>
                   <Panel className="is-scroll">
+                    {preg.labor?.inLabor && (
+                      <p className="mb-2 rounded-2xl bg-[#F6C6D6]/30 px-3 py-2 text-center hud-copy font-semibold text-[#4D405E]">
+                        You're in labor — no water now. Ice chips only. ♥
+                      </p>
+                    )}
                     <div className="hud-care-grid">
                       {[
                         { icon: Moon, label: "Rest", action: "rest" },
-                        { icon: Droplet, label: "Water", action: "drink_water" },
+                        // Water is not an option once labor starts; the button
+                        // becomes the one thing she may actually have.
+                        preg.labor?.inLabor
+                          ? { icon: Droplet, label: "Ice chips", action: "ice_chips" }
+                          : { icon: Droplet, label: "Water", action: "drink_water" },
                         { icon: Pill, label: "Vitamins", action: "vitamins" },
                         { icon: Heart, label: "Comfort", action: "comfort" },
                         { icon: Stethoscope, label: "Medicine", action: "medicine" },

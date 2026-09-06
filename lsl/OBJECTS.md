@@ -142,6 +142,56 @@ the polaroid-style scrapbook on the Baby panel. Nothing to build in-world.
 (Baby shower / gender reveal etc. are handled as journal & event entries on
 the dashboard — no props needed.)
 
+## 8. Animations & sounds — the full list
+
+Every one of these is **optional**. The HUD checks whether the item is in its
+contents before playing it, so nothing errors when a name is missing — the
+action still changes the meters and still writes its roleplay line. Drop an
+animation in with the matching name and it starts working immediately; no
+script edit is needed.
+
+Where a fallback is listed, that animation plays until the real one is added.
+
+| Name | Plays when | Fallback | Priority |
+| ---- | ---------- | -------- | -------- |
+| `nestoria_rest` | Rest, and as the fallback for several others | — | **Do this first** |
+| `nestoria_drink` | Drink water, ice chips | — | **Do this first** |
+| `nestoria_vitamins` | Take vitamins | — | **Do this first** |
+| `nestoria_belly_hold` | Hold belly, rub belly, feeling a kick | — | **Do this first** |
+| `nestoria_sleep` | Sleep, nap | `nestoria_rest` | High |
+| `nestoria_vomit` | Being sick | `nestoria_rest` | High |
+| `nestoria_cry` | Crying, and emotional mood swings | none — silent today | High |
+| `nestoria_yawn` | Sleepy and tired moods, "can't sleep" | `nestoria_rest` | Medium |
+| `nestoria_bathroom` | Bathroom break | none — silent today | Medium |
+| `nestoria_contraction` | Contractions during labor | `nestoria_rest` | Medium |
+| `nestoria_comfort` | Comfort (alongside the chair) | none | Low |
+
+Sounds follow the same rule — present means played, missing means skipped:
+
+| Name | Plays when | Priority |
+| ---- | ---------- | -------- |
+| `nestoria_chime` | Notifications, hearts, vitamins | **Do this first** |
+| `nestoria_heartbeat` | Doctor, ultrasound, contractions | **Do this first** |
+| `nestoria_sip` | Drinking | High |
+| `nestoria_vomit` | Being sick (falls back to the chime) | High |
+| `nestoria_cry` | Crying | Medium |
+| `nestoria_yawn` | Sleepy moods, going to sleep | Low |
+
+> The dashboard also generates its own sounds through the media screen, so the
+> HUD is never silent even with no sound files at all. These in-world clips are
+> an upgrade, not a requirement.
+
+### `nestoria_mess` — the vomiting aftermath
+
+The feedback board draws vomiting as five beats: nausea → animation & sound →
+particles → **food on the floor** → **clean up**. The first three are done. The
+fourth needs a small rezzable object named `nestoria_mess` in the HUD's
+contents — the HUD drops it on the floor in front of her when she is sick, and
+skips that step silently when it is not there.
+
+It needs a script of its own that removes it after a minute or two, the way
+`nestoria_comfort_chair.lsl` cleans itself up. That script is not written yet.
+
 ## MOAP HUD inventory checklist
 
 The MOAP screen is the main hub. The HUD frame touch only refreshes/syncs the
@@ -150,12 +200,24 @@ events and cravings.
 
 Put these inside the main HUD root prim:
 
+Required:
+
 - `nestoria_main_hud.lsl`
 - `nestoria_chair` object (chair with `nestoria_comfort_chair.lsl` inside)
-- `nestoria_belly_hold` animation
-- optional: `nestoria_drink` / `nestoria_rest` / `nestoria_vitamins` animations
-- optional: `nestoria_chime` / `nestoria_heartbeat` / `nestoria_sip` sounds
-- optional: frame/logo texture, heart/sparkle particle textures
+
+Optional objects, rezzed when present:
+
+- `nestoria_hospital_bed`, `nestoria_toilet`, `nestoria_mess`
+
+Optional animations and sounds — see section 8 for the full table:
+
+- animations: `nestoria_rest`, `nestoria_drink`, `nestoria_vitamins`,
+  `nestoria_belly_hold`, `nestoria_sleep`, `nestoria_vomit`, `nestoria_cry`,
+  `nestoria_yawn`, `nestoria_bathroom`, `nestoria_contraction`,
+  `nestoria_comfort`
+- sounds: `nestoria_chime`, `nestoria_heartbeat`, `nestoria_sip`,
+  `nestoria_vomit`, `nestoria_cry`, `nestoria_yawn`
+- frame/logo texture, heart/sparkle particle textures
 
 ## Where to get full-perm assets
 

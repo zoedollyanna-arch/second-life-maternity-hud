@@ -53,6 +53,7 @@ export const ANIMATION_KEYS = [
   "hearts",
   "bathroom",
   "kick",
+  "yawn",
 ] as const;
 
 export type AnimationKey = (typeof ANIMATION_KEYS)[number];
@@ -68,6 +69,7 @@ export const ANIMATION_LABELS: Record<AnimationKey, string> = {
   hearts: "Heart particles",
   bathroom: "Bathroom prop & pose",
   kick: "Baby kick nudge",
+  yawn: "Yawning when you're sleepy",
 };
 
 /** Which event families are allowed to reach the partner HUD. */

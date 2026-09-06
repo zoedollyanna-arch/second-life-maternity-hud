@@ -520,6 +520,7 @@ export const EVENT_DEFINITIONS: EventDefinition[] = [
     deltas: { rest: -8, energy: -6, mood: -4 },
     choices: ["nap", "warm_bath", "talk_to_baby", "journal", "want_company"],
     moodAfter: "tired",
+    world: "yawn",
     weight: (c) => (c.week >= 26 ? 2 : 0.8) * (1 + lack(c.stats.rest, 50) * 3),
   },
 
@@ -849,6 +850,19 @@ function moodWeight(key: MoodKey, c: EventContext): number {
   return Math.max(0.15, w);
 }
 
+/**
+ * A feeling that shows on the avatar. Tiredness yawns, tears show — the rest
+ * are carried by the RP line alone rather than posing her for no reason.
+ * Each one is still subject to her animation preferences.
+ */
+const MOOD_WORLD: Partial<Record<MoodKey, string>> = {
+  sleepy: "yawn",
+  tired: "yawn",
+  exhausted: "sleep",
+  crying: "cry",
+  emotional: "cry",
+};
+
 /** The fifteen mood swings, expanded into full events. */
 export function moodEventDefinitions(): EventDefinition[] {
   return MOOD_KEYS.map((key) => {
@@ -861,6 +875,7 @@ export function moodEventDefinitions(): EventDefinition[] {
       deltas: MOOD_DELTAS[key],
       choices: MOOD_CHOICES[key],
       moodAfter: key,
+      world: MOOD_WORLD[key],
       notifyPartner: true,
       weight: (c: EventContext) => moodWeight(key, c),
     };

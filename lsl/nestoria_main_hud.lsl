@@ -73,16 +73,56 @@ playSoundByName(string name)
         llPlaySound(name, VOLUME);
 }
 
+// The animation currently playing, so it can be stopped when the next one
+// starts. Without this a vomit or a cry would leave her stuck in the pose.
+string  gCurrentAnim = "";
+
+stopCurrentAnim()
+{
+    if (gCurrentAnim == "") return;
+    if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
+        llStopAnimation(gCurrentAnim);
+    gCurrentAnim = "";
+}
+
+// Play an animation from the HUD's contents if it is there. Every animation
+// the board asks for has a hook, whether or not the asset exists yet — drop in
+// an animation with the matching name and it starts working, no script edit.
+//
+// Expected names (all optional):
+//   nestoria_rest      nestoria_sleep     nestoria_yawn
+//   nestoria_drink     nestoria_vitamins  nestoria_belly_hold
+//   nestoria_vomit     nestoria_cry       nestoria_bathroom
+//   nestoria_comfort   nestoria_contraction
 startAnimByName(string name)
 {
-    if (llGetInventoryType(name) == INVENTORY_ANIMATION)
+    if (llGetInventoryType(name) != INVENTORY_ANIMATION) return;
+    if (!(llGetPermissions() & PERMISSION_TRIGGER_ANIMATION))
     {
-        if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
-        {
-            llStartAnimation(name);
-            llSetTimerEvent(gPollWait);
-        }
+        llRequestPermissions(llGetOwner(), PERMISSION_TRIGGER_ANIMATION);
+        return;
     }
+    stopCurrentAnim();
+    llStartAnimation(name);
+    gCurrentAnim = name;
+    llSetTimerEvent(gPollWait);
+}
+
+/**
+ * Play `name`, falling back to `fallback` when that animation has not been
+ * made yet. Keeps "Sleep" working with only a rest animation in inventory,
+ * while using a real sleep animation the moment one is added.
+ */
+startAnimOr(string name, string fallback)
+{
+    if (llGetInventoryType(name) == INVENTORY_ANIMATION) startAnimByName(name);
+    else if (fallback != "") startAnimByName(fallback);
+}
+
+playSoundOr(string name, string fallback)
+{
+    if (llGetInventoryType(name) == INVENTORY_SOUND) playSoundByName(name);
+    else if (fallback != "") playSoundByName(fallback);
 }
 
 heartsBurst()
@@ -341,6 +381,21 @@ vomitBurst()
 // offers — a nausea popup gets ginger ale and medicine, a kick gets "talk to
 // baby" — instead of the one fixed set of five that used to be shown for
 // every single event no matter what it was.
+/**
+ * Rez the aftermath, if the object is there. `nestoria_mess` is expected to
+ * clean itself up on a timer the way the comfort chair does — the HUD only
+ * puts it on the floor in front of her.
+ */
+rezMess()
+{
+    if (llGetInventoryType("nestoria_mess") != INVENTORY_OBJECT) return;
+    list details = llGetObjectDetails(llGetOwner(), [OBJECT_POS, OBJECT_ROT]);
+    vector ownerPos = llList2Vector(details, 0);
+    rotation ownerRot = llList2Rot(details, 1);
+    llRezObject("nestoria_mess", ownerPos + <0.7, 0.0, -0.9> * ownerRot,
+        ZERO_VECTOR, ownerRot, 1);
+}
+
 openEventDialog(string params)
 {
     string title = llJsonGetValue(params, ["title"]);
@@ -466,6 +521,11 @@ runCommand(string cmd, string params)
     else if (cmd == "rez_chair")
     {
         rezChair();
+        startAnimOr("nestoria_comfort", "");
+    }
+    else if (cmd == "stop_anim")
+    {
+        stopCurrentAnim();
     }
     else if (cmd == "bag_pack")
     {
@@ -485,7 +545,7 @@ runCommand(string cmd, string params)
     else if (cmd == "labor_contractions")
     {
         talkWorld("nestoria_labor_contractions");
-        startAnimByName("nestoria_rest");
+        startAnimOr("nestoria_contraction", "nestoria_rest");
         say("A contraction. Breathe.");
         playSoundByName("nestoria_heartbeat");
     }
@@ -497,17 +557,28 @@ runCommand(string cmd, string params)
     }
     else if (cmd == "sleep")
     {
-        startAnimByName("nestoria_rest");
+        startAnimOr("nestoria_sleep", "nestoria_rest");
+        playSoundOr("nestoria_yawn", "");
         say("You settle in to sleep.");
+    }
+    else if (cmd == "yawn")
+    {
+        startAnimOr("nestoria_yawn", "nestoria_rest");
+        playSoundOr("nestoria_yawn", "");
+        say("A yawn steals the end of the sentence.");
     }
     else if (cmd == "vomit")
     {
         vomitBurst();
-        startAnimByName("nestoria_rest");
+        startAnimOr("nestoria_vomit", "nestoria_rest");
+        playSoundOr("nestoria_vomit", "nestoria_chime");
+        rezMess();
         say("A wave of sickness hits.");
     }
     else if (cmd == "cry")
     {
+        startAnimOr("nestoria_cry", "");
+        playSoundOr("nestoria_cry", "");
         say("Tears come. That's alright.");
     }
     else if (cmd == "bathroom")
@@ -521,6 +592,7 @@ runCommand(string cmd, string params)
                 ZERO_VECTOR, ownerRot, 1);
         }
         talkWorld("nestoria_bathroom");
+        startAnimOr("nestoria_bathroom", "");
         say("Bathroom break.");
     }
     else if (cmd == "water_break")
@@ -532,7 +604,7 @@ runCommand(string cmd, string params)
     else if (cmd == "contractions")
     {
         talkWorld("nestoria_labor_contractions");
-        startAnimByName("nestoria_rest");
+        startAnimOr("nestoria_contraction", "nestoria_rest");
         say("A contraction. Breathe.");
         playSoundByName("nestoria_heartbeat");
     }
