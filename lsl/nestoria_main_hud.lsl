@@ -52,6 +52,8 @@ string  gDialogId    = "";     // event_history row id, so the answer closes it
 list    gDialogKeys  = [];     // choice keys, index-aligned with gDialogLabels
 list    gDialogLabels = [];    // the button text actually shown
 float   gPollWait    = 30.0;
+// Media re-asserts still owed. Set on attach/teleport; counted down in timer().
+integer gMoapRetry   = 0;
 integer gFailStreak  = 0;
 float   gNextHttp    = 0.0;
 integer gMediaReady  = FALSE;
@@ -105,7 +107,8 @@ startAnimByName(string name)
     stopCurrentAnim();
     llStartAnimation(name);
     gCurrentAnim = name;
-    llSetTimerEvent(gPollWait);
+    // Do not stretch the timer while media re-asserts are still owed.
+    if (gMoapRetry == 0) llSetTimerEvent(gPollWait);
 }
 
 /**
@@ -196,6 +199,11 @@ prepMoapFace(integer link, integer face)
 integer applyMoap(integer link, integer face, string url, string home)
 {
     prepMoapFace(link, face);
+    // Clear first. llSetLinkMedia merges into the existing media entry, and on
+    // reattach that entry is the one saved in inventory — so a saved AUTO_SCALE
+    // of TRUE would survive the write below and the screen would scale again.
+    // Clearing forces a brand new entry built only from these parameters.
+    llClearLinkMedia(link, face);
     return llSetLinkMedia(link, face, [
         PRIM_MEDIA_CURRENT_URL, url,
         PRIM_MEDIA_HOME_URL, home,
@@ -241,6 +249,21 @@ setMoap(string url)
         status = applyMoap(LINK_THIS, face, nav, url);
     if (status != STATUS_OK && face != 0)
         status = applyMoap(link, 0, nav, url);
+}
+
+/**
+ * Ask for the screen to be (re)applied shortly, and then again after that.
+ *
+ * Never call setMoap() straight from attach(): the object is not finished
+ * attaching, so the viewer restores the media entry saved inside the inventory
+ * copy *after* the script has written its own — which is how auto-scale comes
+ * back every time the HUD is reattached. Writing from the timer, twice, lands
+ * after the viewer has settled.
+ */
+scheduleMoap(integer times)
+{
+    gMoapRetry = times;
+    llSetTimerEvent(1.0);
 }
 
 list httpOpts(string method, integer withJson)
@@ -658,9 +681,13 @@ default
         {
             llRequestPermissions(llGetOwner(), PERMISSION_TRIGGER_ANIMATION);
             gMediaReady = FALSE;
-            if (gMoapUrl == "") setMoap(API_BASE + "/");
-            else setMoap(gMoapUrl);
+            // Deliberately NOT setMoap() here — see scheduleMoap().
+            scheduleMoap(2);
             requestPushUrl();
+        }
+        else
+        {
+            stopCurrentAnim();
         }
     }
 
@@ -669,7 +696,7 @@ default
         if (change & (CHANGED_REGION | CHANGED_TELEPORT | CHANGED_REGION_START))
         {
             gMediaReady = FALSE;
-            if (gMoapUrl != "") setMoap(gMoapUrl);
+            scheduleMoap(2);
             requestPushUrl();
         }
         if (change & CHANGED_OWNER) llResetScript();
@@ -733,6 +760,17 @@ default
 
     timer()
     {
+        // Media re-asserts come first and hold the fast timer; polling resumes
+        // once the screen has been written and confirmed.
+        if (gMoapRetry > 0)
+        {
+            --gMoapRetry;
+            if (gMoapUrl == "") setMoap(API_BASE + "/");
+            else setMoap(gMoapUrl);
+            if (gMoapRetry > 0) llSetTimerEvent(4.0);
+            else llSetTimerEvent(gPollWait);
+            return;
+        }
         pollServer();
     }
 

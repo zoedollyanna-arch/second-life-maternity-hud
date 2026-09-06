@@ -27,6 +27,8 @@ integer gListenHandle;
 integer gMenuChannel;
 integer gAwaitingCode = FALSE;
 float   gPollWait = 30.0;
+// Media re-asserts still owed. Set on attach/teleport; counted down in timer().
+integer gMoapRetry = 0;
 integer gFailStreak = 0;
 float   gNextHttp = 0.0;
 integer gMediaReady = FALSE;
@@ -104,6 +106,11 @@ prepMoapFace(integer link, integer face)
 integer applyMoap(integer link, integer face, string url, string home)
 {
     prepMoapFace(link, face);
+    // Clear first. llSetLinkMedia merges into the existing media entry, and on
+    // reattach that entry is the one saved in inventory — so a saved AUTO_SCALE
+    // of TRUE would survive the write below and the screen would scale again.
+    // Clearing forces a brand new entry built only from these parameters.
+    llClearLinkMedia(link, face);
     return llSetLinkMedia(link, face, [
         PRIM_MEDIA_CURRENT_URL, url,
         PRIM_MEDIA_HOME_URL, home,
@@ -149,6 +156,20 @@ setMoap(string url)
         status = applyMoap(LINK_THIS, face, nav, url);
     if (status != STATUS_OK && face != 0)
         status = applyMoap(link, 0, nav, url);
+}
+
+/**
+ * Ask for the screen to be (re)applied shortly, and then again after that.
+ *
+ * Never call setMoap() straight from attach(): the object is not finished
+ * attaching, so the viewer restores the media entry saved inside the inventory
+ * copy *after* the script has written its own — which is how auto-scale comes
+ * back every time the HUD is reattached.
+ */
+scheduleMoap(integer times)
+{
+    gMoapRetry = times;
+    llSetTimerEvent(1.0);
 }
 
 list httpOpts(string method, integer withJson)
@@ -221,8 +242,8 @@ default
     {
         if (id == NULL_KEY) return;
         gMediaReady = FALSE;
-        if (gMoapUrl == "") setMoap(API_BASE + "/partner");
-        else setMoap(gMoapUrl);
+        // Deliberately NOT setMoap() here — see scheduleMoap().
+        scheduleMoap(2);
         if (gToken == "") askForCode();
     }
 
@@ -292,6 +313,15 @@ default
 
     timer()
     {
+        if (gMoapRetry > 0)
+        {
+            --gMoapRetry;
+            if (gMoapUrl == "") setMoap(API_BASE + "/partner");
+            else setMoap(gMoapUrl);
+            if (gMoapRetry > 0) llSetTimerEvent(4.0);
+            else llSetTimerEvent(gPollWait);
+            return;
+        }
         if (gToken == "") return;
         if (!httpIdle()) return;
         gPollReq = llHTTPRequest(
