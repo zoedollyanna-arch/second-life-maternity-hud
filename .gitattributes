@@ -1,0 +1,24 @@
+# Normalise text to LF in the repository. Without this, editing on Windows
+# stores CRLF and every file looks fully rewritten in the next diff.
+* text=auto eol=lf
+
+# Binary. These must never be line-ending converted — a PDF or a texture that
+# git "helpfully" rewrites is a corrupt file on the next checkout.
+*.pdf   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.gif   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.mp3   binary
+*.wav   binary
+*.ogg   binary
+
+# LSL is pasted straight into the Second Life script editor, which is happiest
+# with LF and shows stray carriage returns as visible junk.
+*.lsl text eol=lf
