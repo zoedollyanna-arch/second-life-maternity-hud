@@ -2,6 +2,8 @@
 // MOAP URL (?token=...) that the in-world HUD sets on its screen face.
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { HudPreferences } from "./preferences";
+import type { EventCategory } from "./events";
 
 export interface HudStats {
   energy: number;
@@ -33,22 +35,10 @@ export interface JournalEntry {
 }
 
 export type LaborPhaseName =
-  | "none"
-  | "prelabor"
-  | "early"
-  | "active"
-  | "transition"
-  | "pushing"
-  | "delivered";
+  "none" | "prelabor" | "early" | "active" | "transition" | "pushing" | "delivered";
 
 export type EventSeverityName =
-  | "info"
-  | "milestone"
-  | "request"
-  | "important"
-  | "labor"
-  | "urgent"
-  | "birth";
+  "info" | "milestone" | "request" | "important" | "labor" | "urgent" | "birth";
 
 export interface HudState {
   error?: string;
@@ -207,8 +197,34 @@ export interface HudState {
   }[];
   popupFrequencyMinutes: number;
   nextEventAt: string | null;
+  /**
+   * The one RP moment waiting on an answer, if there is one. It is the same
+   * row the in-world blue menu is showing, so answering here closes that too.
+   */
+  activeEvent: ActiveEvent | null;
+  preferences: HudPreferences;
+  eventCategories: readonly EventCategory[];
+  testMode: boolean;
   settings: Record<string, unknown>;
   serverTime: string;
+}
+
+export interface ActiveEventChoice {
+  key: string;
+  label: string;
+  short: string;
+  line: string;
+}
+
+export interface ActiveEvent {
+  id: string;
+  key: string;
+  category: string;
+  title: string;
+  body: string;
+  choices: ActiveEventChoice[];
+  createdAt: string;
+  expiresAt: string | null;
 }
 
 export function getToken(): string | null {
@@ -257,7 +273,10 @@ export async function resizeImageFile(file: File): Promise<{ data: string; mime:
   return { data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl, mime: "image/jpeg" };
 }
 
-export async function uploadJournalPhoto(token: string, file: File): Promise<{ id: string; url: string }> {
+export async function uploadJournalPhoto(
+  token: string,
+  file: File,
+): Promise<{ id: string; url: string }> {
   const { data, mime } = await resizeImageFile(file);
   const res = await fetch("/api/hud/photo", {
     method: "POST",
@@ -285,6 +304,9 @@ export function pollIntervalFor(data: HudState | undefined): number {
   if (labor?.phase === "pushing") return 3_000;
   if (labor?.inLabor) return 4_000;
   if (data.requests?.incoming?.length || data.requests?.outgoing?.length) return 4_000;
+  // A popup answered in-world should disappear from the tablet promptly, and
+  // vice versa — the two surfaces are showing the same row.
+  if (data.activeEvent) return 5_000;
   if (labor?.phase === "prelabor") return 8_000;
   if (data.partner?.pendingLinks?.length) return 8_000;
   return 15_000;

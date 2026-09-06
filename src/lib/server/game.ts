@@ -9,14 +9,27 @@ import {
   severityLabel,
   DEFAULT_SYMPTOMS,
 } from "../pregnancy";
-import { moodFromKey, pickMoodEvent, rpLineFor } from "../mood";
+import { moodFromKey, rpLineFor, type MoodKey } from "../mood";
 import {
-  CRAVING_POOL,
-  FOOD_ITEMS,
-  foodByKey,
-  foodForCraving,
-  foodSummary,
-} from "../foods";
+  rollEvent,
+  choiceByKey,
+  choicesForEventKey,
+  EVENT_CATEGORIES,
+  type EventCategory,
+  type EventChoice,
+  type RolledEvent,
+} from "../events";
+import {
+  DEFAULT_PREFERENCES,
+  DECAY_MULTIPLIER,
+  TEST_MODE_CODE,
+  disabledCategories,
+  normalizePreferences,
+  type AnimationKey,
+  type HudPreferences,
+  type PartnerNotifyKey,
+} from "../preferences";
+import { CRAVING_POOL, FOOD_ITEMS, foodByKey, foodForCraving, foodSummary } from "../foods";
 import {
   PARTNER_ACTIONS,
   HOSPITAL_BAG_ITEMS,
@@ -293,7 +306,12 @@ export async function pregnancyForUser(user: HudUser) {
 // Stats with lazy decay
 // ---------------------------------------------------------------------------
 
-export async function getStatsWithDecay(userId: string, trimester: number) {
+export async function getStatsWithDecay(userId: string, trimester: number, pace?: number) {
+  // Decay is *written*, not just displayed, so the pace must be the wearer's
+  // own preference no matter who triggered the read — otherwise a partner
+  // opening their HUD would decay her meters at the default rate and undo the
+  // pace she chose. Callers that already hold her preferences pass it in.
+  const paceMultiplier = pace ?? DECAY_MULTIPLIER[(await preferencesFor(userId)).decayPace] ?? 1;
   const client = await db().connect();
   try {
     await client.query("begin");
@@ -311,7 +329,7 @@ export async function getStatsWithDecay(userId: string, trimester: number) {
       return normalizeStats(stats);
     }
 
-    const updated = decayStats(stats, trimester, hours);
+    const updated = decayStats(stats, trimester, hours, paceMultiplier);
     const { rows: saved } = await client.query(
       `update user_stats set
          energy=$2, hydration=$3, hunger=$4, bladder=$5, mood=$6,
@@ -354,10 +372,13 @@ function normalizeStats(row: Record<string, unknown>) {
   return out;
 }
 
-function decayStats(row: Record<string, unknown>, trimester: number, hours: number) {
+function decayStats(row: Record<string, unknown>, trimester: number, hours: number, pace = 1) {
   const base = normalizeStats(row);
   const updated: Record<StatName, number> = {} as Record<StatName, number>;
-  const activeHours = smartDecayHours(hours);
+  // `pace` is her Realism preference: gentle play drifts slowly, realistic play
+  // drifts fast. It scales elapsed time rather than each rate, so the connected
+  // -meter knock-ons below scale with it for free.
+  const activeHours = smartDecayHours(hours) * Math.max(0.1, pace);
   for (const name of STAT_NAMES) {
     let rate = DECAY_PER_HOUR[name];
     if (name === "sickness") rate = trimester === 1 ? 1.1 : -1.2;
@@ -438,6 +459,73 @@ async function applyCare(
   await bumpStats(userId, deltas);
   await logWellness(userId, pregnancyId, action, deltas, note);
 }
+
+// ---------------------------------------------------------------------------
+// Wearer preferences
+//
+// One read, one validation path. Everything downstream — the event roller, the
+// decay pace, which animations fire, what reaches the partner HUD — asks this
+// rather than poking at the settings blob, so a malformed or half-migrated row
+// degrades to the documented defaults instead of throwing mid-action.
+// ---------------------------------------------------------------------------
+
+export async function preferencesFor(userId: string): Promise<HudPreferences> {
+  const { rows } = await db().query(`select settings from user_settings where user_id = $1`, [
+    userId,
+  ]);
+  return normalizePreferences(rows[0]?.settings ?? {});
+}
+
+async function savePreferences(userId: string, patch: Partial<HudPreferences>) {
+  const current = await preferencesFor(userId);
+  const merged = normalizePreferences({ ...current, ...patch }, current);
+  await db().query(
+    `insert into user_settings (user_id, settings) values ($1, $2::jsonb)
+     on conflict (user_id) do update set settings = user_settings.settings || $2::jsonb`,
+    [userId, JSON.stringify(merged)],
+  );
+  return merged;
+}
+
+/**
+ * Queue an in-world flourish only if she still wants that one. The command
+ * queue itself stays dumb — the decision belongs here, where the preference
+ * lives, so the LSL scripts never have to know about settings.
+ */
+async function queueAnim(
+  userId: string,
+  kind: "hud" | "belly" | "partner",
+  command: AnimationKey,
+  params: Record<string, unknown> = {},
+  prefs?: HudPreferences,
+) {
+  const resolved = prefs ?? (await preferencesFor(userId));
+  if (!resolved.animations[command]) return;
+  await queueCommand(userId, kind, command, params);
+}
+
+/** Sound-only cue. Silent when she has HUD sounds switched off. */
+async function queueChime(userId: string, prefs?: HudPreferences) {
+  const resolved = prefs ?? (await preferencesFor(userId));
+  if (!resolved.soundEnabled) return;
+  await queueCommand(userId, "hud", "chime", {});
+}
+
+/** Does this event family reach the partner HUD at all? */
+function partnerWants(prefs: HudPreferences, key: PartnerNotifyKey): boolean {
+  return prefs.partnerNotify[key] !== false;
+}
+
+const CATEGORY_TO_NOTIFY: Record<EventCategory, PartnerNotifyKey | null> = {
+  mood: "mood",
+  sickness: "sickness",
+  craving: "craving",
+  baby: "baby",
+  body: "body",
+  nesting: null,
+  partner: "mood",
+  sweet: null,
+};
 
 async function getActiveCraving(pregnancyId: string) {
   const { rows } = await db().query(
@@ -524,6 +612,10 @@ async function ensureUltrasoundUnlocks(pregnancyId: string, momId: string, week:
   }));
 }
 
+/**
+ * Write a closed, historical event. Used for anything that is a record rather
+ * than a question — a choice she has already made, or a manual log.
+ */
 async function recordEvent(
   pregnancyId: string,
   userId: string,
@@ -531,12 +623,286 @@ async function recordEvent(
   title: string,
   body: string,
   choice?: string,
+  category: EventCategory | string = "mood",
 ) {
   await db().query(
-    `insert into event_history (pregnancy_id, user_id, event_type, title, body, choice)
-     values ($1, $2, $3, $4, $5, $6)`,
-    [pregnancyId, userId, eventType, title, body, choice ?? null],
+    `insert into event_history
+       (pregnancy_id, user_id, event_type, title, body, choice, category, answered_at)
+     values ($1, $2, $3, $4, $5, $6, $7, now())`,
+    [pregnancyId, userId, eventType, title, body, choice ?? null, category],
   );
+}
+
+// ---------------------------------------------------------------------------
+// RP event engine
+//
+// The catalogue and the weighting live in src/lib/events.ts. What lives here is
+// everything that needs the database: what fired recently (so the roller can
+// avoid repeating it), storing the open popup, and closing it when she answers
+// on either surface.
+// ---------------------------------------------------------------------------
+
+/** How long an unanswered popup blocks the next one before it lapses. */
+const EVENT_TTL_MINUTES = 12;
+
+/** Age out an abandoned popup so a HUD taken off mid-dialog is never stuck. */
+async function expireStaleEvents(pregnancyId: string) {
+  await db().query(
+    `update event_history set answered_at = now(), choice = 'expired'
+      where pregnancy_id = $1 and answered_at is null and expires_at < now()`,
+    [pregnancyId],
+  );
+}
+
+export interface ActiveEvent {
+  id: string;
+  key: string;
+  category: string;
+  title: string;
+  body: string;
+  choices: { key: string; label: string; short: string; line: string }[];
+  createdAt: string;
+  expiresAt: string | null;
+}
+
+/** The one open question, if there is one. Both HUD surfaces render this. */
+async function activeEventFor(pregnancyId: string): Promise<ActiveEvent | null> {
+  await expireStaleEvents(pregnancyId);
+  const { rows } = await db().query(
+    `select id, event_type, category, title, body, choices, created_at, expires_at
+       from event_history
+      where pregnancy_id = $1 and answered_at is null
+      order by created_at desc limit 1`,
+    [pregnancyId],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  const stored = Array.isArray(row.choices) ? row.choices : [];
+  const choices = stored.length
+    ? stored
+    : choicesForEventKey(String(row.event_type)).map((c) => ({
+        key: c.key,
+        label: c.label,
+        short: c.short,
+        line: c.line,
+      }));
+  return {
+    id: String(row.id),
+    key: String(row.event_type),
+    category: String(row.category ?? "mood"),
+    title: String(row.title),
+    body: String(row.body ?? ""),
+    choices,
+    createdAt: String(row.created_at),
+    expiresAt: row.expires_at ? String(row.expires_at) : null,
+  };
+}
+
+/** Event keys from this pregnancy's recent past, newest first. */
+async function recentEventKeys(pregnancyId: string, limit = 10): Promise<string[]> {
+  const { rows } = await db().query(
+    `select event_type from event_history
+      where pregnancy_id = $1 order by created_at desc limit $2`,
+    [pregnancyId, limit],
+  );
+  return rows.map((r) => String(r.event_type));
+}
+
+/**
+ * Roll, store and deliver one RP event.
+ *
+ * Returns null when nothing fired — every category switched off, a popup
+ * already open, or the pregnancy already delivered — so callers can say so
+ * honestly instead of inventing a moment.
+ */
+async function rollAndDeliverEvent(
+  preg: Record<string, any>,
+  momId: string,
+  momName: string,
+  stats: Record<StatName, number>,
+  prefs: HudPreferences,
+): Promise<{ event: RolledEvent; id: string } | null> {
+  if (isDeliveredPregnancy(preg)) return null;
+
+  // One open question at a time. Without this, a HUD that was offline for an
+  // hour comes back to a queue of blue menus all at once.
+  if (await activeEventFor(preg.id)) return null;
+
+  const progress = computeProgress(new Date(preg.conceived_at), preg.duration_days);
+  const labor = snapshotOf(preg as any);
+
+  const [supportRes, settingsRes, recentKeys] = await Promise.all([
+    db().query(
+      `select coalesce(sum(support_pts), 0)::int as pts from partner_activities
+         where pregnancy_id = $1 and created_at > now() - interval '7 days'`,
+      [preg.id],
+    ),
+    db().query(`select settings from user_settings where user_id = $1`, [momId]),
+    recentEventKeys(preg.id),
+  ]);
+  const lastEmotion = settingsRes.rows[0]?.settings?.lastEmotion;
+
+  const disabled = disabledCategories(prefs);
+
+  const rolled = rollEvent({
+    trimester: progress.trimester,
+    week: progress.week,
+    stats,
+    mood: (typeof lastEmotion === "string" ? lastEmotion : "calm") as MoodKey,
+    partnerLinked: Boolean(preg.partner_user_id),
+    partnerSupport: Math.min(100, 20 + Number(supportRes.rows[0]?.pts ?? 0)),
+    inLabor: labor.inLabor,
+    recentKeys,
+    disabled,
+  });
+  if (!rolled) return null;
+  if (rolled.key === "craving_odd" && !prefs.allowPica) return null;
+
+  const surface = prefs.popupSurface;
+  const choicePayload = rolled.choices.map((c) => ({
+    key: c.key,
+    label: c.label,
+    short: c.short,
+    line: c.line,
+  }));
+
+  // Insert under the partial unique index — if a concurrent poll beat us here
+  // the popup is already delivered, and this roll is simply dropped.
+  const { rows: inserted } = await db().query(
+    `insert into event_history
+       (pregnancy_id, user_id, event_type, title, body, category, choices, expires_at, surface)
+     values ($1, $2, $3, $4, $5, $6, $7::jsonb,
+             now() + ($8::integer * interval '1 minute'), $9)
+     on conflict (pregnancy_id) where answered_at is null do nothing
+     returning id`,
+    [
+      preg.id,
+      momId,
+      rolled.key,
+      rolled.title,
+      rolled.body,
+      rolled.category,
+      JSON.stringify(choicePayload),
+      EVENT_TTL_MINUTES,
+      surface,
+    ],
+  );
+  if (!inserted[0]) return null;
+  const eventId = String(inserted[0].id);
+
+  await applyCare(momId, preg.id, "random_event", rolled.deltas, `Event: ${rolled.title}`);
+  if (rolled.moodAfter) await setRecentEmotion(momId, rolled.moodAfter, rolled.body);
+  await addNotification(momId, rolled.title, rolled.body);
+
+  // In-world flourish belonging to the event itself (a kick nudge, a chime).
+  if (rolled.world) await queueAnim(momId, "hud", rolled.world as AnimationKey, {}, prefs);
+
+  // The blue menu only goes out if she wants that surface. The HUD screen card
+  // is driven by activeEventFor and needs nothing queued.
+  if (surface === "both" || surface === "world") {
+    await queueCommand(momId, "hud", "dialog", {
+      kind: "event",
+      eventType: rolled.key,
+      eventId,
+      title: rolled.title,
+      body: rolled.body,
+      // "key|Short label" pairs — the LSL builds its buttons from this instead
+      // of the five hardcoded ones it used to show for every single event.
+      choices: choicePayload.map((c) => c.key + "|" + c.short).join(";"),
+    });
+  }
+  if (surface !== "off") {
+    await queueCommand(momId, "hud", "say", { text: rolled.body });
+  }
+
+  const notifyKey = CATEGORY_TO_NOTIFY[rolled.category];
+  if (rolled.notifyPartner && notifyKey && partnerWants(prefs, notifyKey)) {
+    await notifyPartner(preg, momName + ": " + rolled.title, rolled.body, {
+      eventType: rolled.key,
+      permission: "viewMood",
+    });
+  }
+
+  return { event: rolled, id: eventId };
+}
+
+/**
+ * Close the open popup with a choice. Safe to call from the HUD screen and the
+ * in-world dialog at the same time — the guarded UPDATE means the second caller
+ * finds nothing to close, and the effect is applied exactly once.
+ */
+async function answerEvent(
+  preg: Record<string, any>,
+  momId: string,
+  momName: string,
+  choiceKey: string,
+  prefs: HudPreferences,
+  explicitEventId?: string,
+): Promise<ActionResult> {
+  const choice: EventChoice | undefined = choiceByKey(choiceKey);
+  if (!choice) return { ok: false, message: "That is not one of the options." };
+
+  const params: unknown[] = [preg.id, choice.key];
+  let where = "pregnancy_id = $1 and answered_at is null";
+  if (explicitEventId && /^[0-9a-f-]{36}$/i.test(explicitEventId)) {
+    where += " and id = $3";
+    params.push(explicitEventId);
+  }
+  const { rows } = await db().query(
+    `update event_history set answered_at = now(), choice = $2
+      where ` +
+      where +
+      ` returning id, event_type, category, title`,
+    params,
+  );
+  const closed = rows[0];
+  if (!closed) {
+    // Already answered on the other surface, or the popup lapsed. Say so rather
+    // than silently applying the effect a second time.
+    return { ok: false, message: "That moment has already passed." };
+  }
+
+  const line = choice.line.replace(/\{m\}/g, momName);
+
+  await applyCare(momId, preg.id, "event_choice", choice.deltas, "Event choice: " + choice.key);
+  if (choice.moodAfter) await setRecentEmotion(momId, choice.moodAfter, line);
+  if (choice.world) await queueAnim(momId, "hud", choice.world as AnimationKey, {}, prefs);
+  if (prefs.popupSurface !== "off") {
+    await queueCommand(momId, "hud", "say", { text: line });
+  }
+
+  if (choice.journals) await addJournal(momId, String(closed.title), line, "memory");
+  if (choice.key === "count_kick") {
+    await db().query(`insert into kick_events (pregnancy_id, source) values ($1, 'web')`, [
+      preg.id,
+    ]);
+  }
+  if (choice.key === "pack_bag") await queueCommand(momId, "hud", "bag_pack", {});
+  if (choice.key === "bathroom") {
+    await queueAnim(momId, "hud", "bathroom", {}, prefs);
+  }
+
+  if (choice.notifiesPartner) {
+    if (!preg.partner_user_id) {
+      return { ok: true, message: line + " (No partner is linked yet.)" };
+    }
+    await notifyPartner(preg, momName + " needs you", String(closed.title) + " — " + line, {
+      severity: "request",
+      eventType: "PARTNER_WANTED",
+      permission: "viewMood",
+    });
+  }
+
+  // Answering restarts her popup timer, so replying promptly does not mean the
+  // next event lands seconds later.
+  await db().query(
+    `update event_schedules set last_event_at = now(),
+       next_event_at = now() + (frequency_minutes * interval '1 minute'), updated_at = now()
+      where pregnancy_id = $1`,
+    [preg.id],
+  );
+
+  return { ok: true, message: line };
 }
 
 // ---------------------------------------------------------------------------
@@ -622,6 +988,12 @@ async function notifyPartner(
     severity?: EventSeverity;
     eventType?: string;
     permission?: PartnerPermission;
+    /**
+     * Which "what reaches your partner" toggle governs this message. Distinct
+     * from `permission`, which is the consent she granted for an *action*; this
+     * is the volume control on what she chooses to broadcast.
+     */
+    notify?: PartnerNotifyKey;
     actorId?: string | null;
     metadata?: Record<string, unknown>;
   } = {},
@@ -630,6 +1002,10 @@ async function notifyPartner(
   if (options.permission && preg.user_id) {
     const perms = await partnerSvc.permissionsForPregnancy(preg.id, preg.user_id);
     if (!perms[options.permission]) return;
+  }
+  if (options.notify && preg.user_id) {
+    const prefs = await preferencesFor(preg.user_id);
+    if (!partnerWants(prefs, options.notify)) return;
   }
   await addNotification(preg.partner_user_id, title, body, {
     severity: options.severity ?? "info",
@@ -660,7 +1036,13 @@ async function applyLaborTransitions(
 
   for (const t of transitions) {
     if (t.kind === "water") {
-      await applyCare(momId, preg.id, "water_break", { stress: 12, comfort: -10, hydration: -6 }, "Water broke");
+      await applyCare(
+        momId,
+        preg.id,
+        "water_break",
+        { stress: 12, comfort: -10, hydration: -6 },
+        "Water broke",
+      );
       await addJournal(momId, "Water broke", "It is really happening.", "milestone");
       await addNotification(momId, "Your water broke", "Ice chips only from here on — no water.", {
         severity: "labor",
@@ -675,6 +1057,7 @@ async function applyLaborTransitions(
         dedupeKey: "water_broke",
       });
       await notifyPartner(preg, "Her water broke", "Ice chips only now — no water.", {
+        notify: "labor",
         severity: "labor",
         eventType: "WATER_BROKE",
         permission: "viewLabor",
@@ -693,6 +1076,7 @@ async function applyLaborTransitions(
       });
       await queueCommand(momId, "hud", "say", { text: "It is time to head to the hospital." });
       await notifyPartner(preg, "Time for the hospital", "Labor is established. Get her in.", {
+        notify: "labor",
         severity: "urgent",
         eventType: "GO_TO_HOSPITAL",
         permission: "viewLabor",
@@ -702,11 +1086,16 @@ async function applyLaborTransitions(
 
     switch (t.phase) {
       case "prelabor":
-        await addNotification(momId, "Something is starting", "Twinges and tightening. Not long now.", {
-          severity: "labor",
-          pregnancyId: preg.id,
-          eventType: "LABOR_PHASE_CHANGED",
-        });
+        await addNotification(
+          momId,
+          "Something is starting",
+          "Twinges and tightening. Not long now.",
+          {
+            severity: "labor",
+            pregnancyId: preg.id,
+            eventType: "LABOR_PHASE_CHANGED",
+          },
+        );
         await queueCommand(momId, "hud", "say", { text: "A strange tightening low down..." });
         await publishEvent(preg.id, "LABOR_PHASE_CHANGED", "Early signs", {
           severity: "labor",
@@ -716,7 +1105,13 @@ async function applyLaborTransitions(
         break;
 
       case "early":
-        await applyCare(momId, preg.id, "contractions", { stress: 8, comfort: -8, energy: -6 }, "Labor began");
+        await applyCare(
+          momId,
+          preg.id,
+          "contractions",
+          { stress: 8, comfort: -8, energy: -6 },
+          "Labor began",
+        );
         await addJournal(momId, "Labor started", "Contractions have begun.", "milestone");
         await addNotification(momId, "Labor has started", "Contractions have begun. Breathe.", {
           severity: "labor",
@@ -730,6 +1125,7 @@ async function applyLaborTransitions(
           dedupeKey: "labor_started",
         });
         await notifyPartner(preg, "She is in labor", "Contractions have started. Go to her.", {
+          notify: "labor",
           severity: "labor",
           eventType: "LABOR_STARTED",
           permission: "viewLabor",
@@ -740,22 +1136,39 @@ async function applyLaborTransitions(
         break;
 
       case "active":
-        await applyCare(momId, preg.id, "contractions", { stress: 10, comfort: -10, energy: -8 }, "Active labor");
+        await applyCare(
+          momId,
+          preg.id,
+          "contractions",
+          { stress: 10, comfort: -10, energy: -8 },
+          "Active labor",
+        );
         await queueCommand(momId, "hud", "labor_contractions", { intensity: 60 });
         await publishEvent(preg.id, "LABOR_PHASE_CHANGED", "Active labor", {
           severity: "labor",
           body: momName + " is in active labor.",
           dedupeKey: "phase_active",
         });
-        await notifyPartner(preg, "Contractions are stronger", "Active labor. Guide her breathing.", {
-          severity: "labor",
-          eventType: "CONTRACTION_INTENSITY_CHANGED",
-          permission: "viewLabor",
-        });
+        await notifyPartner(
+          preg,
+          "Contractions are stronger",
+          "Active labor. Guide her breathing.",
+          {
+            severity: "labor",
+            eventType: "CONTRACTION_INTENSITY_CHANGED",
+            permission: "viewLabor",
+          },
+        );
         break;
 
       case "transition":
-        await applyCare(momId, preg.id, "contractions", { stress: 14, comfort: -12, energy: -10 }, "Transition");
+        await applyCare(
+          momId,
+          preg.id,
+          "contractions",
+          { stress: 14, comfort: -12, energy: -10 },
+          "Transition",
+        );
         await queueCommand(momId, "hud", "labor_contractions", { intensity: 85 });
         await publishEvent(preg.id, "LABOR_PHASE_CHANGED", "Transition", {
           severity: "urgent",
@@ -763,6 +1176,7 @@ async function applyLaborTransitions(
           dedupeKey: "phase_transition",
         });
         await notifyPartner(preg, "Transition — the hardest part", "Stay right beside her.", {
+          notify: "labor",
           severity: "urgent",
           eventType: "LABOR_PHASE_CHANGED",
           permission: "viewLabor",
@@ -782,6 +1196,7 @@ async function applyLaborTransitions(
           dedupeKey: "birth_started",
         });
         await notifyPartner(preg, "The baby is coming", "She is pushing. Be there.", {
+          notify: "labor",
           severity: "urgent",
           eventType: "BIRTH_STARTED",
           permission: "viewLabor",
@@ -804,7 +1219,7 @@ async function applyLaborTransitions(
           eventType: "BABY_BORN",
         });
         await queueCommand(momId, "hud", "labor_birth", {});
-        await queueCommand(momId, "hud", "hearts", {});
+        await queueAnim(momId, "hud", "hearts");
         await queueCommand(momId, "hud", "say", { text: baby + " is here. Congratulations." });
         await publishEvent(preg.id, "BABY_BORN", "Baby born", {
           severity: "birth",
@@ -886,7 +1301,6 @@ async function addPartnerActivity(
   );
 }
 
-
 async function syncEventSchedule(
   user: HudUser,
   pregnancyId: string,
@@ -899,16 +1313,10 @@ async function syncEventSchedule(
     return null;
   }
 
-  const { rows: settingsRows } = await db().query(
-    `select settings from user_settings where user_id = $1`,
-    [user.id],
-  );
-  const rawFrequency = Number(settingsRows[0]?.settings?.popupFrequencyMinutes ?? 20);
-  const frequency = Number.isFinite(rawFrequency)
-    ? Math.max(0, Math.min(240, Math.round(rawFrequency)))
-    : 20;
+  const prefs = await preferencesFor(user.id);
+  const frequency = prefs.popupFrequencyMinutes;
 
-  if (frequency === 0) {
+  if (frequency === 0 || prefs.popupSurface === "off") {
     await db().query(`delete from event_schedules where pregnancy_id = $1`, [pregnancyId]);
     return null;
   }
@@ -941,7 +1349,28 @@ async function syncEventSchedule(
      returning next_event_at`,
     [pregnancyId],
   );
-  if (claimed[0]) await performAction(user, "random_event_roll", {}, "web");
+  if (claimed[0]) {
+    // Roll inline rather than recursing through performAction: this runs inside
+    // a dashboard read, and performAction would re-enter the labor engine and
+    // the schedule sync it is already inside.
+    const preg = await db().query(`select * from pregnancies where id = $1`, [pregnancyId]);
+    const row = preg.rows[0];
+    if (row) {
+      const progress = computeProgress(new Date(row.conceived_at), row.duration_days);
+      const stats = await getStatsWithDecay(
+        user.id,
+        progress.trimester,
+        DECAY_MULTIPLIER[prefs.decayPace],
+      );
+      await rollAndDeliverEvent(
+        { ...row, mom_user_id: user.id, mom_avatar_name: user.display_name ?? user.avatar_name },
+        user.id,
+        user.display_name ?? user.avatar_name,
+        stats,
+        prefs,
+      );
+    }
+  }
 
   return String(claimed[0]?.next_event_at ?? scheduled[0].next_event_at);
 }
@@ -963,7 +1392,16 @@ export async function getDashboardState(user: HudUser) {
   );
   const progress = computeProgress(new Date(preg.conceived_at), preg.duration_days);
   const milestone = milestoneForWeek(progress.week);
-  const stats = await getStatsWithDecay(momId, progress.trimester);
+  // Her preferences, not the reader's: decay, event pacing and privacy all
+  // belong to the pregnancy, so a partner opening their HUD sees (and causes)
+  // exactly what she configured.
+  const prefs = await preferencesFor(momId);
+  const stats = await getStatsWithDecay(
+    momId,
+    progress.trimester,
+    DECAY_MULTIPLIER[prefs.decayPace],
+  );
+  const activeEvent = user.role === "mom" ? await activeEventFor(preg.id) : null;
 
   const [
     symptoms,
@@ -1029,7 +1467,9 @@ export async function getDashboardState(user: HudUser) {
       recentEvents(preg.id, 25).catch(() => []),
       partnerSvc.pendingRequestsFor(user.id, preg.id).catch(() => []),
       partnerSvc.outgoingRequests(user.id, preg.id).catch(() => []),
-      user.role === "mom" ? partnerSvc.pendingLinksForMom(preg.id).catch(() => []) : Promise.resolve([]),
+      user.role === "mom"
+        ? partnerSvc.pendingLinksForMom(preg.id).catch(() => [])
+        : Promise.resolve([]),
       partnerSvc.permissionsForPregnancy(preg.id, momId).catch(() => null),
     ]);
   const labor = snapshotOf(preg as any);
@@ -1045,7 +1485,8 @@ export async function getDashboardState(user: HudUser) {
       (100 - stats.stress)) /
       8,
   );
-  const popupFrequencyMinutes = Number(settings.rows[0]?.settings?.popupFrequencyMinutes ?? 20);
+  const popupFrequencyMinutes = prefs.popupFrequencyMinutes;
+  const viewerPrefs = user.id === momId ? prefs : await preferencesFor(user.id);
   const ultrasounds = await ensureUltrasoundUnlocks(preg.id, momId, progress.week);
   const momSettingsJson = (momSettings.rows[0]?.settings ?? {}) as Record<string, unknown>;
   const moodInfo = moodFromKey(
@@ -1161,6 +1602,10 @@ export async function getDashboardState(user: HudUser) {
     recentEvents: events.rows,
     popupFrequencyMinutes,
     nextEventAt,
+    activeEvent,
+    preferences: viewerPrefs,
+    eventCategories: EVENT_CATEGORIES,
+    testMode: Boolean(preg.test_mode),
     settings: settings.rows[0]?.settings ?? {},
     serverTime: new Date().toISOString(),
   };
@@ -1214,7 +1659,8 @@ async function partnerActionGate(
 
   switch (def.availability) {
     case "labor":
-      if (delivered) return { ok: false, message: "Labor is over — she did it.", needsConsent: false };
+      if (delivered)
+        return { ok: false, message: "Labor is over — she did it.", needsConsent: false };
       if (!labor.inLabor) return { ok: false, message: def.unavailable, needsConsent: false };
       break;
     case "birth":
@@ -1285,7 +1731,7 @@ const PARTNER_MOVES: Record<string, PartnerMove> = {
     deltas: { mood: 5, comfort: 4 },
     activity: "Checked on mom",
     pts: 5,
-    line: "{a} checks in: \"How are you feeling?\"",
+    line: '{a} checks in: "How are you feeling?"',
   },
   partner_ice_chips: {
     deltas: { hydration: 10, comfort: 8, sickness: -4 },
@@ -1388,10 +1834,15 @@ async function applyPartnerMove(
 
   // Reactions play on the partner's own HUD; everything else reaches hers.
   if (action === "partner_faint" || action === "partner_vomit_react") {
-    await queueCommand(partnerUser.id, "partner", action === "partner_faint" ? "faint" : "vomit", {});
+    await queueCommand(
+      partnerUser.id,
+      "partner",
+      action === "partner_faint" ? "faint" : "vomit",
+      {},
+    );
     await queueCommand(momId, "hud", "say", { text: line });
   } else if (action === "hug" || action === "kiss" || action === "partner_stay_strong") {
-    await queueCommand(momId, "hud", "hearts", {});
+    await queueAnim(momId, "hud", "hearts");
     await queueCommand(momId, "hud", "say", { text: line });
   } else if (action === "feel_baby_kick") {
     await queueCommand(momId, "belly", "kick", {});
@@ -1457,7 +1908,9 @@ async function checkOnMom(
     : null;
 
   const moodKey = settingsRow?.rows[0]?.settings?.lastEmotion;
-  const mood = allow("viewMood") ? moodFromKey(typeof moodKey === "string" ? moodKey : "calm").label : null;
+  const mood = allow("viewMood")
+    ? moodFromKey(typeof moodKey === "string" ? moodKey : "calm").label
+    : null;
   const topSymptom = symptomRow?.rows[0];
   const symptom =
     topSymptom && Number(topSymptom.severity) > 5
@@ -1611,7 +2064,7 @@ export async function performAction(
         "Your Nestoria journey has begun",
         "Every day is a step closer to meeting your little one.",
       );
-      await queueCommand(momId, "hud", "chime", {});
+      await queueChime(momId);
       return { ok: true, message: "Profile saved. Your Nestoria journey has begun." };
     }
 
@@ -1665,7 +2118,7 @@ export async function performAction(
 
     case "hold_belly":
       await applyCare(momId, preg.id, action, { mood: 5, comfort: 6, baby_bond: 5 }, "Held belly");
-      await queueCommand(momId, "hud", "belly_hold", {});
+      await queueAnim(momId, "hud", "belly_hold");
       await queueCommand(momId, "hud", "say", {
         text: `${actorName} rests both hands over her belly.`,
       });
@@ -1693,7 +2146,7 @@ export async function performAction(
         { mood: 5, baby_bond: 8, baby_movement: 6 },
         "Talked to baby",
       );
-      await queueCommand(momId, "hud", "belly_hold", {});
+      await queueAnim(momId, "hud", "belly_hold");
       await queueCommand(momId, "belly", "kick", {});
       return { ok: true, message: "Baby heard you. Bond +8." };
 
@@ -1777,7 +2230,7 @@ export async function performAction(
         { hydration: 25, bladder: -10, baby_wellness: 2 },
         "Drank water",
       );
-      await queueCommand(momId, "hud", "drink", {});
+      await queueAnim(momId, "hud", "drink");
       await queueCommand(momId, "hud", "say", {
         text: "You sip some refreshing water. Hydration +25.",
       });
@@ -1815,7 +2268,7 @@ export async function performAction(
         { energy: 30, rest: 30, comfort: 10, sickness: -3, stress: -5 },
         "Rested",
       );
-      await queueCommand(momId, "hud", "rest", {});
+      await queueAnim(momId, "hud", "rest");
       await queueCommand(momId, "hud", "say", { text: "You take a peaceful rest. Energy +30." });
       return { ok: true, message: "You take a moment to rest." };
 
@@ -1827,7 +2280,7 @@ export async function performAction(
         { vitamins: 40, immunity: 10, nutrition: 8, baby_wellness: 4 },
         "Took vitamins",
       );
-      await queueCommand(momId, "hud", "vitamins", {});
+      await queueAnim(momId, "hud", "vitamins");
       await queueCommand(momId, "hud", "say", {
         text: "Prenatal vitamins taken. Immunity boosted.",
       });
@@ -1934,7 +2387,7 @@ export async function performAction(
           "A little encouragement",
           "You're doing great! Keep taking care of yourself. ♥",
         );
-        await queueCommand(momId, "hud", "chime", {});
+        await queueChime(momId);
       }
       return { ok: true, message: "Encouragement sent." };
     }
@@ -1984,15 +2437,30 @@ export async function performAction(
         preg.id,
         momId,
         "craving",
-        "Craving event",
+        `Craving: ${craving.craving}`,
         `${momName} is craving ${craving.craving}.`,
+        undefined,
+        "craving",
       );
-      await queueCommand(momId, "hud", "dialog", {
-        kind: "craving",
-        eventType: "craving",
-        title: "NESTORIA CRAVING EVENT",
-        body: `${momName} is craving ${craving.craving}.\n\nIntensity: ${craving.intensity}%\nChoose 1-5, or use the MOAP hub for more detail.`,
-      });
+      const cravingPrefs = await preferencesFor(momId);
+      // Same "key|Short label" contract the event roller uses, so the blue menu
+      // is built the same way for cravings as for everything else.
+      const cravingChoices = [
+        ["eat", "Eat it"],
+        ["healthy", "Healthy swap"],
+        ["ask_partner", "Ask partner"],
+        ["journal", "Journal it"],
+        ["ignore", "Push through"],
+      ];
+      if (cravingPrefs.popupSurface === "both" || cravingPrefs.popupSurface === "world") {
+        await queueCommand(momId, "hud", "dialog", {
+          kind: "craving",
+          eventType: "craving",
+          title: `Craving: ${craving.craving}`,
+          body: `${momName} is craving ${craving.craving}. Intensity ${craving.intensity}%.`,
+          choices: cravingChoices.map(([k, l]) => `${k}|${l}`).join(";"),
+        });
+      }
       return {
         ok: true,
         message: `${momName} is craving ${craving.craving}. Intensity ${craving.intensity}%.`,
@@ -2094,7 +2562,8 @@ export async function performAction(
         return { ok: true, message: "Craving saved to journal." };
       }
       const food = foodByKey(str("food", 80)) ?? foodForCraving(craving.craving);
-      const sweetPenalty = food.category === "sweet" && Number(craving.sweets_streak) >= 2 ? -3 : 0;
+      const sweetPenalty =
+        food.category === "desserts" && Number(craving.sweets_streak) >= 2 ? -3 : 0;
       await applyCare(
         momId,
         preg.id,
@@ -2111,7 +2580,7 @@ export async function performAction(
            intensity = greatest(0, intensity - 30),
            category = $2,
            craving = $3,
-           sweets_streak = case when $2 = 'sweet' then sweets_streak + 1 else 0 end,
+           sweets_streak = case when $2 = 'desserts' then sweets_streak + 1 else 0 end,
            updated_at = now()
          where id = $1`,
         [craving.id, food.category, food.name],
@@ -2124,169 +2593,67 @@ export async function performAction(
     }
 
     case "random_event_roll": {
+      // Her moments are hers. A partner reacts to them; they never cause one.
+      if (isPartner) return { ok: false, message: "Only she can do that." };
       if (isDeliveredPregnancy(preg)) {
-        return { ok: true, message: "This pregnancy is marked delivered. Care events have paused." };
+        return {
+          ok: true,
+          message: "This pregnancy is marked delivered. Care events have paused.",
+        };
       }
-      const progress = computeProgress(new Date(preg.conceived_at), preg.duration_days);
-      const roll = Math.random();
-      const sicknessRisk = stats.sickness > 55 || progress.trimester === 1;
-      let eventType = "baby_kick";
-      let title = "Tiny kick";
-      let body = "You feel a tiny kick. The baby is moving around.";
-      let eventDeltas: Partial<Record<StatName, number>> = {
-        mood: 3,
-        baby_movement: 5,
-        baby_bond: 2,
+      const prefs = await preferencesFor(momId);
+      const rolled = await rollAndDeliverEvent(preg, momId, momName, stats, prefs);
+      if (!rolled) {
+        const open = await activeEventFor(preg.id);
+        if (open) {
+          return {
+            ok: true,
+            message: `${open.title} — you have not answered this one yet.`,
+            event: { eventType: open.key, title: open.title, body: open.body },
+          };
+        }
+        return {
+          ok: false,
+          message:
+            "Nothing to feel right now — check which event types are switched on in Settings.",
+        };
+      }
+      return {
+        ok: true,
+        message: `${rolled.event.title}: ${rolled.event.body}`,
+        event: {
+          eventType: rolled.event.key,
+          title: rolled.event.title,
+          body: rolled.event.body,
+        },
       };
-      if (roll < 0.52) {
-        const { rows: supportNow } = await db().query(
-          `select coalesce(sum(support_pts), 0)::int as pts from partner_activities
-             where pregnancy_id = $1 and created_at > now() - interval '7 days'`,
-          [preg.id],
-        );
-        const swing = pickMoodEvent(progress.trimester, {
-          hunger: stats.hunger,
-          hydration: stats.hydration,
-          energy: stats.energy,
-          rest: stats.rest,
-          mood: stats.mood,
-          stress: stats.stress,
-          sickness: stats.sickness,
-          bladder: stats.bladder,
-          comfort: stats.comfort,
-          nutrition: stats.nutrition,
-          vitamins: stats.vitamins,
-          partnerLinked: !!preg.partner_user_id,
-          partnerSupport: Math.min(100, 20 + Number(supportNow[0]?.pts ?? 0)),
-        });
-        eventType = `mood_${swing.key}`;
-        title = swing.title;
-        body = swing.body;
-        eventDeltas =
-          swing.key === "happy" || swing.key === "excited" || swing.key === "calm"
-            ? { mood: 6, stress: -3 }
-            : swing.key === "crying" || swing.key === "sad"
-              ? { mood: -4, stress: -4, comfort: 2 }
-              : swing.key === "sleepy" || swing.key === "tired" || swing.key === "exhausted"
-                ? { energy: -3, rest: -2 }
-                : { mood: -2, stress: 3 };
-        await setRecentEmotion(momId, swing.key, swing.body);
-        await notifyPartner(preg, `${momName} is ${swing.label.toLowerCase()}`, swing.body);
-        await queueCommand(momId, "hud", "say", { text: swing.body });
-        if (swing.key === "crying") await queueCommand(momId, "hud", "cry", {});
-        if (swing.key === "exhausted") await queueCommand(momId, "hud", "sleep", {});
-      } else if (sicknessRisk && Math.random() < 0.45) {
-        const sicknessEvents = [
-          {
-            eventType: "nausea",
-            title: "Nausea wave",
-            body: "A wave of nausea rolls in. Medicine, water, a light snack, or rest can settle it.",
-            deltas: { sickness: 6, mood: -2, stress: 2 },
-          },
-          {
-            eventType: "heartburn",
-            title: "Heartburn",
-            body: "A warm burn creeps up after eating. Water and a calmer snack may help.",
-            deltas: { sickness: 4, comfort: -3, stress: 1 },
-          },
-          {
-            eventType: "dizzy",
-            title: "Dizzy spell",
-            body: "You feel a little dizzy. Sit, sip water, and take it slow.",
-            deltas: { sickness: 5, energy: -4, hydration: -3 },
-          },
-        ];
-        const event = sicknessEvents[Math.floor(Math.random() * sicknessEvents.length)];
-        eventType = event.eventType;
-        title = event.title;
-        body = event.body;
-        eventDeltas = event.deltas;
-      } else if (stats.hydration < 40 && Math.random() < 0.55) {
-        eventType = "hydration";
-        title = "Hydration reminder";
-        body = "You are starting to feel thirsty.";
-        eventDeltas = { hydration: -4, stress: 2 };
-      } else if ((stats.energy < 35 || stats.rest < 35) && Math.random() < 0.5) {
-        eventType = "fatigue";
-        title = "Fatigue";
-        body = "Your body feels heavy and tired.";
-        eventDeltas = { energy: -5, rest: -4 };
-      } else if (preg.partner_user_id && Math.random() < 0.28) {
-        eventType = "partner";
-        title = "Support prompt";
-        body = `${momName} seems tired today. A little support could help.`;
-        eventDeltas = { mood: 1, stress: 1 };
-      } else if (progress.week >= 34 && Math.random() < 0.45) {
-        eventType = "late_pregnancy";
-        title = "Belly tightening";
-        body =
-          "You feel a tightening in your belly. Keep it RP-safe: breathe, rest, hydrate, or schedule a check-in.";
-        eventDeltas = { comfort: -4, stress: 5, energy: -2 };
-      } else if (Math.random() < 0.35) {
-        eventType = "nesting";
-        title = "Nesting moment";
-        body = "You suddenly feel the urge to prepare for the baby.";
-        eventDeltas = { mood: 5, energy: -3, stress: -2 };
-      }
-      await applyCare(momId, preg.id, action, eventDeltas, `Random event: ${title}`);
-      await recordEvent(preg.id, momId, eventType, title, body);
-      await addNotification(momId, title, body);
-      await queueCommand(momId, "hud", "dialog", {
-        kind: "event",
-        eventType,
-        title,
-        body,
-      });
-      return { ok: true, message: `${title}: ${body}`, event: { eventType, title, body } };
     }
 
-    case "random_event_choice": {
-      const eventType = str("eventType", 40);
+    case "random_event_choice":
+    case "event_choice": {
+      if (isPartner) return { ok: false, message: "Only she can answer that." };
+      const prefs = await preferencesFor(momId);
       const choice = str("choice", 40);
-      const effects: Record<string, Partial<Record<StatName, number>>> = {
-        rub_belly: { baby_bond: 5, mood: 5 },
-        count_kick: { baby_movement: 4 },
-        rest: { sickness: -5, energy: 5, rest: 8 },
-        water: { hydration: 15, baby_wellness: 2 },
-        medicine: { sickness: -22, comfort: 5, stress: -2 },
-        snack: { sickness: -8, hunger: 10, mood: 2 },
-        nap: { energy: 20, mood: 5, rest: 15 },
-        breathe: { mood: 6, stress: -5 },
-        journal: { mood: 4 },
-        organize: { mood: 8 },
-        sit_with_it: { mood: 3, stress: -3 },
-        ask_partner: { mood: 2, stress: -2 },
-        ignore: { mood: -3, hydration: -3 },
-      };
-      const deltas = effects[choice] ?? { mood: 2 };
-      await applyCare(momId, preg.id, action, deltas, `Event choice: ${choice}`);
-      if (choice === "ask_partner") {
-        await notifyPartner(
-          preg,
-          `${momName} could use you`,
-          "A mood swing just hit. A check-in, a hug, or sitting with her would help.",
-        );
-      }
-      if (choice === "journal")
-        await addJournal(
-          momId,
-          "Event memory",
-          `Handled ${eventType || "a moment"} with ${choice}.`,
-          "memory",
-        );
-      if (choice === "count_kick")
-        await db().query(`insert into kick_events (pregnancy_id, source) values ($1, 'web')`, [
-          preg.id,
-        ]);
-      await recordEvent(
-        preg.id,
-        momId,
-        eventType || "manual",
-        "Event choice",
-        `Choice selected: ${choice}.`,
-        choice,
+      const eventId = str("eventId", 40);
+      if (!choice) return { ok: false, message: "Pick one of the options." };
+      return answerEvent(preg, momId, momName, choice, prefs, eventId || undefined);
+    }
+
+    case "event_dismiss": {
+      if (isPartner) return { ok: false, message: "Only she can answer that." };
+      const { rows } = await db().query(
+        `update event_history set answered_at = now(), choice = 'dismissed'
+          where pregnancy_id = $1 and answered_at is null returning id`,
+        [preg.id],
       );
-      return { ok: true, message: "Event choice saved." };
+      if (!rows[0]) return { ok: true, message: "Nothing open right now." };
+      await db().query(
+        `update event_schedules set last_event_at = now(),
+           next_event_at = now() + (frequency_minutes * interval '1 minute'), updated_at = now()
+          where pregnancy_id = $1`,
+        [preg.id],
+      );
+      return { ok: true, message: "Let it pass." };
     }
 
     // ---- medical / events --------------------------------------------------
@@ -2317,7 +2684,7 @@ export async function performAction(
         source === "sl" ? "belly" : "web",
       ]);
       if (source !== "sl") await queueCommand(momId, "belly", "kick", {});
-      await queueCommand(momId, "hud", "kick", { text: "Baby is kicking!" });
+      await queueAnim(momId, "hud", "kick", { text: "Baby is kicking!" });
       return { ok: true, message: "Kick logged." };
     }
 
@@ -2334,7 +2701,7 @@ export async function performAction(
     case "memory": {
       const title = str("title", 120) || "A beautiful moment";
       await addJournal(momId, title, str("body", 2000) || null, "memory");
-      await queueCommand(momId, "hud", "chime", {});
+      await queueChime(momId);
       return { ok: true, message: "Memory saved to your journal." };
     }
 
@@ -2350,7 +2717,14 @@ export async function performAction(
       const photoUrl = /^[0-9a-f-]{36}$/i.test(photoId)
         ? `/api/hud/photo?id=${photoId}`
         : str("photoUrl", 300) || null;
-      await addJournal(momId, title, str("body", 2000) || null, kind, kind !== "appointment", photoUrl);
+      await addJournal(
+        momId,
+        title,
+        str("body", 2000) || null,
+        kind,
+        kind !== "appointment",
+        photoUrl,
+      );
       return { ok: true, message: "Journal entry added 📖" };
     }
 
@@ -2418,13 +2792,177 @@ export async function performAction(
           [preg.id, patch.durationDays, newConceived.toISOString()],
         );
       }
-      if (typeof params.settings === "object" && params.settings !== null)
+      // Preferences. Anything the client sends is normalized against the
+      // currently-stored value first, so a patch from one Settings tab cannot
+      // blank the tabs it did not render, and an invalid value is replaced with
+      // her existing one rather than a default.
+      const prefPatch =
+        params.preferences && typeof params.preferences === "object"
+          ? (params.preferences as Record<string, unknown>)
+          : typeof params.settings === "object" && params.settings !== null
+            ? (params.settings as Record<string, unknown>)
+            : null;
+      if (prefPatch) {
+        // testMode is never settable from a plain settings save — it has its
+        // own code-gated action.
+        const { testMode: _ignored, ...safe } = prefPatch;
+        const current = await preferencesFor(user.id);
+        const merged = normalizePreferences({ ...current, ...safe }, current);
         await db().query(
-          `insert into user_settings (user_id, settings) values ($1, $2)
-           on conflict (user_id) do update set settings = user_settings.settings || excluded.settings`,
-          [user.id, JSON.stringify(params.settings)],
+          `insert into user_settings (user_id, settings) values ($1, $2::jsonb)
+           on conflict (user_id) do update set settings = user_settings.settings || $2::jsonb`,
+          [user.id, JSON.stringify(merged)],
         );
+        if (user.role === "mom") {
+          // Privacy mode is duplicated on the pregnancy row because partner
+          // queries read it there.
+          await db().query(
+            `update pregnancies set privacy_mode = $2, updated_at = now() where id = $1`,
+            [preg.id, merged.privacyMode],
+          );
+        }
+      }
       return { ok: true, message: "Settings saved ✓" };
+    }
+
+    // ---- test mode (code-gated) -------------------------------------------
+    case "test_unlock": {
+      if (user.role !== "mom") return { ok: false, message: "Only the wearer can do that." };
+      const code = str("code", 60).toLowerCase();
+      if (code !== testCode().toLowerCase()) {
+        return { ok: false, message: "That code is not right." };
+      }
+      await db().query(
+        `update pregnancies set test_mode = true, updated_at = now() where id = $1`,
+        [preg.id],
+      );
+      await savePreferences(momId, { testMode: true });
+      return { ok: true, message: "Test mode unlocked. The test panel is now in Settings." };
+    }
+
+    case "test_lock": {
+      if (user.role !== "mom") return { ok: false, message: "Only the wearer can do that." };
+      // Put the real labor plan back before locking, so a tested pregnancy is
+      // not left running at 25x for the rest of its life.
+      await db().query(
+        `update pregnancies
+            set test_mode = false,
+                labor_plan = coalesce(labor_plan_backup, labor_plan),
+                labor_onset_frac = coalesce(labor_onset_backup, labor_onset_frac),
+                labor_plan_backup = null,
+                labor_onset_backup = null,
+                updated_at = now()
+          where id = $1`,
+        [preg.id],
+      );
+      await savePreferences(momId, { testMode: false });
+      return { ok: true, message: "Test mode off. Real labor timing restored." };
+    }
+
+    case "test_jump_week": {
+      const blocked = await requireTestMode(preg, user);
+      if (blocked) return { ok: false, message: blocked };
+      const week = numberParam("week", 20, 1, 42);
+      const day = numberParam("day", 0, 0, 6);
+      // conceived_at is the clock. Moving it moves the whole pregnancy, which
+      // is exactly what "jump to week N" means — labor onset is stored as a
+      // fraction, so it stays at the same gestational point.
+      const durationDays = Number(preg.duration_days);
+      const frac = Math.min(0.999, (week - 1 + day / 7) / 40);
+      const conceived = new Date(Date.now() - frac * durationDays * 86_400_000);
+      await db().query(
+        `update pregnancies set conceived_at = $2, updated_at = now() where id = $1`,
+        [preg.id, conceived.toISOString()],
+      );
+      return { ok: true, message: `Jumped to week ${week} + ${day}d.` };
+    }
+
+    case "test_force_labor": {
+      const blocked = await requireTestMode(preg, user);
+      if (blocked) return { ok: false, message: blocked };
+      await backupLaborPlan(preg.id);
+      const durationDays = Number(preg.duration_days);
+      const elapsed =
+        (Date.now() - new Date(preg.conceived_at).getTime()) / (durationDays * 86_400_000);
+      // Onset a hair in the past puts her at minute zero of early labor on the
+      // very next engine tick.
+      await db().query(
+        `update pregnancies
+            set labor_onset_frac = $2,
+                labor_phase = 'none',
+                labor_stage = 'none',
+                contraction_intensity = 0,
+                water_broken_at = null,
+                contractions_started_at = null,
+                hospital_at = null,
+                birth_at = null,
+                status = 'active',
+                updated_at = now()
+          where id = $1`,
+        [preg.id, Math.max(0, elapsed - 0.0000001)],
+      );
+      return { ok: true, message: "Labor will start on the next refresh." };
+    }
+
+    case "test_labor_speed": {
+      const blocked = await requireTestMode(preg, user);
+      if (blocked) return { ok: false, message: blocked };
+      const speed = numberParam("speed", 1, 1, 120);
+      await backupLaborPlan(preg.id);
+      const { rows } = await db().query(
+        `select coalesce(labor_plan_backup, labor_plan) as plan from pregnancies where id = $1`,
+        [preg.id],
+      );
+      const base = rows[0]?.plan;
+      if (!base || base.v !== 1) {
+        return { ok: false, message: "No labor plan drawn yet — open the HUD once first." };
+      }
+      const scale = (n: number) => Math.max(1, Math.round(Number(n) / speed));
+      const scaled = {
+        v: 1,
+        totalMinutes: scale(base.totalMinutes),
+        waterAt: Math.max(0, Math.round(Number(base.waterAt) / speed)),
+        hospitalAt: Math.max(0, Math.round(Number(base.hospitalAt) / speed)),
+        active: scale(base.active),
+        transition: scale(base.transition),
+        pushing: scale(base.pushing),
+      };
+      await db().query(
+        `update pregnancies set labor_plan = $2::jsonb, updated_at = now() where id = $1`,
+        [preg.id, JSON.stringify(scaled)],
+      );
+      return {
+        ok: true,
+        message: `Labor speed ${speed}x — full labor now runs about ${scaled.totalMinutes} minutes.`,
+      };
+    }
+
+    case "test_reset_labor": {
+      const blocked = await requireTestMode(preg, user);
+      if (blocked) return { ok: false, message: blocked };
+      await db().query(
+        `update pregnancies
+            set labor_phase = 'none',
+                labor_stage = 'none',
+                contraction_intensity = 0,
+                water_broken_at = null,
+                contractions_started_at = null,
+                hospital_at = null,
+                birth_at = null,
+                status = 'active',
+                labor_plan = coalesce(labor_plan_backup, labor_plan),
+                labor_onset_frac = coalesce(labor_onset_backup, labor_onset_frac),
+                labor_plan_backup = null,
+                labor_onset_backup = null,
+                updated_at = now()
+          where id = $1`,
+        [preg.id],
+      );
+      await db().query(
+        `delete from pregnancy_events where pregnancy_id = $1 and dedupe_key is not null`,
+        [preg.id],
+      );
+      return { ok: true, message: "Labor reset. The pregnancy is active again." };
     }
 
     case "notifications_read":
@@ -2441,7 +2979,7 @@ export async function performAction(
         "Slept",
       );
       await setRecentEmotion(momId, "sleepy", rpLineFor("sleepy"));
-      await queueCommand(momId, "hud", "sleep", {});
+      await queueAnim(momId, "hud", "sleep");
       await queueCommand(momId, "hud", "say", {
         text: `${actorName} curls up and sleeps. Energy and rest restore.`,
       });
@@ -2456,7 +2994,7 @@ export async function performAction(
         "Vomited",
       );
       await setRecentEmotion(momId, "overwhelmed", rpLineFor("overwhelmed"));
-      await queueCommand(momId, "hud", "vomit", {});
+      await queueAnim(momId, "hud", "vomit");
       await queueCommand(momId, "hud", "say", {
         text: `${actorName} is sick. Nausea eases a little, but she needs water and rest.`,
       });
@@ -2476,11 +3014,15 @@ export async function performAction(
         "Cried",
       );
       await setRecentEmotion(momId, "crying", rpLineFor("crying"));
-      await queueCommand(momId, "hud", "cry", {});
+      await queueAnim(momId, "hud", "cry");
       await queueCommand(momId, "hud", "say", {
         text: `${actorName} lets herself cry. Stress softens a little.`,
       });
-      await notifyPartner(preg, `${momName} is crying`, "She could use comfort, a hug, or a check-in.");
+      await notifyPartner(
+        preg,
+        `${momName} is crying`,
+        "She could use comfort, a hug, or a check-in.",
+      );
       return { ok: true, message: "You let it out. Stress eased. Partner was notified." };
 
     case "feel_kick":
@@ -2488,18 +3030,29 @@ export async function performAction(
         preg.id,
         source === "sl" ? "belly" : "web",
       ]);
-      await applyCare(momId, preg.id, action, { mood: 6, baby_bond: 4, baby_movement: 8 }, "Felt a kick");
+      await applyCare(
+        momId,
+        preg.id,
+        action,
+        { mood: 6, baby_bond: 4, baby_movement: 8 },
+        "Felt a kick",
+      );
       await queueCommand(momId, "belly", "kick", {});
-      await queueCommand(momId, "hud", "kick", { text: "Baby is kicking!" });
+      await queueAnim(momId, "hud", "kick", { text: "Baby is kicking!" });
       await publishEvent(preg.id, "BABY_KICKED", "Baby kicked", {
         severity: "info",
         body: momName + " felt the baby kick.",
         metadata: { at: new Date().toISOString() },
       });
-      await notifyPartner(preg, "Baby is kicking 💕", momName + " felt the baby kick. Want to feel?", {
-        eventType: "BABY_KICKED",
-        permission: "viewKicks",
-      });
+      await notifyPartner(
+        preg,
+        "Baby is kicking 💕",
+        momName + " felt the baby kick. Want to feel?",
+        {
+          eventType: "BABY_KICKED",
+          permission: "viewKicks",
+        },
+      );
       await partnerSvc.ensureMilestone(preg.id, "first_kick", "First kick", {
         body: "The first flutter you could really feel.",
       });
@@ -2530,11 +3083,16 @@ export async function performAction(
         "Breathed through a contraction",
       );
       await queueCommand(momId, "hud", "labor_contractions", { intensity: labor.intensity });
-      await notifyPartner(preg, "A contraction", `Intensity ${labor.intensity}%. Breathe with her.`, {
-        severity: "labor",
-        eventType: "CONTRACTION_STARTED",
-        permission: "viewLabor",
-      });
+      await notifyPartner(
+        preg,
+        "A contraction",
+        `Intensity ${labor.intensity}%. Breathe with her.`,
+        {
+          severity: "labor",
+          eventType: "CONTRACTION_STARTED",
+          permission: "viewLabor",
+        },
+      );
       return {
         ok: true,
         message: `You breathe through it. Intensity ${labor.intensity}%.`,
@@ -2555,11 +3113,20 @@ export async function performAction(
           where id = $1`,
         [
           preg.id,
-          laborStageFor({ phase: labor.phase as any, waterBroken: labor.waterBroken, atHospital: true }),
+          laborStageFor({
+            phase: labor.phase as any,
+            waterBroken: labor.waterBroken,
+            atHospital: true,
+          }),
         ],
       );
       await applyCare(momId, preg.id, action, { stress: -4, comfort: 4 }, "Went to hospital");
-      await addJournal(momId, "Arrived at the hospital", "The next chapter is starting.", "milestone");
+      await addJournal(
+        momId,
+        "Arrived at the hospital",
+        "The next chapter is starting.",
+        "milestone",
+      );
       await queueCommand(momId, "hud", "rez_bed", {});
       await publishEvent(preg.id, "HOSPITAL_ARRIVED", "At the hospital", {
         severity: "labor",
@@ -2628,7 +3195,7 @@ export async function performAction(
       // Mom pressing "hug" is hugging her own bump, not a partner interaction.
       if (!isPartner && action === "hug") {
         await bumpStats(momId, { mood: 10, comfort: 10 });
-        await queueCommand(momId, "hud", "hearts", {});
+        await queueAnim(momId, "hud", "hearts");
         await queueCommand(momId, "belly", "say", { text: "Baby feels the love." });
         await addNotification(momId, "Self care ♥", "You took a moment for yourself and baby.");
         return { ok: true, message: "You wrap your arms around your bump ♥" };
@@ -2679,10 +3246,15 @@ export async function performAction(
       const senderName = sender ? (sender.display_name ?? sender.avatar_name) : "Your partner";
 
       if (!accept) {
-        await addNotification(claimed.sender_id, "Not right now", `${momName} declined: ${def?.label ?? claimed.action_type}.`, {
-          severity: "info",
-          pregnancyId: preg.id,
-        });
+        await addNotification(
+          claimed.sender_id,
+          "Not right now",
+          `${momName} declined: ${def?.label ?? claimed.action_type}.`,
+          {
+            severity: "info",
+            pregnancyId: preg.id,
+          },
+        );
         await queueCommand(claimed.sender_id, "partner", "say", { text: "Not right now ♥" });
         return { ok: true, message: "Declined." };
       }
@@ -2690,12 +3262,20 @@ export async function performAction(
       const result = sender
         ? await applyPartnerMove(preg, sender, claimed.action_type as string, senderName, momName)
         : { ok: false, message: "That partner is no longer linked." };
-      await addNotification(claimed.sender_id, "She said yes ♥", def?.label ?? claimed.action_type, {
-        severity: "info",
-        pregnancyId: preg.id,
-      });
+      await addNotification(
+        claimed.sender_id,
+        "She said yes ♥",
+        def?.label ?? claimed.action_type,
+        {
+          severity: "info",
+          pregnancyId: preg.id,
+        },
+      );
       await queueCommand(claimed.sender_id, "partner", "hearts", {});
-      return { ok: result.ok, message: result.ok ? `${senderName}: ${def?.label ?? "done"} ♥` : result.message };
+      return {
+        ok: result.ok,
+        message: result.ok ? `${senderName}: ${def?.label ?? "done"} ♥` : result.message,
+      };
     }
 
     case "request_cancel": {
@@ -2764,7 +3344,8 @@ export async function performAction(
     // ---- shared milestones ---------------------------------------------------
     case "milestone_celebrate": {
       const milestoneId = str("milestoneId", 64);
-      if (!/^[0-9a-f-]{36}$/i.test(milestoneId)) return { ok: false, message: "Unknown milestone." };
+      if (!/^[0-9a-f-]{36}$/i.test(milestoneId))
+        return { ok: false, message: "Unknown milestone." };
       const result = await partnerSvc.celebrateMilestone(preg.id, milestoneId, user.id, actorName);
       if (result.first) {
         await bumpStats(momId, { mood: 6, baby_bond: 3 });
@@ -2815,6 +3396,42 @@ export async function performAction(
 // ---------------------------------------------------------------------------
 // Registration (LSL entry point)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Test mode
+//
+// Labor is normally drawn once, at a random point between weeks 37 and 42, and
+// then runs for 45–240 real minutes. That is right for play and impossible for
+// a two-person test session, so these actions exist — behind a code, so a real
+// player never trips over them.
+//
+// They work by rewriting the drawn plan rather than by special-casing the
+// engine: labor.ts stays the only thing that decides what happens, and putting
+// the backed-up plan back returns the pregnancy to exactly where it was.
+// ---------------------------------------------------------------------------
+
+function testCode(): string {
+  return process.env.HUD_TEST_CODE?.trim() || TEST_MODE_CODE;
+}
+
+async function requireTestMode(preg: Record<string, any>, user: HudUser): Promise<string | null> {
+  // The flag is not the only gate: a partner on a pregnancy she put into test
+  // mode must still not be able to start her labor.
+  if (user.role !== "mom") return "Only the wearer can use the test tools.";
+  if (!preg.test_mode) return "Test mode is locked. Enter the code in Settings first.";
+  return null;
+}
+
+/** Snapshot the real plan once, so "leave test mode" can restore it. */
+async function backupLaborPlan(pregnancyId: string) {
+  await db().query(
+    `update pregnancies
+        set labor_plan_backup = coalesce(labor_plan_backup, labor_plan),
+            labor_onset_backup = coalesce(labor_onset_backup, labor_onset_frac)
+      where id = $1`,
+    [pregnancyId],
+  );
+}
 
 export async function registerDevice(opts: {
   avatarKey: string;

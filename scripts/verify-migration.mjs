@@ -36,40 +36,44 @@ try {
   await client.query(sql);
 
   // Report what the migration would have created, from inside the transaction.
+  //
+  // The tables are read out of the migration text rather than hardcoded, so
+  // this stays useful for the next migration instead of describing the last one.
+  const touched = [
+    ...sql.matchAll(/(?:create table(?: if not exists)?|alter table(?: only)?)\s+([a-z_][a-z0-9_]*)/gi),
+  ].map((m) => m[1].toLowerCase());
+  const tableNames = [...new Set(touched)];
+
   const tables = await client.query(
     `select table_name from information_schema.tables
-      where table_schema = 'public'
-        and table_name = any($1::text[])
+      where table_schema = 'public' and table_name = any($1::text[])
       order by table_name`,
-    [
-      [
-        "pregnancy_partner_links",
-        "pregnancy_events",
-        "pregnancy_interaction_requests",
-        "hospital_bag_items",
-        "pregnancy_milestones",
-      ],
-    ],
+    [tableNames],
   );
   const columns = await client.query(
-    `select table_name, column_name from information_schema.columns
-      where table_schema = 'public'
-        and ((table_name = 'pregnancies' and column_name in
-               ('labor_onset_frac','labor_plan','labor_phase','labor_engine_at'))
-          or (table_name = 'notifications' and column_name in
-               ('pregnancy_id','sender_id','severity','event_type','event_id','metadata')))
-      order by table_name, column_name`,
+    `select table_name, column_name, data_type from information_schema.columns
+      where table_schema = 'public' and table_name = any($1::text[])
+      order by table_name, ordinal_position`,
+    [tableNames],
   );
-  const backfilled = await client.query(
-    `select count(*)::int as n from pregnancy_partner_links where status = 'active'`,
+  const indexes = await client.query(
+    `select tablename, indexname from pg_indexes
+      where schemaname = 'public' and tablename = any($1::text[])
+      order by tablename, indexname`,
+    [tableNames],
   );
 
-  console.log("tables present:", tables.rows.map((r) => r.table_name).join(", "));
+  console.log("tables touched:", tableNames.join(", ") || "(none)");
   console.log(
-    "columns added:",
-    columns.rows.map((r) => `${r.table_name}.${r.column_name}`).join(", "),
+    "tables present after:",
+    tables.rows.map((r) => r.table_name).join(", ") || "(none)",
   );
-  console.log("existing couples backfilled to active links:", backfilled.rows[0].n);
+  for (const name of tables.rows.map((r) => r.table_name)) {
+    const cols = columns.rows.filter((r) => r.table_name === name);
+    console.log(`  ${name}: ${cols.map((c) => c.column_name).join(", ")}`);
+    const idx = indexes.rows.filter((r) => r.tablename === name).map((r) => r.indexname);
+    if (idx.length) console.log(`    indexes: ${idx.join(", ")}`);
+  }
   console.log("\nMigration applied cleanly.");
 } catch (error) {
   failed = true;

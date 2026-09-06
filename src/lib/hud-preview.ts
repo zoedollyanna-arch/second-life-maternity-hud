@@ -1,4 +1,6 @@
 import type { HudState } from "@/lib/hud-api";
+import { DEFAULT_PREFERENCES } from "./preferences";
+import { EVENT_CATEGORIES } from "./events";
 
 /** Dev-only fixture so the MOAP layout can be screenshot without the SL API. */
 export const LAYOUT_PREVIEW_STATE: HudState = {
@@ -130,6 +132,24 @@ export const LAYOUT_PREVIEW_STATE: HudState = {
   sharedEvents: [],
   popupFrequencyMinutes: 20,
   nextEventAt: null,
+  activeEvent: {
+    id: "preview-event",
+    key: "baby_kick",
+    category: "baby",
+    title: "A kick",
+    body: "One clean thump, right under her ribs. Hello to you too.",
+    choices: [
+      { key: "rub_belly", label: "Rub your belly", short: "Rub belly", line: "" },
+      { key: "count_kick", label: "Count the kicks", short: "Count kicks", line: "" },
+      { key: "share_it", label: "Share the moment with them", short: "Share it", line: "" },
+      { key: "talk_to_baby", label: "Talk to the baby", short: "Talk to baby", line: "" },
+    ],
+    createdAt: new Date().toISOString(),
+    expiresAt: null,
+  },
+  preferences: DEFAULT_PREFERENCES,
+  eventCategories: EVENT_CATEGORIES,
+  testMode: false,
   settings: {},
   serverTime: new Date().toISOString(),
 };

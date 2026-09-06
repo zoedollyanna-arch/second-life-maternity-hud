@@ -6,18 +6,46 @@
 // the LSL scripts are purely optional extras.
 
 let ctx: AudioContext | null = null;
+let master: GainNode | null = null;
+
+// Her Sound preference, pushed here by the dashboard whenever state refreshes.
+// Kept as module state rather than threaded through every call site: these are
+// fire-and-forget effects called from dozens of handlers, and the alternative
+// is a prop drilled into every button in the HUD.
+let enabled = true;
+let volume = 0.7;
+
+/** Apply the wearer's sound preference. Volume is 0–100. */
+export function configureSound(opts: { enabled: boolean; volume: number }) {
+  enabled = opts.enabled;
+  volume = Math.max(0, Math.min(100, opts.volume)) / 100;
+  if (master && ctx) master.gain.setValueAtTime(enabled ? volume : 0, ctx.currentTime);
+}
+
+export function soundEnabled() {
+  return enabled;
+}
 
 function audio(): AudioContext | null {
   if (typeof window === "undefined") return null;
+  if (!enabled || volume <= 0) return null;
   if (!ctx) {
     const Ctor =
       window.AudioContext ??
       (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return null;
     ctx = new Ctor();
+    master = ctx.createGain();
+    master.gain.setValueAtTime(volume, ctx.currentTime);
+    master.connect(ctx.destination);
   }
   if (ctx.state === "suspended") void ctx.resume();
   return ctx;
+}
+
+/** Where every voice connects — the master gain, so volume is one control. */
+function out(ac: AudioContext): AudioNode {
+  return master ?? ac.destination;
 }
 
 function tone(
@@ -41,7 +69,7 @@ function tone(
   g.gain.setValueAtTime(0.0001, t0);
   g.gain.exponentialRampToValueAtTime(peak, t0 + 0.015);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + opts.dur);
-  osc.connect(g).connect(ac.destination);
+  osc.connect(g).connect(out(ac));
   osc.start(t0);
   osc.stop(t0 + opts.dur + 0.05);
 }
@@ -74,7 +102,7 @@ function noise(
   g.gain.setValueAtTime(0.0001, t0);
   g.gain.exponentialRampToValueAtTime(peak, t0 + 0.02);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + opts.dur);
-  src.connect(filter).connect(g).connect(ac.destination);
+  src.connect(filter).connect(g).connect(out(ac));
   src.start(t0);
   src.stop(t0 + opts.dur + 0.05);
 }
@@ -156,6 +184,14 @@ export function playError() {
   tone(ac, { freq: 196, at: 0.2, dur: 0.25, type: "triangle", gain: 0.07 });
 }
 
+/** Soft rising two-note prompt — an RP moment is waiting for an answer. */
+export function playEvent() {
+  const ac = audio();
+  if (!ac) return;
+  tone(ac, { freq: 587.33, at: 0, dur: 0.28, gain: 0.08 });
+  tone(ac, { freq: 880, at: 0.16, dur: 0.42, gain: 0.075 });
+}
+
 /** Map a HUD action to its sound. */
 export function playForAction(action: string) {
   switch (action) {
@@ -177,6 +213,8 @@ export function playForAction(action: string) {
     case "snack":
     case "craving_choice":
       return playMunch();
+    case "random_event_roll":
+      return playEvent();
     case "vitamins":
       return playPop();
     case "rest":

@@ -62,6 +62,74 @@ cannot double-deliver a baby.
 The only labor choices left to a player are the ones that really are choices:
 breathing through a contraction, and deciding when to leave for the hospital.
 
+### RP events are one row, two surfaces
+
+A pregnancy moment — a mood swing, a kick, nausea, the urge to reorganise a
+drawer — is a single `event_history` row with `answered_at` still null. That row
+is rendered twice: as a card on the HUD screen, and as the in-world blue menu.
+Answering either one closes the row, so the other stops offering it. A partial
+unique index guarantees at most one open moment per pregnancy, which is what
+stops a HUD that was offline for an hour coming back to a queue of dialogs.
+
+The catalogue lives in `src/lib/events.ts` and is imported by the server, the
+dashboard and (via the choices sent with the dialog) the LSL script, so a button
+can never offer something the server will not accept:
+
+- **38 events** — 23 situations plus the 15 mood swings, each one competing on
+  the same weighting rather than mood taking a fixed half of every roll.
+- **Every event carries its own choices.** Nausea offers ginger ale, a plain
+  snack, medicine or letting it happen. A kick offers talking to the baby or
+  telling your partner. The blue menu is built from that list — `"key|Label"`
+  pairs sent with the dialog — instead of the five fixed buttons it used to show
+  for everything.
+- **Weights read her actual state.** Low hydration makes dizziness likely; a
+  quiet baby after week 24 is possible and frightening; an unlinked partner
+  makes loneliness common; week gates keep swollen ankles out of the first
+  trimester.
+- **Her mood tilts what comes next.** Anxious pulls toward partner moments,
+  happy toward sweet ones and kicks, exhausted toward the body, and each event
+  can leave her in a new mood — so the system loops instead of resetting.
+- **Recent events are penalised.** The event that just fired is effectively
+  impossible to draw again, the last three are unlikely, and the whole *category*
+  is damped for two rolls. Across a 60-roll session this yields 24–29 distinct
+  events with no back-to-back repeats.
+
+### Preferences
+
+`src/lib/preferences.ts` owns one schema, validated by `normalizePreferences` on
+both read and write, so an older HUD, a replayed request or a hand-crafted POST
+all converge on the same object and a half-migrated row degrades to documented
+defaults rather than throwing. Stored as a merged JSON blob in
+`user_settings.settings`, which keeps adding a key backwards compatible.
+
+**Settings → Events** — how often moments arrive, where they appear (HUD card,
+blue menu, both, or quiet mode), and eight category switches.
+**Settings → Sound** — master sound and volume for the dashboard's synthesised
+audio (heard in-world through the media face), plus ten individual in-world
+animation opt-outs.
+**Settings → Privacy** — who can see the journey, public RP emotes, and which
+families of event reach the partner HUD at all.
+**Settings → Realism** — meter decay pace (gentle / normal / realistic) and
+whether pica cravings can fire.
+
+Every one of these is enforced server-side. Switching off an animation stops the
+command being queued; switching off a category removes it from the roll;
+changing the pace changes the decay actually written to the database, using
+*her* preference regardless of which HUD triggered the read.
+
+### Test mode
+
+Labor cannot be started by a button, which makes it hard to rehearse. A code —
+`nestoria-test`, or `HUD_TEST_CODE` — reveals a test panel under
+**Settings → Realism** with jump-to-week, force-onset, a labor speed multiplier
+and a reset. It works by rewriting the drawn labor plan, not by special-casing
+the engine, and the real plan is snapshotted first so turning test mode off puts
+it back exactly. Every test action re-checks server-side that the pregnancy is
+actually in test mode; hiding the panel is not the control.
+
+See **[TESTING.md](TESTING.md)** for a two-person test script covering pairing,
+events, preferences, every partner interaction, and a full labor and birth.
+
 ## Setup
 
 ### 1. Environment
@@ -164,9 +232,11 @@ the dashboard on the HUD and hear its sounds.
 
 - First-attach setup wizard stores mom name, week/day, baby count, gender,
   baby names, privacy, and popup frequency.
-- The MOAP action console exposes Home, Pregnancy, Health, Baby, Care, Partner,
-  Labor, Hospital bag, Milestones, Journal, Nutrition, craving, and random RP
-  event actions with short buttons.
+- The dashboard is a tabbed app: Home, Pregnancy, Health, Baby, Care, Partner,
+  Labor, Hospital bag, Milestones, Journal, Nutrition, Alerts and Settings.
+  Every action lives on the tab it belongs to — cravings on Nutrition, care
+  actions on Care, labor on Labor. There is no separate console duplicating
+  them.
 - The Partner HUD (`/partner`) has its own five-screen console — Home, Mom,
   Labor, Bag, More. Buttons are enabled only when the action can really happen
   and say why when they cannot, rather than failing silently.
@@ -175,8 +245,11 @@ the dashboard on the HUD and hear its sounds.
   immediate. She can flip any of them either way in Partner → privacy.
 - The hospital bag is a shared 18-item checklist synced between both HUDs,
   with "packed by" attribution. The worn in-world bag object still works.
-- Cravings, wellness logs, random event history, and expanded baby wellness
-  meters persist in Postgres.
+- Cravings, wellness logs, the RP event history (including which choice she
+  made and when), and expanded baby wellness meters persist in Postgres.
+- Unanswered RP moments lapse after 12 minutes rather than blocking the next
+  one forever, and answering restarts the popup timer so replying promptly is
+  never punished with an immediate second interruption.
 - Food items are integrated into nutrition and cravings: ham sub, spaghetti,
   chicken bacon burger, lasagna, jam toast, cheeseburger, and french toast.
   Each food has its own hunger, mood, nutrition, sickness, hydration, baby

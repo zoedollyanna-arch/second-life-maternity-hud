@@ -48,6 +48,9 @@ integer gChairChannel;
 integer gChairListen;
 string  gDialogKind  = "";
 string  gDialogEvent = "";
+string  gDialogId    = "";     // event_history row id, so the answer closes it
+list    gDialogKeys  = [];     // choice keys, index-aligned with gDialogLabels
+list    gDialogLabels = [];    // the button text actually shown
 float   gPollWait    = 30.0;
 integer gFailStreak  = 0;
 float   gNextHttp    = 0.0;
@@ -333,33 +336,76 @@ vomitBurst()
     ]);
 }
 
+// The server sends the choices with the event as "key|Short label" pairs
+// separated by ";". The buttons are therefore whatever THIS event actually
+// offers — a nausea popup gets ginger ale and medicine, a kick gets "talk to
+// baby" — instead of the one fixed set of five that used to be shown for
+// every single event no matter what it was.
 openEventDialog(string params)
 {
     string title = llJsonGetValue(params, ["title"]);
     string body = llJsonGetValue(params, ["body"]);
+    string choices = llJsonGetValue(params, ["choices"]);
     gDialogKind = llJsonGetValue(params, ["kind"]);
     gDialogEvent = llJsonGetValue(params, ["eventType"]);
-    if (title == JSON_INVALID) title = "Nestoria Event";
+    gDialogId = llJsonGetValue(params, ["eventId"]);
+    if (title == JSON_INVALID) title = "Nestoria";
     if (body == JSON_INVALID) body = "";
+    if (choices == JSON_INVALID) choices = "";
     if (gDialogKind == JSON_INVALID) gDialogKind = "event";
     if (gDialogEvent == JSON_INVALID) gDialogEvent = "";
+    if (gDialogId == JSON_INVALID) gDialogId = "";
+
+    gDialogKeys = [];
+    gDialogLabels = [];
+    list buttons = [];
+
+    integer i;
+    list pairs = llParseString2List(choices, [";"], []);
+    integer count = llGetListLength(pairs);
+    if (count > 11) count = 11;          // llDialog allows 12; keep one for Close
+    for (i = 0; i < count; ++i)
+    {
+        list kv = llParseString2List(llList2String(pairs, i), ["|"], []);
+        string key = llList2String(kv, 0);
+        string label = llList2String(kv, 1);
+        if (key != "")
+        {
+            if (label == "") label = key;
+            // llDialog truncates button text at 24 bytes.
+            if (llStringLength(label) > 24) label = llGetSubString(label, 0, 23);
+            gDialogKeys += [key];
+            gDialogLabels += [label];
+            buttons += [label];
+        }
+    }
+
+    // Fallback for an older server that has not been redeployed yet.
+    if (llGetListLength(buttons) == 0)
+    {
+        if (gDialogKind == "craving")
+        {
+            gDialogKeys = ["eat", "healthy", "ask_partner", "ignore", "journal"];
+            buttons = ["Eat it", "Healthy swap", "Ask partner", "Push through", "Journal it"];
+            gDialogLabels = buttons;
+        }
+        else
+        {
+            gDialogKeys = ["rub_belly", "water", "rest", "journal", "ask_partner"];
+            buttons = ["Rub belly", "Water", "Rest", "Journal it", "Ask partner"];
+            gDialogLabels = buttons;
+        }
+    }
 
     gMenuChannel = -1 - (integer)llFrand(1000000.0);
     llListenRemove(gListenHandle);
     gListenHandle = llListen(gMenuChannel, "", llGetOwner(), "");
 
-    if (gDialogKind == "craving")
-    {
-        llDialog(llGetOwner(),
-            title + "\n\n" + body + "\n\n1 Eat craving\n2 Healthy swap\n3 Ask partner\n4 Ignore\n5 Save memory",
-            ["1", "2", "3", "4", "5", "Close"], gMenuChannel);
-    }
-    else
-    {
-        llDialog(llGetOwner(),
-            title + "\n\n" + body + "\n\n1 Rub belly\n2 Count kick\n3 Drink water\n4 Rest\n5 Journal",
-            ["1", "2", "3", "4", "5", "Close"], gMenuChannel);
-    }
+    // llDialog caps the message at 512 bytes; trim the body, never the title.
+    string message = title + "\n\n" + body;
+    if (llStringLength(message) > 400) message = llGetSubString(message, 0, 399) + "...";
+
+    llDialog(llGetOwner(), message, buttons + ["Close"], gMenuChannel);
 }
 
 runCommand(string cmd, string params)
@@ -672,36 +718,42 @@ default
         llListenRemove(gListenHandle);
         if (message == "Close")
         {
+            // Only an RP event has a pending row on the server to close. A
+            // craving dialog is already recorded, so dismissing here would
+            // close whatever event happens to be open instead.
+            if (gDialogKind == "event") postAction("event_dismiss", "{}");
             gDialogKind = "";
             gDialogEvent = "";
+            gDialogId = "";
+            gDialogKeys = [];
+            gDialogLabels = [];
             return;
         }
 
-        if (gDialogKind == "craving")
+        // Button index -> the choice key the server sent alongside it.
+        integer idx = llListFindList(gDialogLabels, [message]);
+        string choice = "";
+        if (idx >= 0 && idx < llGetListLength(gDialogKeys))
+            choice = llList2String(gDialogKeys, idx);
+
+        if (choice != "")
         {
-            string choice = "";
-            if (message == "1") choice = "eat";
-            else if (message == "2") choice = "healthy";
-            else if (message == "3") choice = "ask_partner";
-            else if (message == "4") choice = "ignore";
-            else if (message == "5") choice = "journal";
-            if (choice != "")
+            if (gDialogKind == "craving")
+            {
                 postAction("craving_choice", llList2Json(JSON_OBJECT, ["choice", choice]));
-        }
-        else if (gDialogKind == "event")
-        {
-            string choice = "";
-            if (message == "1") choice = "rub_belly";
-            else if (message == "2") choice = "count_kick";
-            else if (message == "3") choice = "water";
-            else if (message == "4") choice = "rest";
-            else if (message == "5") choice = "journal";
-            if (choice != "")
-                postAction("random_event_choice", llList2Json(JSON_OBJECT, ["eventType", gDialogEvent, "choice", choice]));
+            }
+            else
+            {
+                postAction("random_event_choice", llList2Json(JSON_OBJECT,
+                    ["eventType", gDialogEvent, "eventId", gDialogId, "choice", choice]));
+            }
         }
 
         gDialogKind = "";
         gDialogEvent = "";
+        gDialogId = "";
+        gDialogKeys = [];
+        gDialogLabels = [];
     }
     run_time_permissions(integer perm) { }
 

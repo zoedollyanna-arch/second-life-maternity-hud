@@ -598,6 +598,42 @@ function MomScreen({
         </PrimaryButton>
       </Panel>
 
+      {/*
+        What her HUD just put in front of her. This is the same event row her
+        popup is showing, so support lands on the actual moment — bringing
+        ginger ale while she is nauseous rather than guessing from a meter.
+        Gated on the mood permission, like everything else about her inner life.
+      */}
+      {show("viewMood") && data.recentEvents.length > 0 && (
+        <Panel>
+          <PanelHeader eyebrow="Just now" title="What she's going through" />
+          <div className="space-y-1.5">
+            {data.recentEvents.slice(0, 3).map((e, i) => (
+              <div key={`${e.created_at}-${i}`} className="rounded-2xl bg-white/60 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="hud-copy min-w-0 truncate font-semibold">{e.title}</span>
+                  <span className="hud-muted shrink-0 italic">
+                    {new Date(e.created_at).toLocaleTimeString(undefined, {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+                {e.body && <p className="mt-0.5 hud-muted italic">{e.body}</p>}
+                {e.choice && e.choice !== "expired" && e.choice !== "dismissed" && (
+                  <p className="mt-0.5 hud-muted">
+                    She chose: <span className="font-semibold">{e.choice.replace(/_/g, " ")}</span>
+                  </p>
+                )}
+                {!e.choice && (
+                  <p className="mt-0.5 hud-muted">She hasn't decided what to do yet.</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+
       {show("viewSymptoms") && data.symptoms.length > 0 && (
         <Panel>
           <PanelHeader eyebrow="Right now" title="What she's feeling" />

@@ -82,7 +82,29 @@ import {
 } from "@/components/hud/partner-panels";
 import { BABY_GROWTH } from "@/lib/pregnancy";
 import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, type FoodCategory } from "@/lib/foods";
-import { playForAction, playChime, playError, playHearts } from "@/lib/sounds";
+import { EVENT_CATEGORIES, EVENT_CATEGORY_LABELS, EVENT_CATEGORY_HINTS } from "@/lib/events";
+import {
+  ANIMATION_KEYS,
+  ANIMATION_LABELS,
+  DECAY_PACES,
+  PARTNER_NOTIFY_KEYS,
+  PARTNER_NOTIFY_LABELS,
+  POPUP_FREQUENCIES,
+  POPUP_SURFACES,
+  PRIVACY_MODES,
+  TEST_LABOR_SPEEDS,
+  normalizePreferences,
+  type HudPreferences,
+} from "@/lib/preferences";
+import { Switch } from "@/components/ui/switch";
+import {
+  playForAction,
+  playChime,
+  playError,
+  playHearts,
+  playEvent,
+  configureSound,
+} from "@/lib/sounds";
 import { LAYOUT_PREVIEW_STATE } from "@/lib/hud-preview";
 import {
   CloudBar,
@@ -119,7 +141,11 @@ type NavKey =
   | "settings"
   | "more";
 
-const DOCK_NAV: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+const DOCK_NAV: {
+  key: NavKey;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}[] = [
   { key: "home", label: "Home", icon: Home },
   { key: "pregnancy", label: "Pregnancy", icon: Sparkles },
   { key: "health", label: "Health", icon: Heart },
@@ -127,7 +153,11 @@ const DOCK_NAV: { key: NavKey; label: string; icon: React.ComponentType<{ classN
   { key: "more", label: "More", icon: MoreHorizontal },
 ];
 
-const MORE_APPS: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+const MORE_APPS: {
+  key: NavKey;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}[] = [
   { key: "care", label: "Care", icon: HandHeart },
   { key: "partner", label: "Partner", icon: Users },
   { key: "labor", label: "Labor", icon: Activity },
@@ -140,7 +170,8 @@ const MORE_APPS: { key: NavKey; label: string; icon: React.ComponentType<{ class
 ];
 
 function dockKey(active: NavKey): NavKey {
-  if (active === "home" || active === "pregnancy" || active === "baby" || active === "more") return active;
+  if (active === "home" || active === "pregnancy" || active === "baby" || active === "more")
+    return active;
   if (active === "health" || active === "nutrition") return "health";
   if (active === "labor") return "pregnancy";
   return "more";
@@ -231,7 +262,7 @@ function useLiveStats(data: HudState) {
 function Index() {
   const { token } = Route.useSearch();
   const layoutPreview = import.meta.env.DEV && token === "layout-preview";
-  const state = useHudState(layoutPreview ? null : token ?? null);
+  const state = useHudState(layoutPreview ? null : (token ?? null));
   const hudZoom = useHudZoom();
 
   if (layoutPreview) {
@@ -370,12 +401,30 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
       },
     );
 
+  // Her Sound preference reaches the audio layer here, once per refresh, so
+  // every button and every notification respects it without threading it
+  // through the whole tree.
+  const soundOn = data.preferences?.soundEnabled ?? true;
+  const soundVol = data.preferences?.soundVolume ?? 70;
+  useEffect(() => {
+    configureSound({ enabled: soundOn, volume: soundVol });
+  }, [soundOn, soundVol]);
+
   // Chime when new notifications arrive (heard in SL through the media screen)
   const unreadRef = useRef(data.unread);
   useEffect(() => {
     if (data.unread > unreadRef.current) playChime();
     unreadRef.current = data.unread;
   }, [data.unread]);
+
+  // A distinct prompt for an RP moment waiting on an answer — it is a question,
+  // not a notification, and it should not sound like one.
+  const activeEventId = data.activeEvent?.id ?? null;
+  const lastEventRef = useRef<string | null>(activeEventId);
+  useEffect(() => {
+    if (activeEventId && activeEventId !== lastEventRef.current) playEvent();
+    lastEventRef.current = activeEventId;
+  }, [activeEventId]);
 
   // Celebrate freshly unlocked ultrasound photos
   const scanCountRef = useRef(data.ultrasounds.length);
@@ -405,18 +454,25 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
     [preg.week],
   );
   const trimesterLabel =
-    preg.trimester === 1 ? "1st Trimester" : preg.trimester === 2 ? "2nd Trimester" : "3rd Trimester";
-  const homeTiles: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] =
-    [
-      { key: "pregnancy", label: "Pregnancy", icon: Sparkles },
-      { key: "health", label: "Health", icon: Heart },
-      { key: "care", label: "Care", icon: HandHeart },
-      { key: "partner", label: "Partner", icon: Users },
-      { key: "journal", label: "Journal", icon: BookHeart },
-      { key: "baby", label: "Baby", icon: Baby },
-      { key: "bag", label: "Hospital bag", icon: Briefcase },
-      { key: "milestones", label: "Milestones", icon: Trophy },
-    ];
+    preg.trimester === 1
+      ? "1st Trimester"
+      : preg.trimester === 2
+        ? "2nd Trimester"
+        : "3rd Trimester";
+  const homeTiles: {
+    key: NavKey;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }[] = [
+    { key: "pregnancy", label: "Pregnancy", icon: Sparkles },
+    { key: "health", label: "Health", icon: Heart },
+    { key: "care", label: "Care", icon: HandHeart },
+    { key: "partner", label: "Partner", icon: Users },
+    { key: "journal", label: "Journal", icon: BookHeart },
+    { key: "baby", label: "Baby", icon: Baby },
+    { key: "bag", label: "Hospital bag", icon: Briefcase },
+    { key: "milestones", label: "Milestones", icon: Trophy },
+  ];
 
   if (!preg.setupComplete && data.user.role === "mom") {
     return (
@@ -436,7 +492,13 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
               onClick={() => setActive("home")}
               className="flex min-w-0 items-center gap-3 text-left"
             >
-              <img src={logo} alt="" width={44} height={44} className="h-11 w-11 shrink-0 rounded-xl" />
+              <img
+                src={logo}
+                alt=""
+                width={44}
+                height={44}
+                className="h-11 w-11 shrink-0 rounded-xl"
+              />
               <div className="min-w-0">
                 <div className="hud-brand truncate">NESTORIA</div>
                 <div className="hud-subtitle truncate">Pregnancy & Family</div>
@@ -470,6 +532,21 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                 {preg.babyName ? ` — ${preg.babyName}` : ""}.
               </span>
             </div>
+          )}
+
+          {data.activeEvent && data.preferences?.popupSurface !== "world" && (
+            <EventCard
+              event={data.activeEvent}
+              pending={action.isPending}
+              onChoose={(choice) =>
+                act("random_event_choice", {
+                  choice,
+                  eventId: data.activeEvent!.id,
+                  eventType: data.activeEvent!.key,
+                })
+              }
+              onDismiss={() => act("event_dismiss")}
+            />
           )}
 
           <div className="hud-stage">
@@ -594,10 +671,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                     </div>
                     <TimelineDialog currentWeek={preg.week} />
                     <div className="mt-3 hud-care-grid">
-                      <button
-                        onClick={() => act("feel_kick")}
-                        className="hud-action"
-                      >
+                      <button onClick={() => act("feel_kick")} className="hud-action">
                         Feel kick
                       </button>
                       <button onClick={() => act("count_kick")} className="hud-action">
@@ -637,7 +711,12 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                   <Panel className="is-scroll">
                     <div className="grid grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)] items-center gap-3">
                       <div className="relative mx-auto aspect-square w-full max-w-[160px] overflow-hidden rounded-full ring-4 ring-white/70">
-                        <img src={babyHero} alt="Baby" className="h-full w-full object-cover" loading="lazy" />
+                        <img
+                          src={babyHero}
+                          alt="Baby"
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
                       </div>
                       <div className="min-w-0 space-y-2">
                         <Row label="Baby size" value={preg.baby.size} />
@@ -647,8 +726,14 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                           icon={<Heart className="h-3.5 w-3.5 text-[#F6C6D6]" />}
                         />
                         <Row label="Movement" value={preg.baby.movement} />
-                        <Row label="Weight" value={`${(preg.baby.weightG / 453.6).toFixed(1)} lbs`} />
-                        <Row label="Length" value={`${(preg.baby.lengthCm / 2.54).toFixed(1)} in`} />
+                        <Row
+                          label="Weight"
+                          value={`${(preg.baby.weightG / 453.6).toFixed(1)} lbs`}
+                        />
+                        <Row
+                          label="Length"
+                          value={`${(preg.baby.lengthCm / 2.54).toFixed(1)} in`}
+                        />
                         <Row label="Kicks today" value={`${preg.baby.kicksToday}`} />
                       </div>
                     </div>
@@ -659,7 +744,8 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       newCount={data.newUltrasounds}
                       babyName={preg.babyName}
                       onOpened={() => {
-                        if (data.newUltrasounds > 0) act("ultrasound_seen", undefined, { silent: true });
+                        if (data.newUltrasounds > 0)
+                          act("ultrasound_seen", undefined, { silent: true });
                       }}
                     />
                   </Panel>
@@ -687,7 +773,11 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                         <Stethoscope className="h-6 w-6 shrink-0 text-[#A77ACB]" />
                         <span>Doctor</span>
                       </button>
-                      <button type="button" className="hud-action" onClick={() => openApp("nutrition", "health")}>
+                      <button
+                        type="button"
+                        className="hud-action"
+                        onClick={() => openApp("nutrition", "health")}
+                      >
                         <Apple className="h-6 w-6 shrink-0 text-[#A77ACB]" />
                         <span>Nutrition</span>
                       </button>
@@ -766,7 +856,9 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                             <div className="min-w-0">
                               <div className="hud-label">Connected partner</div>
                               <div className="hud-title truncate">{data.partner.name}</div>
-                              <div className="hud-muted">Linked · {data.partner.support}% support</div>
+                              <div className="hud-muted">
+                                Linked · {data.partner.support}% support
+                              </div>
                             </div>
                             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F6C6D6]/50">
                               <Heart className="h-5 w-5 text-[#A77ACB]" />
@@ -782,7 +874,9 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                           <button
                             type="button"
                             className="hud-action"
-                            onClick={() => act("ask_partner", { request: `${data.user.name} could use water.` })}
+                            onClick={() =>
+                              act("ask_partner", { request: `${data.user.name} could use water.` })
+                            }
                           >
                             <Droplet className="h-6 w-6 text-[#A77ACB]" />
                             <span>Ask for water</span>
@@ -790,7 +884,9 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                           <button
                             type="button"
                             className="hud-action"
-                            onClick={() => act("ask_partner", { request: `${data.user.name} could use rest.` })}
+                            onClick={() =>
+                              act("ask_partner", { request: `${data.user.name} could use rest.` })
+                            }
                           >
                             <Moon className="h-6 w-6 text-[#A77ACB]" />
                             <span>Ask to rest</span>
@@ -842,8 +938,8 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                         </p>
                         <PairingCode code={data.partner.code} />
                         <p className="mt-3 hud-muted italic">
-                          Once linked, their hugs, water runs and sweet messages show up here — and reach you
-                          in-world.
+                          Once linked, their hugs, water runs and sweet messages show up here — and
+                          reach you in-world.
                         </p>
                       </div>
                     )}
@@ -880,7 +976,9 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                     </div>
                     <div className="space-y-2">
                       {data.journal.length === 0 && (
-                        <p className="text-center hud-muted italic">Your story starts here — add your first entry.</p>
+                        <p className="text-center hud-muted italic">
+                          Your story starts here — add your first entry.
+                        </p>
                       )}
                       {data.journal.map((m) => {
                         const Icon =
@@ -893,9 +991,16 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                                 : BookHeart;
                         const photo = journalPhotoSrc(m.photo_url, token);
                         return (
-                          <div key={m.id} className="flex min-w-0 items-center gap-3 rounded-2xl bg-white/60 px-3 py-2">
+                          <div
+                            key={m.id}
+                            className="flex min-w-0 items-center gap-3 rounded-2xl bg-white/60 px-3 py-2"
+                          >
                             {photo ? (
-                              <img src={photo} alt="" className="h-9 w-9 shrink-0 rounded-xl object-cover" />
+                              <img
+                                src={photo}
+                                alt=""
+                                className="h-9 w-9 shrink-0 rounded-xl object-cover"
+                              />
                             ) : (
                               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#D6C6E7]/40">
                                 <Icon className="h-6 w-6 text-[#A77ACB]" />
@@ -976,7 +1081,46 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                         );
                       })}
                     </div>
-                    <PrimaryButton onClick={() => act("craving_roll")}>
+                    {data.currentCraving ? (
+                      <div className="mt-3 rounded-2xl bg-[#F6C6D6]/25 px-3 py-3 ring-1 ring-[#D6C6E7]/60">
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="hud-label">Craving right now</div>
+                            <div className="hud-copy truncate font-semibold text-[#4D405E]">
+                              {data.currentCraving.craving}
+                            </div>
+                          </div>
+                          <span className="hud-muted shrink-0">
+                            {data.currentCraving.intensity}% intense
+                          </span>
+                        </div>
+                        <CloudBar value={data.currentCraving.intensity} tone="blush" />
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {[
+                            { key: "eat", label: "Eat it" },
+                            { key: "healthy", label: "Healthy swap" },
+                            { key: "ask_partner", label: "Ask partner" },
+                            { key: "journal", label: "Journal it" },
+                            { key: "ignore", label: "Push through" },
+                          ].map((choice) => (
+                            <button
+                              key={choice.key}
+                              type="button"
+                              disabled={action.isPending}
+                              onClick={() => act("craving_choice", { choice: choice.key })}
+                              className="min-h-11 rounded-full bg-white/80 px-3.5 hud-copy font-semibold text-[color:var(--lavender-deep)] shadow-soft transition hover:bg-white disabled:opacity-50"
+                            >
+                              {choice.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-center hud-muted italic">
+                        No craving right now. One will find you.
+                      </p>
+                    )}
+                    <PrimaryButton disabled={action.isPending} onClick={() => act("craving_roll")}>
                       <span className="inline-flex items-center gap-2">
                         <Sparkles className="h-4 w-4" /> Roll a craving
                       </span>
@@ -1013,7 +1157,9 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       ))}
                     </div>
                     {data.unread > 0 && (
-                      <PrimaryButton onClick={() => act("notifications_read")}>Mark all as read</PrimaryButton>
+                      <PrimaryButton onClick={() => act("notifications_read")}>
+                        Mark all as read
+                      </PrimaryButton>
                     )}
                   </Panel>
                 </AppPage>
@@ -1025,8 +1171,9 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                     key={preg.id + preg.babyGender + (preg.babyName ?? "") + preg.durationDays}
                     data={data}
                     onSave={(params) => act("settings_update", params)}
+                    onAction={act}
+                    pending={action.isPending}
                   />
-                  <ActionConsole data={data} onAction={act} />
                 </AppPage>
               )}
             </main>
@@ -1252,170 +1399,60 @@ function SetupWizard({
   );
 }
 
-function ActionConsole({
-  data,
-  onAction,
+/**
+ * The RP moment card.
+ *
+ * This and the in-world blue menu are two views of one database row, so the
+ * buttons here are the same buttons the dialog shows — whatever *this* event
+ * actually offers, not a fixed list — and answering on either surface closes
+ * the other. She can also let it pass: an ignored moment is a real choice, and
+ * an unanswered one lapses on its own after a few minutes rather than blocking
+ * the next one forever.
+ */
+function EventCard({
+  event,
+  pending,
+  onChoose,
+  onDismiss,
 }: {
-  data: HudState;
-  onAction: (name: string, params?: Record<string, unknown>) => void;
+  event: NonNullable<HudState["activeEvent"]>;
+  pending: boolean;
+  onChoose: (choice: string) => void;
+  onDismiss: () => void;
 }) {
-  const craving = data.currentCraving?.craving ?? "Ham sub";
-  const eventType = data.recentEvents[0]?.event_type ?? "baby_kick";
-  const foodItems = data.foods.map((food) => ({
-    icon: Utensils,
-    label: food.name,
-    action: "food_eat",
-    params: { food: food.key },
-  }));
-  const actionGroups = [
-    {
-      title: "Home",
-      items: [
-        { icon: RefreshCw, label: "Sync", action: "daily_checkin" },
-        { icon: HandHeart, label: "Hold Belly", action: "hold_belly" },
-      ],
-    },
-    {
-      title: "Pregnancy",
-      items: [
-        { icon: Calendar, label: "Timeline", action: "baby_size" },
-        { icon: Camera, label: "Ultrasound", action: "ultrasound" },
-        { icon: Stethoscope, label: "Appointment", action: "appointment" },
-        { icon: Footprints, label: "Feel Kick", action: "feel_kick" },
-        { icon: HeartPulse, label: "Contractions", action: "contractions" },
-        { icon: Hospital, label: "Hospital", action: "go_to_hospital" },
-        {
-          icon: Sparkles,
-          label: "Due Date",
-          action: "set_due_date",
-          params: { dueDate: data.pregnancy.dueDate },
-        },
-      ],
-    },
-    {
-      title: "Baby",
-      items: [
-        { icon: Heart, label: "Heartbeat", action: "heartbeat" },
-        { icon: Footprints, label: "Kicks", action: "kick" },
-        { icon: Mic, label: "Talk", action: "talk_to_baby" },
-        { icon: Baby, label: "Position", action: "baby_position" },
-      ],
-    },
-    {
-      title: "Care",
-      items: [
-        { icon: Moon, label: "Rest", action: "rest" },
-        { icon: Moon, label: "Sleep", action: "sleep" },
-        { icon: Droplet, label: "Water", action: "drink_water" },
-        { icon: Pill, label: "Vitamins", action: "vitamins" },
-        { icon: Stethoscope, label: "Medicine", action: "medicine" },
-        { icon: Waves, label: "Breathe", action: "breathe" },
-        { icon: Heart, label: "Comfort", action: "comfort" },
-        { icon: Sparkles, label: "Bath", action: "warm_bath" },
-        { icon: Bath, label: "Bathroom", action: "bathroom" },
-        { icon: CloudRain, label: "Vomit", action: "vomit" },
-        { icon: Smile, label: "Cry", action: "cry" },
-        { icon: Briefcase, label: "Bag", action: "pack_bag" },
-      ],
-    },
-    {
-      title: "Nutrition",
-      items: [
-        { icon: Utensils, label: "Meal", action: "eat" },
-        { icon: Apple, label: "Snack", action: "snack" },
-        { icon: Sparkles, label: "Craving", action: "craving_roll" },
-        {
-          icon: Utensils,
-          label: "Eat Craving",
-          action: "craving_choice",
-          params: { choice: "eat" },
-        },
-        { icon: Check, label: "Swap", action: "craving_choice", params: { choice: "healthy" } },
-        { icon: Users, label: "Ask", action: "craving_choice", params: { choice: "ask_partner" } },
-        { icon: BookHeart, label: "Save", action: "craving_choice", params: { choice: "journal" } },
-        { icon: Bell, label: "Ignore", action: "craving_choice", params: { choice: "ignore" } },
-      ],
-    },
-    {
-      title: "Food Items",
-      items: foodItems,
-    },
-    {
-      title: "Partner / Events",
-      items: [
-        {
-          icon: Users,
-          label: "Support",
-          action: "ask_partner",
-          params: { request: `${data.user.name} could use a little support.` },
-        },
-        { icon: Bell, label: "Roll Event", action: "random_event_roll" },
-        {
-          icon: Stethoscope,
-          label: "Medicine",
-          action: "random_event_choice",
-          params: { eventType, choice: "medicine" },
-        },
-        {
-          icon: Apple,
-          label: "Snack",
-          action: "random_event_choice",
-          params: { eventType, choice: "snack" },
-        },
-        {
-          icon: HandHeart,
-          label: "Rub Belly",
-          action: "random_event_choice",
-          params: { eventType, choice: "rub_belly" },
-        },
-        {
-          icon: BookHeart,
-          label: "Journal",
-          action: "random_event_choice",
-          params: { eventType, choice: "journal" },
-        },
-      ],
-    },
-  ];
-
   return (
-    <section className="min-w-0">
-      <Panel className="is-scroll">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="hud-label">
-              MOAP Action Console
-            </div>
-            <h2 className="font-display text-2xl font-semibold text-foreground">
-              Production buttons
-            </h2>
+    <section className="shrink-0" aria-live="polite">
+      <div className="rounded-2xl bg-white/85 px-3 py-2.5 shadow-soft ring-1 ring-[#D6C6E7]/60">
+        <div className="mb-1 flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="hud-label">A moment</div>
+            <div className="hud-copy font-semibold text-[#4D405E]">{event.title}</div>
           </div>
-          <div className="rounded-2xl bg-white/70 px-4 py-2 hud-copy text-muted-foreground">
-            Current craving: <span className="font-semibold text-foreground">{craving}</span>
-          </div>
+          <button
+            type="button"
+            onClick={onDismiss}
+            disabled={pending}
+            className="hud-muted shrink-0 underline disabled:opacity-50"
+          >
+            Let it pass
+          </button>
         </div>
-        <div className="grid gap-3 min-[768px]:grid-cols-2 min-[1280px]:grid-cols-3">
-          {actionGroups.map((group) => (
-            <div key={group.title} className="rounded-2xl bg-white/60 p-3">
-              <div className="mb-2 hud-label">
-                {group.title}
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {group.items.map(({ icon: Icon, label, action, params }) => (
-                  <button
-                    key={`${group.title}-${label}`}
-                    onClick={() => onAction(action, params)}
-                    className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-2xl bg-white/75 px-2 text-center text-sm font-semibold leading-tight text-[color:var(--lavender-deep)] shadow-soft transition hover:bg-white"
-                  >
-                    <Icon className="h-4 w-4" />
-                    <span>{label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+        {event.body && <p className="mb-2 hud-muted italic">{event.body}</p>}
+        <div className="flex flex-wrap gap-1.5">
+          {event.choices.map((choice) => (
+            <button
+              key={choice.key}
+              type="button"
+              disabled={pending}
+              onClick={() => onChoose(choice.key)}
+              title={choice.label}
+              className="min-h-11 rounded-full bg-white/80 px-3.5 hud-copy font-semibold text-[color:var(--lavender-deep)] shadow-soft transition hover:bg-white disabled:opacity-50"
+            >
+              {choice.label}
+            </button>
           ))}
         </div>
-      </Panel>
+      </div>
     </section>
   );
 }
@@ -1698,9 +1735,7 @@ function MemoryDialog({ onSave }: { onSave: (entry: { title: string; body: strin
           <div className="h-12 w-12 rounded-2xl bg-white/80 shadow-soft flex items-center justify-center group-hover:scale-105 group-hover:bg-white transition-transform">
             <Camera className="h-5 w-5 text-[color:var(--lavender-deep)]" />
           </div>
-          <span className="hud-subtitle">
-            Memory
-          </span>
+          <span className="hud-subtitle">Memory</span>
         </button>
       </DialogTrigger>
       <DialogContent className="rounded-[28px]">
@@ -1868,67 +1903,520 @@ function SymptomsDialog({
   );
 }
 
+type SettingsTab = "journey" | "events" | "sound" | "privacy" | "realism";
+
+const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
+  { key: "journey", label: "Journey" },
+  { key: "events", label: "Events" },
+  { key: "sound", label: "Sound" },
+  { key: "privacy", label: "Privacy" },
+  { key: "realism", label: "Realism" },
+];
+
+/** A labelled on/off row. Used everywhere in the preferences hub. */
+function PrefToggle({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <label className="flex min-h-12 cursor-pointer items-center justify-between gap-3 rounded-2xl bg-white/70 px-3 py-2">
+      <span className="min-w-0">
+        <span className="hud-copy block font-semibold">{label}</span>
+        {hint && <span className="hud-muted block">{hint}</span>}
+      </span>
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </label>
+  );
+}
+
+function PrefSection({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mb-4">
+      <div className="hud-label mb-1">{title}</div>
+      {hint && <p className="hud-muted mb-2">{hint}</p>}
+      <div className="space-y-1.5">{children}</div>
+    </div>
+  );
+}
+
 function SettingsPanel({
   data,
   onSave,
+  onAction,
+  pending,
 }: {
   data: HudState;
   onSave: (params: Record<string, unknown>) => void;
+  onAction: (name: string, params?: Record<string, unknown>) => void;
+  pending: boolean;
 }) {
+  const [tab, setTab] = useState<SettingsTab>("journey");
+
+  // Journey fields
   const [babyName, setBabyName] = useState(data.pregnancy.babyName ?? "");
   const [babyGender, setBabyGender] = useState(data.pregnancy.babyGender);
   const [durationDays, setDurationDays] = useState(String(data.pregnancy.durationDays));
+
+  // Preferences are edited locally and saved per tab, so a slow connection
+  // never fights the wearer mid-toggle.
+  const [prefs, setPrefs] = useState<HudPreferences>(() =>
+    normalizePreferences(data.preferences ?? {}),
+  );
+  const serverPrefs = data.preferences;
+  useEffect(() => {
+    setPrefs(normalizePreferences(serverPrefs ?? {}));
+  }, [serverPrefs]);
+
+  const set = <K extends keyof HudPreferences>(key: K, value: HudPreferences[K]) =>
+    setPrefs((p) => ({ ...p, [key]: value }));
+
+  const savePrefs = (patch: Partial<HudPreferences>) => {
+    const next = { ...prefs, ...patch };
+    setPrefs(next);
+    onSave({ preferences: next });
+  };
+
   return (
     <section className="min-w-0">
-      <Panel>
+      <Panel className="is-scroll">
         <PanelHeader eyebrow="Settings" title="Your journey, your way" />
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="s-name">Baby name</Label>
-            <Input
-              id="s-name"
-              value={babyName}
-              onChange={(e) => setBabyName(e.target.value)}
-              placeholder="Still deciding…"
-            />
+
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {SETTINGS_TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={`min-h-9 rounded-full px-3 hud-copy font-semibold transition ${
+                tab === t.key
+                  ? "bg-[#A77ACB] text-white shadow-soft"
+                  : "bg-white/70 text-[color:var(--lavender-deep)] hover:bg-white"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ---------------- Journey ---------------- */}
+        {tab === "journey" && (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="s-name">Baby name</Label>
+              <Input
+                id="s-name"
+                value={babyName}
+                onChange={(e) => setBabyName(e.target.value)}
+                placeholder="Still deciding…"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>We're expecting…</Label>
+              <Select value={babyGender} onValueChange={setBabyGender}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="surprise">It's a surprise ✨</SelectItem>
+                  <SelectItem value="girl">A little girl 🎀</SelectItem>
+                  <SelectItem value="boy">A little boy 💙</SelectItem>
+                  <SelectItem value="twins">Twins!</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="s-days">Pregnancy length (real days, 1–280)</Label>
+              <Input
+                id="s-days"
+                type="number"
+                min={1}
+                max={280}
+                value={durationDays}
+                onChange={(e) => setDurationDays(e.target.value)}
+              />
+              <p className="hud-muted">
+                How many real-life days the full 40 weeks take. Most Second Life pregnancies run
+                14–45 days. Changing this keeps you at the same week.
+              </p>
+            </div>
+            <PrimaryButton
+              disabled={pending}
+              onClick={() => onSave({ babyName, babyGender, durationDays: Number(durationDays) })}
+            >
+              Save journey
+            </PrimaryButton>
           </div>
-          <div className="space-y-1.5">
-            <Label>We're expecting…</Label>
-            <Select value={babyGender} onValueChange={setBabyGender}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="surprise">It's a surprise ✨</SelectItem>
-                <SelectItem value="girl">A little girl 🎀</SelectItem>
-                <SelectItem value="boy">A little boy 💙</SelectItem>
-                <SelectItem value="twins">Twins!</SelectItem>
-              </SelectContent>
-            </Select>
+        )}
+
+        {/* ---------------- Events & popups ---------------- */}
+        {tab === "events" && (
+          <div>
+            <PrefSection
+              title="How often"
+              hint="RP moments arrive on this timer. Answering one restarts it."
+            >
+              <Select
+                value={String(prefs.popupFrequencyMinutes)}
+                onValueChange={(v) => savePrefs({ popupFrequencyMinutes: Number(v) })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {POPUP_FREQUENCIES.map((m) => (
+                    <SelectItem key={m} value={String(m)}>
+                      {m === 0 ? "Never — only when I ask" : `Every ${m} minutes`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </PrefSection>
+
+            <PrefSection title="Where they appear">
+              <Select
+                value={prefs.popupSurface}
+                onValueChange={(v) =>
+                  savePrefs({ popupSurface: v as HudPreferences["popupSurface"] })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {POPUP_SURFACES.map((sfc) => (
+                    <SelectItem key={sfc.key} value={sfc.key}>
+                      {sfc.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="hud-muted px-1">
+                {POPUP_SURFACES.find((sfc) => sfc.key === prefs.popupSurface)?.hint}
+              </p>
+            </PrefSection>
+
+            <PrefSection
+              title="What can happen"
+              hint="Switch off anything you don't want to roleplay. Nothing from a switched-off group will ever interrupt you."
+            >
+              {EVENT_CATEGORIES.map((cat) => (
+                <PrefToggle
+                  key={cat}
+                  label={EVENT_CATEGORY_LABELS[cat]}
+                  hint={EVENT_CATEGORY_HINTS[cat]}
+                  checked={prefs.eventCategories[cat]}
+                  onChange={(next) =>
+                    savePrefs({
+                      eventCategories: { ...prefs.eventCategories, [cat]: next },
+                    })
+                  }
+                />
+              ))}
+            </PrefSection>
+
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => onAction("random_event_roll")}
+              className="min-h-12 w-full rounded-full bg-white/70 hud-copy font-semibold text-[#A77ACB] disabled:opacity-60"
+            >
+              Give me a moment now
+            </button>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="s-days">Pregnancy length (real days, 1–280)</Label>
-            <Input
-              id="s-days"
-              type="number"
-              min={1}
-              max={280}
-              value={durationDays}
-              onChange={(e) => setDurationDays(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              How many real-life days the full 40 weeks take. Most Second Life pregnancies run 14–45
-              days.
+        )}
+
+        {/* ---------------- Sound & animation ---------------- */}
+        {tab === "sound" && (
+          <div>
+            <PrefSection
+              title="Sound"
+              hint="The dashboard makes its own sounds through the HUD screen, so these are what you hear in Second Life."
+            >
+              <PrefToggle
+                label="HUD sounds"
+                hint="Chimes, heartbeats, water, kicks."
+                checked={prefs.soundEnabled}
+                onChange={(next) => savePrefs({ soundEnabled: next })}
+              />
+              <div className="rounded-2xl bg-white/70 px-3 py-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="hud-copy font-semibold">Volume</span>
+                  <span className="hud-muted">{prefs.soundVolume}%</span>
+                </div>
+                <Slider
+                  value={[prefs.soundVolume]}
+                  min={0}
+                  max={100}
+                  step={5}
+                  onValueChange={([v]) => set("soundVolume", v)}
+                  onValueCommit={([v]) => savePrefs({ soundVolume: v })}
+                />
+              </div>
+            </PrefSection>
+
+            <PrefSection
+              title="In-world animations"
+              hint="Each of these plays on your avatar or rezzes a prop. Switch off anything you'd rather emote yourself."
+            >
+              {ANIMATION_KEYS.map((key) => (
+                <PrefToggle
+                  key={key}
+                  label={ANIMATION_LABELS[key]}
+                  checked={prefs.animations[key]}
+                  onChange={(next) =>
+                    savePrefs({ animations: { ...prefs.animations, [key]: next } })
+                  }
+                />
+              ))}
+            </PrefSection>
+          </div>
+        )}
+
+        {/* ---------------- Privacy & partner ---------------- */}
+        {tab === "privacy" && (
+          <div>
+            <PrefSection title="Who can see your journey">
+              <Select
+                value={prefs.privacyMode}
+                onValueChange={(v) =>
+                  savePrefs({ privacyMode: v as HudPreferences["privacyMode"] })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIVACY_MODES.map((m) => (
+                    <SelectItem key={m.key} value={m.key}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="hud-muted px-1">
+                {PRIVACY_MODES.find((m) => m.key === prefs.privacyMode)?.hint}
+              </p>
+              <PrefToggle
+                label="Public RP emotes"
+                hint="Let nearby roleplayers see emotes from your HUD in local chat."
+                checked={prefs.publicEmotes}
+                onChange={(next) => savePrefs({ publicEmotes: next })}
+              />
+            </PrefSection>
+
+            <PrefSection
+              title="What reaches your partner"
+              hint={
+                data.partner.linked
+                  ? `${data.partner.name ?? "Your partner"} is notified about these. Everything else stays yours.`
+                  : "These apply as soon as a partner is linked."
+              }
+            >
+              {PARTNER_NOTIFY_KEYS.map((key) => (
+                <PrefToggle
+                  key={key}
+                  label={PARTNER_NOTIFY_LABELS[key]}
+                  checked={prefs.partnerNotify[key]}
+                  onChange={(next) =>
+                    savePrefs({ partnerNotify: { ...prefs.partnerNotify, [key]: next } })
+                  }
+                />
+              ))}
+            </PrefSection>
+
+            <p className="hud-muted px-1">
+              Consent for individual partner actions — hugs, back rubs, ice chips — lives on the
+              Partner tab, under Privacy.
             </p>
           </div>
-        </div>
-        <PrimaryButton
-          onClick={() => onSave({ babyName, babyGender, durationDays: Number(durationDays) })}
-        >
-          Save settings
-        </PrimaryButton>
+        )}
+
+        {/* ---------------- Realism & pacing ---------------- */}
+        {tab === "realism" && (
+          <div>
+            <PrefSection
+              title="How fast your meters move"
+              hint="This changes how often you need to eat, drink, rest and take vitamins."
+            >
+              <Select
+                value={prefs.decayPace}
+                onValueChange={(v) => savePrefs({ decayPace: v as HudPreferences["decayPace"] })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DECAY_PACES.map((pace) => (
+                    <SelectItem key={pace.key} value={pace.key}>
+                      {pace.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="hud-muted px-1">
+                {DECAY_PACES.find((pace) => pace.key === prefs.decayPace)?.hint}
+              </p>
+            </PrefSection>
+
+            <PrefSection title="Content">
+              <PrefToggle
+                label="Pica cravings"
+                hint="Corn starch and chalk. Realistic, and not for everyone."
+                checked={prefs.allowPica}
+                onChange={(next) => savePrefs({ allowPica: next })}
+              />
+            </PrefSection>
+
+            <TestModePanel data={data} onAction={onAction} pending={pending} />
+          </div>
+        )}
       </Panel>
     </section>
+  );
+}
+
+/**
+ * Labor test tools.
+ *
+ * Hidden behind a code so a real player never trips over them: labor is meant
+ * to arrive on its own, and a visible "start labor" button would undo the whole
+ * point of the engine. Unlocking is server-checked, not just hidden in the UI —
+ * every test action re-verifies that this pregnancy is in test mode.
+ */
+function TestModePanel({
+  data,
+  onAction,
+  pending,
+}: {
+  data: HudState;
+  onAction: (name: string, params?: Record<string, unknown>) => void;
+  pending: boolean;
+}) {
+  const [code, setCode] = useState("");
+  const [week, setWeek] = useState(String(Math.max(1, data.pregnancy.week)));
+  const unlocked = data.testMode;
+
+  if (!unlocked) {
+    return (
+      <div className="mt-4 rounded-2xl bg-white/50 px-3 py-3">
+        <div className="hud-label mb-1">Testing</div>
+        <p className="hud-muted mb-2">
+          Have a code from the creator? Enter it to unlock the labor test tools.
+        </p>
+        <div className="flex gap-2">
+          <Input
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="Code"
+            aria-label="Test mode code"
+          />
+          <button
+            type="button"
+            disabled={pending || !code.trim()}
+            onClick={() => onAction("test_unlock", { code: code.trim() })}
+            className="min-h-11 shrink-0 rounded-full bg-white/80 px-4 hud-copy font-semibold text-[#A77ACB] disabled:opacity-50"
+          >
+            Unlock
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 rounded-2xl bg-[#F6C6D6]/25 px-3 py-3 ring-1 ring-[#A77ACB]/30">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <div className="hud-label">Test mode — on</div>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => onAction("test_lock")}
+          className="hud-muted underline"
+        >
+          Turn off &amp; restore
+        </button>
+      </div>
+      <p className="hud-muted mb-3">
+        These rewrite the labor plan for testing. Turning test mode off puts the real timing back.
+      </p>
+
+      <div className="mb-3 space-y-1.5">
+        <Label htmlFor="t-week">Jump to week</Label>
+        <div className="flex gap-2">
+          <Input
+            id="t-week"
+            type="number"
+            min={1}
+            max={42}
+            value={week}
+            onChange={(e) => setWeek(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => onAction("test_jump_week", { week: Number(week), day: 0 })}
+            className="min-h-11 shrink-0 rounded-full bg-white/80 px-4 hud-copy font-semibold text-[#A77ACB] disabled:opacity-50"
+          >
+            Jump
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-3 space-y-1.5">
+        <Label>Labor speed</Label>
+        <div className="flex flex-wrap gap-1.5">
+          {TEST_LABOR_SPEEDS.map((speed) => (
+            <button
+              key={speed}
+              type="button"
+              disabled={pending}
+              onClick={() => onAction("test_labor_speed", { speed })}
+              className="min-h-10 rounded-full bg-white/80 px-3 hud-copy font-semibold text-[#A77ACB] disabled:opacity-50"
+            >
+              {speed}×
+            </button>
+          ))}
+        </div>
+        <p className="hud-muted">
+          25× turns a three-hour labor into about seven minutes — enough to run the whole
+          contractions → water → hospital → birth sequence with a partner in one sitting.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => onAction("test_force_labor")}
+          className="min-h-11 flex-1 rounded-full bg-[#A77ACB] px-4 hud-copy font-semibold text-white disabled:opacity-50"
+        >
+          Start labor now
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => onAction("test_reset_labor")}
+          className="min-h-11 flex-1 rounded-full bg-white/80 px-4 hud-copy font-semibold text-[#A77ACB] disabled:opacity-50"
+        >
+          Reset labor
+        </button>
+      </div>
+    </div>
   );
 }
 
