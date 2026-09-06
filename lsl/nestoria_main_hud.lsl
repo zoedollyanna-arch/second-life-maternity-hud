@@ -445,16 +445,18 @@ openEventDialog(string params)
     for (i = 0; i < count; ++i)
     {
         list kv = llParseString2List(llList2String(pairs, i), ["|"], []);
-        string key = llList2String(kv, 0);
-        string label = llList2String(kv, 1);
-        if (key != "")
+        // NOT "key" — that is an LSL type name and will not compile.
+        string choiceKey = llList2String(kv, 0);
+        string choiceLabel = llList2String(kv, 1);
+        if (choiceKey != "")
         {
-            if (label == "") label = key;
+            if (choiceLabel == "") choiceLabel = choiceKey;
             // llDialog truncates button text at 24 bytes.
-            if (llStringLength(label) > 24) label = llGetSubString(label, 0, 23);
-            gDialogKeys += [key];
-            gDialogLabels += [label];
-            buttons += [label];
+            if (llStringLength(choiceLabel) > 24)
+                choiceLabel = llGetSubString(choiceLabel, 0, 23);
+            gDialogKeys += [choiceKey];
+            gDialogLabels += [choiceLabel];
+            buttons += [choiceLabel];
         }
     }
 

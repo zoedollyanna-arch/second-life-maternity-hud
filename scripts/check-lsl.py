@@ -1,71 +1,120 @@
-import re, io, sys
+"""Static checks for the Nestoria LSL scripts.
+
+The Second Life script editor is the only real compiler, and it only tells you
+about the first error it hits. These checks catch the mistakes that are easy to
+make here and slow to find in world.
+
+    python scripts/check-lsl.py
+
+Note for anyone extending this: strip string literals BEFORE comments. Doing it
+the other way round reads the "//" inside "https://..." as a comment, eats the
+rest of the line including the closing quote, and every count after it is wrong.
+"""
+
+import re
+import io
+import sys
+import os
+import glob
 
 STR_RE = re.compile(r'"(?:\\.|[^"\\])*"')
 COMMENT_RE = re.compile(r'//[^\n]*')
 FDEF_RE = re.compile(r'^(?:[A-Za-z_]\w*\s+)?([a-zA-Z_]\w*)\s*\([^;{)]*\)\s*$', re.M)
-KEYWORDS = {'if', 'for', 'while', 'else', 'state', 'return', 'default', 'do'}
-GLOBALS_TO_CHECK = ['gMoapRetry', 'gCurrentAnim', 'gDialogKeys', 'gDialogLabels', 'gDialogId']
+
+TYPES = ["integer", "float", "string", "key", "vector", "rotation", "quaternion", "list"]
+
+# Reserved words that cannot be used as an identifier. `key` is the one that
+# actually bit us: "string key = ..." looks perfectly reasonable and is a
+# syntax error, because key is a type name.
+RESERVED = set(TYPES) | {
+    "default", "state", "event", "jump", "return", "if", "else", "for", "do",
+    "while", "print", "TRUE", "FALSE", "NULL_KEY", "PI", "TWO_PI", "PI_BY_TWO",
+    "DEG_TO_RAD", "RAD_TO_DEG", "SQRT2", "ZERO_VECTOR", "ZERO_ROTATION",
+    "EOF", "JSON_INVALID",
+}
+
+DECL_RE = re.compile(r'\b(' + "|".join(TYPES) + r')\s+([A-Za-z_]\w*)')
+KEYWORDS_NOT_FUNCS = {"if", "for", "while", "else", "state", "return", "default", "do"}
 
 ok = True
 
 
-def check(path):
+def fail(msg):
     global ok
-    src = io.open(path, encoding='utf-8').read()
-    # Strings FIRST. Stripping comments first eats "https://..." at the slashes,
-    # leaving an unterminated quote that desyncs every count after it.
+    ok = False
+    print("    " + msg)
+
+
+def check(path):
+    src = io.open(path, encoding="utf-8").read()
     nos = STR_RE.sub('""', src)
-    nos = COMMENT_RE.sub('', nos)
+    nos = COMMENT_RE.sub("", nos)
 
-    print("=== %s ===" % path)
+    print("=== %s ===" % os.path.relpath(path))
 
-    for pair in ['{}', '()', '[]']:
+    # --- balance ----------------------------------------------------------
+    for pair in ["{}", "()", "[]"]:
         a, b = nos.count(pair[0]), nos.count(pair[1])
-        status = "OK" if a == b else "MISMATCH"
         if a != b:
-            ok = False
-        print("  %s  %4d open / %4d close   %s" % (pair, a, b, status))
+            fail("UNBALANCED %s : %d open / %d close" % (pair, a, b))
+        else:
+            print("  %s balanced (%d)" % (pair, a))
 
+    # --- reserved words used as identifiers -------------------------------
+    bad = []
+    for m in DECL_RE.finditer(nos):
+        name = m.group(2)
+        if name in RESERVED:
+            line = nos[: m.start()].count("\n") + 1
+            bad.append("line %d: '%s %s' - '%s' is a reserved LSL word"
+                       % (line, m.group(1), name, name))
+    if bad:
+        for b in bad:
+            fail("RESERVED NAME: " + b)
+    else:
+        print("  no reserved words used as identifiers")
+
+    # --- LSL is single pass: define before use ----------------------------
     defs = {}
     for m in FDEF_RE.finditer(nos):
         name = m.group(1)
-        if name in KEYWORDS:
+        if name in KEYWORDS_NOT_FUNCS:
             continue
         defs.setdefault(name, m.start())
 
-    # LSL is single pass: a user function must appear before it is called.
     problems = []
     for name, pos in sorted(defs.items()):
-        call = re.compile(r'\b' + re.escape(name) + r'\s*\(')
-        for m in call.finditer(nos):
+        for m in re.finditer(r"\b" + re.escape(name) + r"\s*\(", nos):
             if m.start() < pos:
-                problems.append("%s called at %d, defined at %d" % (name, m.start(), pos))
+                problems.append("%s called before it is defined" % name)
                 break
-    print("  user functions: %d" % len(defs))
     if problems:
-        ok = False
         for p in problems:
-            print("    DEFINE-BEFORE-USE: " + p)
+            fail("DEFINE-BEFORE-USE: " + p)
     else:
-        print("  define-before-use: OK")
+        print("  %d user functions, all defined before use" % len(defs))
 
-    for g in GLOBALS_TO_CHECK:
-        if g not in nos:
-            continue
-        decl = re.search(r'^\s*(?:integer|string|list|float|key|vector|rotation)\s+' + g + r'\b',
-                         nos, re.M)
-        if not decl:
-            ok = False
-        print("  %-14s declared: %s" % (g, "yes" if decl else "NO - MISSING"))
+    # --- globals referenced but never declared ----------------------------
+    used = set(re.findall(r"\bg[A-Z]\w*", nos))
+    declared = {m.group(2) for m in DECL_RE.finditer(nos)}
+    missing = sorted(u for u in used if u not in declared)
+    if missing:
+        for m in missing:
+            fail("UNDECLARED GLOBAL: %s" % m)
+    else:
+        print("  %d globals, all declared" % len(used))
 
-    # every state/event block should sit inside default { }
-    if nos.count('default') != 1:
-        print("  NOTE: 'default' appears %d times" % nos.count('default'))
+    # --- one default state ------------------------------------------------
+    n = len(re.findall(r"^default\s*$", nos, re.M))
+    if n != 1:
+        fail("expected exactly one 'default' state, found %d" % n)
+
     print()
 
 
-for p in ['lsl/nestoria_main_hud.lsl', 'lsl/nestoria_partner_hud.lsl']:
-    check(p)
+targets = sys.argv[1:] or sorted(glob.glob(os.path.join("lsl", "*.lsl")))
+for t in targets:
+    check(t)
 
 print("RESULT:", "all checks passed" if ok else "PROBLEMS FOUND")
 sys.exit(0 if ok else 1)
