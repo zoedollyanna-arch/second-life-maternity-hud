@@ -53,6 +53,15 @@ export const LAYOUT_PREVIEW_STATE: HudState = {
       movementScore: 68,
     },
   },
+  conception: {
+    trying: false,
+    fertility: "normal",
+    attempts: 0,
+    testsTaken: 0,
+    canTest: true,
+    cooldownEndsAt: null,
+    tryingSince: null,
+  },
   stats: {
     energy: 62,
     hydration: 58,

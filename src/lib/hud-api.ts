@@ -91,6 +91,19 @@ export interface HudState {
       movementScore: number;
     };
   };
+  /**
+   * Pre-pregnancy state. `trying` is true while she has a live row that is not
+   * a pregnancy yet — the Conceive screen renders from this.
+   */
+  conception?: {
+    trying: boolean;
+    fertility: "low" | "normal" | "high";
+    attempts: number;
+    testsTaken: number;
+    canTest: boolean;
+    cooldownEndsAt: string | null;
+    tryingSince: string | null;
+  };
   stats: HudStats;
   mood?: {
     key: string;
@@ -338,6 +351,8 @@ export function useHudState(token: string | null) {
 export interface ActionResponse {
   ok: boolean;
   message: string;
+  /** Present on pregnancy_test. */
+  test?: { positive: boolean; tooEarly: boolean };
 }
 
 export function useHudAction(token: string | null) {

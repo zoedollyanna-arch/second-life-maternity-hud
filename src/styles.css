@@ -341,6 +341,59 @@
     0 0 0 3px #6e93c93d;
 }
 
+/* --- conceive screen ------------------------------------------------------ */
+.hud-conceive-btn {
+  display: flex;
+  width: 100%;
+  min-height: 62px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 6px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f489ac 0%, #e0568a 100%);
+  box-shadow: 0 12px 24px -12px #e0568a99;
+  color: #ffffff;
+  font-family: var(--font-sans);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.hud-conceive-btn:active {
+  transform: translateY(1px);
+}
+
+.hud-conceive-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.hud-fertility {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.hud-fertility-btn {
+  min-height: 48px;
+  border: 2px solid #e2d6ef;
+  border-radius: 14px;
+  background: #ffffff;
+  color: var(--nestoria-accent);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.hud-fertility-btn.is-on {
+  border-color: transparent;
+  background: linear-gradient(180deg, #b98fdb 0%, #9a6bc4 100%);
+  color: #ffffff;
+  box-shadow: 0 8px 18px -12px #8e63b5cc;
+}
+
 .hud-topbar {
   display: flex;
   min-width: 0;

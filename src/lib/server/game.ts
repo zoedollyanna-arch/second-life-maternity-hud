@@ -218,15 +218,30 @@ export async function upsertDevice(
 // Pregnancy
 // ---------------------------------------------------------------------------
 
+/**
+ * The wearer's live pregnancy row, creating one if she has none.
+ *
+ * A brand new row starts at status 'trying' — she is not pregnant yet. The row
+ * still exists from the first moment because the pairing code lives on it, and
+ * her partner has to be able to link *before* they try to conceive. See
+ * db/migrations/0010_conception.sql for why "no row at all" was rejected.
+ *
+ * Existing players keep whatever status they already have; nothing here
+ * downgrades an active pregnancy.
+ */
 export async function ensureActivePregnancy(userId: string) {
   const existing = await db().query(
-    `select * from pregnancies where user_id = $1 and status = 'active' limit 1`,
+    `select * from pregnancies
+      where user_id = $1 and status in ('active', 'trying')
+      order by case status when 'active' then 0 else 1 end
+      limit 1`,
     [userId],
   );
   if (existing.rows[0]) return existing.rows[0];
   const created = await db().query(
-    `insert into pregnancies (user_id, partner_code) values ($1, $2)
-     on conflict (user_id) where status = 'active'
+    `insert into pregnancies (user_id, partner_code, status, trying_since)
+     values ($1, $2, 'trying', now())
+     on conflict (user_id) where status in ('active', 'trying')
      do update set updated_at = pregnancies.updated_at
      returning *, (xmax = 0) as was_inserted`,
     [userId, partnerCode()],
@@ -243,10 +258,28 @@ export async function ensureActivePregnancy(userId: string) {
   await addNotification(
     userId,
     "Welcome to Nestoria ♥",
-    "Your pregnancy journey has begun. Wear your HUD and belly, and share your pairing code with your partner.",
+    "Share your pairing code with your partner, then start your journey together when you are both ready.",
   );
   return preg;
 }
+
+/** Is this row still pre-pregnancy? */
+function isTrying(preg: { status?: string } | null | undefined) {
+  return preg?.status === "trying";
+}
+
+// ---------------------------------------------------------------------------
+// Conception
+// ---------------------------------------------------------------------------
+
+/** Odds of a single attempt landing, by fertility setting. */
+const FERTILITY_CHANCE: Record<string, number> = { low: 0.22, normal: 0.45, high: 0.72 };
+
+/** How long after conception a test can read positive. */
+const TEST_WAIT_MINUTES = 5;
+
+/** How long between attempts, so the button is a moment and not a slot machine. */
+const ATTEMPT_COOLDOWN_MINUTES = 2;
 
 function isDeliveredPregnancy(preg: { status?: string; labor_stage?: string } | null | undefined) {
   return preg?.status === "delivered" || preg?.labor_stage === "delivered";
@@ -1514,6 +1547,22 @@ export async function getDashboardState(user: HudUser) {
       avatarKey: user.avatar_key,
       role: user.role,
     },
+    conception: {
+      trying: preg.status === "trying",
+      fertility: String(preg.fertility ?? "normal"),
+      attempts: Number(preg.attempts ?? 0),
+      testsTaken: Number(preg.tests_taken ?? 0),
+      // Whether a test could read positive right now. Never leaks whether an
+      // attempt already landed — that is the whole point of the test.
+      canTest: Boolean(
+        preg.status === "trying" &&
+        (!preg.last_attempt_at || Date.now() - new Date(preg.last_attempt_at).getTime() > 0),
+      ),
+      cooldownEndsAt: preg.last_attempt_at
+        ? new Date(new Date(preg.last_attempt_at).getTime() + 2 * 60_000).toISOString()
+        : null,
+      tryingSince: preg.trying_since ?? null,
+    },
     pregnancy: {
       id: preg.id,
       status: preg.status,
@@ -2009,6 +2058,163 @@ export async function performAction(
 
   switch (action) {
     // ---- setup / pregnancy controls ---------------------------------------
+    // ---- conception --------------------------------------------------------
+    case "fertility_set": {
+      if (!isTrying(preg)) {
+        return { ok: false, message: "You are already on your journey." };
+      }
+      const level = str("fertility", 10);
+      if (!["low", "normal", "high"].includes(level)) {
+        return { ok: false, message: "Pick low, normal or high." };
+      }
+      await db().query(`update pregnancies set fertility = $2, updated_at = now() where id = $1`, [
+        preg.id,
+        level,
+      ]);
+      return { ok: true, message: `Fertility set to ${level}.` };
+    }
+
+    /**
+     * Try to conceive. Either partner may press it — this is a thing they do
+     * together — but the roll and everything it writes belong to her row.
+     *
+     * A success is deliberately NOT announced. `conceived_on` is set and the
+     * status stays 'trying' until a test confirms it, which is what makes the
+     * test a reveal rather than a formality.
+     */
+    case "conceive_attempt": {
+      if (!isTrying(preg)) {
+        return { ok: false, message: "You are already expecting ♥" };
+      }
+      if (isPartner) {
+        const perms = await partnerSvc.permissionsForPregnancy(preg.id, momId);
+        if (!perms.allowPhysical) {
+          return { ok: false, message: "She has turned that off in her privacy settings." };
+        }
+      }
+
+      const last = preg.last_attempt_at ? new Date(preg.last_attempt_at).getTime() : 0;
+      const waited = (Date.now() - last) / 60_000;
+      if (last && waited < ATTEMPT_COOLDOWN_MINUTES) {
+        const left = Math.max(1, Math.ceil(ATTEMPT_COOLDOWN_MINUTES - waited));
+        return { ok: false, message: `Give it a moment — try again in ${left} min.` };
+      }
+
+      const fertility = String(preg.fertility ?? "normal");
+      const chance = FERTILITY_CHANCE[fertility] ?? FERTILITY_CHANCE.normal;
+
+      // Already conceived on an earlier attempt and just hasn't tested yet —
+      // don't re-roll and don't move the test window.
+      const alreadyCaught = Boolean(preg.conceived_on);
+      const success = alreadyCaught || Math.random() < chance;
+
+      const sets = [`attempts = attempts + 1`, `last_attempt_at = now()`, `updated_at = now()`];
+      if (success && !alreadyCaught) {
+        sets.push(`conceived_on = now()`);
+        sets.push(`test_ready_at = now() + ($2::integer * interval '1 minute')`);
+      }
+      await db().query(
+        `update pregnancies set ${sets.join(", ")} where id = $1`,
+        success && !alreadyCaught ? [preg.id, TEST_WAIT_MINUTES] : [preg.id],
+      );
+      await db().query(
+        `insert into conception_attempts
+           (pregnancy_id, actor_id, actor_name, fertility, chance, succeeded)
+         values ($1, $2, $3, $4, $5, $6)`,
+        [preg.id, user.id, actorName, fertility, chance, success],
+      );
+
+      await applyCare(
+        momId,
+        preg.id,
+        "conceive_attempt",
+        { mood: 6, comfort: 4, stress: -3 },
+        "Tried to conceive",
+      );
+      const line = `${actorName} and ${momName} are trying for a baby.`;
+      await queueAnim(momId, "hud", "hearts");
+      await queueCommand(momId, "hud", "say", { text: line });
+      if (preg.partner_user_id) {
+        await notifyPartner(preg, "Trying for a baby", line, { severity: "milestone" });
+      }
+
+      // The same words either way. She finds out by testing.
+      return {
+        ok: true,
+        message: "A quiet, hopeful moment together. Take a test in a little while ♥",
+      };
+    }
+
+    /**
+     * Take a pregnancy test. Positive only once the wait after a successful
+     * attempt has elapsed, so an eager tester gets a truthful "too early".
+     */
+    case "pregnancy_test": {
+      if (!isTrying(preg)) {
+        return { ok: true, message: "You already know — you're expecting ♥" };
+      }
+      await db().query(
+        `update pregnancies set tests_taken = tests_taken + 1, test_taken_at = now(),
+           updated_at = now() where id = $1`,
+        [preg.id],
+      );
+
+      const conceivedOn = preg.conceived_on ? new Date(preg.conceived_on) : null;
+      const readyAt = preg.test_ready_at ? new Date(preg.test_ready_at).getTime() : null;
+      const tooEarly = conceivedOn && readyAt && Date.now() < readyAt;
+
+      if (!conceivedOn || tooEarly) {
+        await addNotification(
+          momId,
+          "The test is negative",
+          conceivedOn
+            ? "It may simply be too early to tell. Try again a little later."
+            : "Not this time. There is always another month.",
+        );
+        await queueCommand(momId, "hud", "say", {
+          text: `${momName} looks at the test. One line.`,
+        });
+        return {
+          ok: true,
+          message: tooEarly
+            ? "One line — it might just be too early. Try again shortly."
+            : "One line. Not this time ♥",
+          test: { positive: false, tooEarly: Boolean(tooEarly) },
+        };
+      }
+
+      // Positive. The pregnancy clock starts at conception, not at the test,
+      // so the days she spent waiting to test still count.
+      await db().query(
+        `update pregnancies
+            set status = 'active', conceived_at = conceived_on, updated_at = now()
+          where id = $1 and status = 'trying'`,
+        [preg.id],
+      );
+      await addJournal(momId, "We're pregnant", "Two lines. The journey begins.", "milestone");
+      await addNotification(
+        momId,
+        "Two lines ♥",
+        "You're pregnant. Set up your journey when you're ready.",
+      );
+      await queueAnim(momId, "hud", "hearts");
+      await queueCommand(momId, "hud", "say", { text: `${momName} stares at two clear lines.` });
+      await partnerSvc
+        .ensureMilestone(preg.id, "conceived", "We're pregnant", { body: "Two lines." })
+        .catch(() => {});
+      if (preg.partner_user_id) {
+        await notifyPartner(preg, "Two lines ♥", `${momName} is pregnant.`, {
+          severity: "milestone",
+          notify: "milestone",
+        });
+      }
+      return {
+        ok: true,
+        message: "Two lines. You're pregnant ♥",
+        test: { positive: true, tooEarly: false },
+      };
+    }
+
     case "setup_update": {
       const displayName = str("momName", 80);
       const week = numberParam("week", 1, 1, 40);
@@ -2970,6 +3176,40 @@ export async function performAction(
         ok: true,
         message: `Labor speed ${speed}x — full labor now runs about ${scaled.totalMinutes} minutes.`,
       };
+    }
+
+    case "test_reset_conception": {
+      const blocked = await requireTestMode(preg, user);
+      if (blocked) return { ok: false, message: blocked };
+      await db().query(
+        `update pregnancies
+            set status = 'trying',
+                trying_since = now(),
+                attempts = 0,
+                tests_taken = 0,
+                last_attempt_at = null,
+                conceived_on = null,
+                test_ready_at = null,
+                test_taken_at = null,
+                setup_complete = false,
+                setup_step = 1,
+                labor_phase = 'none',
+                labor_stage = 'none',
+                labor_onset_frac = null,
+                labor_plan = '{}'::jsonb,
+                water_broken_at = null,
+                contractions_started_at = null,
+                hospital_at = null,
+                birth_at = null,
+                updated_at = now()
+          where id = $1`,
+        [preg.id],
+      );
+      await db().query(
+        `update user_settings set settings = settings - 'setupComplete' where user_id = $1`,
+        [momId],
+      );
+      return { ok: true, message: "Back to trying. The conceive screen is live again." };
     }
 
     case "test_reset_labor": {

@@ -491,6 +491,11 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
     { key: "settings", label: "Settings", icon: SettingsIcon, tint: "lav" },
   ];
 
+  // Not pregnant yet: the journey starts before the pregnancy does.
+  if (data.conception?.trying && data.user.role === "mom") {
+    return <ConceiveScreen data={data} act={act} pending={action.isPending} />;
+  }
+
   if (!preg.setupComplete && data.user.role === "mom") {
     return (
       <SetupWizard token={token} data={data} onSave={(params) => act("setup_update", params)} />
@@ -1446,6 +1451,148 @@ function SetupWizard({
               </div>
             </div>
           </Panel>
+        </div>
+      </HudFrame>
+      <Toaster position="top-center" />
+    </Shell>
+  );
+}
+
+const FERTILITY_LEVELS: { key: "low" | "normal" | "high"; label: string; hint: string }[] = [
+  { key: "low", label: "Low", hint: "It may take a while. A slower, longer story." },
+  { key: "normal", label: "Normal", hint: "A realistic chance each time you try." },
+  { key: "high", label: "High", hint: "It usually happens quickly." },
+];
+
+/**
+ * Try to Conceive.
+ *
+ * What she sees before there is a pregnancy. The result of an attempt is
+ * deliberately never shown here — the server sets conception quietly and the
+ * test is what reveals it, which is the whole point of having a test.
+ */
+function ConceiveScreen({
+  data,
+  act,
+  pending,
+}: {
+  data: HudState;
+  act: (name: string, params?: Record<string, unknown>) => void;
+  pending: boolean;
+}) {
+  const hudZoom = useHudZoom();
+  const c = data.conception!;
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const cooldownLeft = c.cooldownEndsAt
+    ? Math.max(0, Math.ceil((new Date(c.cooldownEndsAt).getTime() - now) / 1000))
+    : 0;
+  const waiting = cooldownLeft > 0;
+
+  return (
+    <Shell>
+      <HudFrame {...hudZoom}>
+        <div className="hud-app">
+          <header className="hud-topbar">
+            <div className="flex min-w-0 items-center gap-3">
+              <img
+                src={logo}
+                alt=""
+                width={32}
+                height={32}
+                className="h-8 w-8 shrink-0 rounded-lg"
+              />
+              <div className="min-w-0">
+                <div className="hud-brand truncate">NESTORIA</div>
+                <div className="hud-subtitle truncate">Your journey starts here</div>
+              </div>
+            </div>
+          </header>
+
+          <div className="hud-stage">
+            <main className="hud-main is-scroll">
+              <Panel>
+                <div className="hud-hero">
+                  <DecorCloud className="hud-hero-cloud is-left" />
+                  <DecorCloud className="hud-hero-cloud is-right" />
+                  <div className="hud-hero-text">
+                    <h1 className="hud-wordmark">Try to Conceive</h1>
+                    <p className="hud-tagline">Start your journey together.</p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="hud-conceive-btn"
+                  disabled={pending || waiting}
+                  onClick={() => act("conceive_attempt")}
+                >
+                  <Heart className="h-6 w-6" />
+                  <span>{waiting ? `Wait ${cooldownLeft}s` : "CONCEIVE"}</span>
+                </button>
+
+                {c.attempts > 0 && (
+                  <p className="mt-2 text-center hud-muted italic">
+                    {c.attempts === 1
+                      ? "You have tried once."
+                      : `You have tried ${c.attempts} times.`}
+                    {c.testsTaken > 0 &&
+                      ` ${c.testsTaken} test${c.testsTaken === 1 ? "" : "s"} taken.`}
+                  </p>
+                )}
+              </Panel>
+
+              <Panel>
+                <PanelHeader eyebrow="Fertility level" title="Set how fertile you are" />
+                <div className="hud-fertility">
+                  {FERTILITY_LEVELS.map((level) => (
+                    <button
+                      key={level.key}
+                      type="button"
+                      disabled={pending}
+                      onClick={() => act("fertility_set", { fertility: level.key })}
+                      className={`hud-fertility-btn ${c.fertility === level.key ? "is-on" : ""}`}
+                    >
+                      {level.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-center hud-muted">
+                  {FERTILITY_LEVELS.find((l) => l.key === c.fertility)?.hint}
+                </p>
+              </Panel>
+
+              <Panel>
+                <PanelHeader
+                  eyebrow="Pregnancy test"
+                  title="Take a test"
+                  subtitle="A test only reads true once enough time has passed."
+                />
+                <PrimaryButton disabled={pending} onClick={() => act("pregnancy_test")}>
+                  Take a pregnancy test
+                </PrimaryButton>
+              </Panel>
+
+              {!data.partner.linked && (
+                <Panel>
+                  <PanelHeader
+                    eyebrow="Partner"
+                    title="Doing this together?"
+                    subtitle="Give them this code on their Partner HUD."
+                  />
+                  <PairingCode code={data.partner.code} />
+                  <p className="mt-2 text-center hud-muted italic">
+                    Once linked, either of you can start the attempt.
+                  </p>
+                </Panel>
+              )}
+            </main>
+          </div>
         </div>
       </HudFrame>
       <Toaster position="top-center" />
