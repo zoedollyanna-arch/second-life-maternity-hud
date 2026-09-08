@@ -281,10 +281,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  height: 60px;
+  height: 46px;
   padding: 0 12px;
   border: 1px solid #ffffffaa;
-  border-radius: 18px;
+  border-radius: 16px;
   background: color-mix(in srgb, #ffffff 78%, #d6c6e7 22%);
   box-shadow: 0 4px 18px -10px #a77acb44;
   backdrop-filter: blur(16px);
@@ -353,8 +353,9 @@
 .hud-home {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
+  /* hero, tile grid (takes the slack), summary strip */
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 8px;
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -425,11 +426,14 @@
 
 .hud-tile-icon {
   display: flex;
-  width: 68px;
-  height: 68px;
+  /* Scales with the shared-media face. The mockup's icons dominate the tile,
+     so this leans large and only shrinks on a short screen. */
+  width: clamp(52px, 11vh, 92px);
+  height: clamp(52px, 11vh, 92px);
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border-radius: 16px;
+  border-radius: 22px;
   background:
     radial-gradient(120% 80% at 30% 20%, #ffffff 0%, transparent 46%),
     linear-gradient(180deg, #f6eef8 0%, #e4d6f0 100%);
@@ -440,8 +444,200 @@
 }
 
 .hud-tile-icon svg {
-  width: 36px;
-  height: 36px;
+  width: 100%;
+  height: 100%;
+}
+
+/* Tile tints, matching the mockup's alternating lavender / cream / blush. */
+.hud-tile-icon.is-lav {
+  background:
+    radial-gradient(120% 80% at 30% 18%, #ffffff 0%, transparent 52%),
+    linear-gradient(180deg, #f3ecfa 0%, #e0d2ef 100%);
+}
+
+.hud-tile-icon.is-cream {
+  background:
+    radial-gradient(120% 80% at 30% 18%, #ffffff 0%, transparent 52%),
+    linear-gradient(180deg, #fff8ec 0%, #fbe9cf 100%);
+  box-shadow:
+    0 8px 16px -10px #d9b98a66,
+    inset 0 1px 0 #ffffffcc;
+}
+
+.hud-tile-icon.is-blush {
+  background:
+    radial-gradient(120% 80% at 30% 18%, #ffffff 0%, transparent 52%),
+    linear-gradient(180deg, #fdeff4 0%, #f8d6e2 100%);
+  box-shadow:
+    0 8px 16px -10px #e8a8bc66,
+    inset 0 1px 0 #ffffffcc;
+}
+
+.hud-tile-label {
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.15;
+  text-align: center;
+}
+
+/* --- hero ---------------------------------------------------------------- */
+.hud-hero {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 0 4px;
+  overflow: hidden;
+}
+
+.hud-hero-cloud {
+  position: absolute;
+  top: 6px;
+  width: 108px;
+  opacity: 0.85;
+  pointer-events: none;
+  filter: drop-shadow(0 4px 10px #a77acb26);
+}
+
+.hud-hero-cloud.is-left {
+  left: 2%;
+}
+
+.hud-hero-cloud.is-right {
+  right: 2%;
+  top: 14px;
+  width: 88px;
+}
+
+.hud-hero-text {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+}
+
+.hud-wordmark {
+  margin: 0;
+  font-family: var(--font-script);
+  font-size: clamp(30px, 5.2vh, 46px);
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--nestoria-accent);
+  text-shadow: 0 2px 10px #ffffffcc;
+}
+
+.hud-tagline {
+  margin: 0;
+  font-size: clamp(12px, 1.8vh, 16px);
+  font-weight: 500;
+  color: #8f7fa6;
+}
+
+/* --- summary strip ------------------------------------------------------- */
+.hud-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.hud-summary-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid #ffffffcc;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #fdf9ff 100%);
+  box-shadow: 0 10px 22px -16px #4d405e4d;
+  text-align: center;
+  cursor: pointer;
+}
+
+.hud-summary-card.is-health {
+  gap: 5px;
+  text-align: left;
+}
+
+.hud-summary-card:active {
+  transform: translateY(1px);
+}
+
+.hud-summary-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--nestoria-accent);
+}
+
+.hud-summary-title.is-left {
+  text-align: left;
+}
+
+.hud-summary-figure {
+  display: block;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f3ecfa 0%, #e2d5f0 100%);
+}
+
+.hud-summary-figure svg {
+  width: 100%;
+  height: 100%;
+}
+
+.hud-summary-weeks {
+  font-family: var(--font-display);
+  font-size: clamp(16px, 2.6vh, 22px);
+  font-weight: 600;
+  color: var(--nestoria-text);
+}
+
+.hud-summary-sub,
+.hud-summary-due {
+  font-size: 12px;
+  color: #8f7fa6;
+}
+
+.hud-progress {
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  height: 9px;
+  margin: 3px 0;
+  border-radius: 999px;
+  background: #f0e9d9;
+}
+
+.hud-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #c2a5dd 0%, #a77acb 100%);
+}
+
+.hud-mini-meter {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr) 40px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.hud-mini-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--nestoria-text);
+}
+
+.hud-mini-value {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--nestoria-accent);
+  text-align: right;
 }
 
 .hud-tile span {
@@ -580,12 +776,16 @@ button.hud-card {
   overflow-y: auto;
 }
 
+/* Each pip is an inline <svg> cloud (see CloudBar in components/hud/chrome).
+   preserveAspectRatio is left at its default so the cloud keeps its shape as
+   the row stretches; the flex basis controls how many fit. */
 .hud-cloud-pip {
   display: block;
   min-width: 0;
-  flex: 1;
-  height: 16px;
-  border-radius: 999px 999px 70% 70%;
+  flex: 1 1 0;
+  height: 18px;
+  overflow: visible;
+  filter: drop-shadow(0 2px 3px #4d405e1f);
 }
 
 .hud-btn-primary {
@@ -648,7 +848,7 @@ button.hud-card {
 
 .hud-brand {
   font-family: var(--font-display);
-  font-size: 26px;
+  font-size: 19px;
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1;
@@ -816,11 +1016,6 @@ button.hud-card {
 }
 
 @media (min-height: 780px) {
-  .hud-tile-icon {
-    width: 58px;
-    height: 58px;
-  }
-
   .hud-stat {
     font-size: 34px;
   }

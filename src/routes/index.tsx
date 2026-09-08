@@ -107,6 +107,19 @@ import {
 } from "@/lib/sounds";
 import { LAYOUT_PREVIEW_STATE } from "@/lib/hud-preview";
 import {
+  PregnancyIcon,
+  HealthIcon,
+  CareIcon,
+  PartnerIcon,
+  JournalIcon,
+  BabyIcon,
+  NotificationsIcon,
+  SettingsIcon,
+  HospitalBagIcon,
+  MilestonesIcon,
+  DecorCloud,
+} from "@/components/hud/icons";
+import {
   CloudBar,
   Meter,
   Panel,
@@ -459,19 +472,23 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
       : preg.trimester === 2
         ? "2nd Trimester"
         : "3rd Trimester";
+  // The eight tiles, in the order and wording of the client's mockup. `tint`
+  // picks the tile background so the grid alternates lavender / cream / blush
+  // the way her reference does.
   const homeTiles: {
     key: NavKey;
     label: string;
     icon: React.ComponentType<{ className?: string }>;
+    tint: "lav" | "cream" | "blush";
   }[] = [
-    { key: "pregnancy", label: "Pregnancy", icon: Sparkles },
-    { key: "health", label: "Health", icon: Heart },
-    { key: "care", label: "Care", icon: HandHeart },
-    { key: "partner", label: "Partner", icon: Users },
-    { key: "journal", label: "Journal", icon: BookHeart },
-    { key: "baby", label: "Baby", icon: Baby },
-    { key: "bag", label: "Hospital bag", icon: Briefcase },
-    { key: "milestones", label: "Milestones", icon: Trophy },
+    { key: "pregnancy", label: "Pregnancy", icon: PregnancyIcon, tint: "lav" },
+    { key: "health", label: "Health", icon: HealthIcon, tint: "lav" },
+    { key: "care", label: "Care & Comfort", icon: CareIcon, tint: "cream" },
+    { key: "partner", label: "Partner", icon: PartnerIcon, tint: "blush" },
+    { key: "journal", label: "Journal", icon: JournalIcon, tint: "blush" },
+    { key: "baby", label: "Baby", icon: BabyIcon, tint: "blush" },
+    { key: "notifications", label: "Notifications", icon: NotificationsIcon, tint: "cream" },
+    { key: "settings", label: "Settings", icon: SettingsIcon, tint: "lav" },
   ];
 
   if (!preg.setupComplete && data.user.role === "mom") {
@@ -497,7 +514,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                 alt=""
                 width={44}
                 height={44}
-                className="h-11 w-11 shrink-0 rounded-xl"
+                className="h-8 w-8 shrink-0 rounded-lg"
               />
               <div className="min-w-0">
                 <div className="hud-brand truncate">NESTORIA</div>
@@ -563,51 +580,79 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       <LinkApprovals data={data} act={act} pending={action.isPending} />
                     </section>
                   )}
-                  <section>
-                    <button
-                      type="button"
-                      className="hud-card w-full text-left"
-                      onClick={() => openApp("pregnancy")}
-                    >
-                      <div className="hud-overview-strip">
-                        <img src={pregnancyHero} alt="" loading="lazy" />
-                        <div className="hud-overview-meta">
-                          <div className="hud-stat">
-                            {preg.week}W + {preg.day}D
-                          </div>
-                          <div className="hud-copy">{trimesterLabel}</div>
-                          <CloudBar value={preg.progressPct} />
-                        </div>
-                        <div className="hud-overview-facts">
-                          <div className="hud-overview-fact">
-                            <div className="hud-label">Due</div>
-                            <div className="hud-copy truncate">{dueDate}</div>
-                          </div>
-                          <div className="hud-overview-fact">
-                            <div className="hud-label">Size</div>
-                            <div className="hud-copy truncate">{preg.baby.size}</div>
-                          </div>
-                        </div>
-                      </div>
-                    </button>
+                  {/* Wordmark, with the drifting clouds from the mockup. */}
+                  <section className="hud-hero">
+                    <DecorCloud className="hud-hero-cloud is-left" />
+                    <DecorCloud className="hud-hero-cloud is-right" />
+                    <div className="hud-hero-text">
+                      <h1 className="hud-wordmark">Nestoria</h1>
+                      <p className="hud-tagline">your journey, beautifully</p>
+                    </div>
                   </section>
 
                   <section className="min-h-0">
                     <div className="hud-tiles">
-                      {homeTiles.map(({ key, label, icon: Icon }) => (
+                      {homeTiles.map(({ key, label, icon: Icon, tint }) => (
                         <button
                           key={label}
                           type="button"
                           onClick={() => openApp(key)}
                           className="hud-tile"
                         >
-                          <span className="hud-tile-icon">
+                          <span className={`hud-tile-icon is-${tint}`}>
                             <Icon />
                           </span>
-                          <span>{label}</span>
+                          <span className="hud-tile-label">{label}</span>
                         </button>
                       ))}
                     </div>
+                  </section>
+
+                  {/* Summary strip: pregnancy at a glance, health in clouds. */}
+                  <section className="hud-summary">
+                    <button
+                      type="button"
+                      className="hud-summary-card is-preg"
+                      onClick={() => openApp("pregnancy")}
+                    >
+                      <span className="hud-summary-title">Pregnancy</span>
+                      <span className="hud-summary-figure">
+                        <PregnancyIcon />
+                      </span>
+                      <span className="hud-summary-weeks">
+                        {preg.week} weeks, {preg.day} days
+                      </span>
+                      <span className="hud-summary-sub">{trimesterLabel}</span>
+                      <span className="hud-progress">
+                        <span
+                          className="hud-progress-fill"
+                          style={{ width: `${Math.max(2, Math.min(100, preg.progressPct))}%` }}
+                        />
+                      </span>
+                      <span className="hud-summary-due">Due Date: {dueDate}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="hud-summary-card is-health"
+                      onClick={() => openApp("health")}
+                    >
+                      <span className="hud-summary-title is-left">Health Overview</span>
+                      {(
+                        [
+                          ["Sickness", stats.sickness, "lavender"],
+                          ["Hunger", stats.hunger, "blush"],
+                          ["Bladder", stats.bladder, "lavender"],
+                          ["Mood", stats.mood, "blush"],
+                        ] as const
+                      ).map(([label, value, tone]) => (
+                        <span key={label} className="hud-mini-meter">
+                          <span className="hud-mini-label">{label}</span>
+                          <CloudBar value={value} tone={tone} />
+                          <span className="hud-mini-value">{Math.round(value)}%</span>
+                        </span>
+                      ))}
+                    </button>
                   </section>
                 </div>
               )}
