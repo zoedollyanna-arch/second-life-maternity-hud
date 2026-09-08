@@ -58,6 +58,15 @@ integer gFailStreak  = 0;
 float   gNextHttp    = 0.0;
 integer gMediaReady  = FALSE;
 
+// --- minimise ---------------------------------------------------------------
+// Tucking the HUD away is not just an alpha change: an invisible prim in a HUD
+// still swallows mouse clicks, so a "hidden" screen would keep blocking that
+// part of the display. The child prims are therefore moved behind the camera
+// plane as well, and their original local positions are remembered here.
+integer gMinimized   = FALSE;
+vector  gFullScale;             // root prim scale before minimising
+list    gSavedPos    = [];      // [link, local position, link, local position...]
+
 // Private channel shared with the rezzed comfort chair (same formula there).
 integer comfortChannel()
 {
@@ -405,6 +414,69 @@ vomitBurst()
 // baby" — instead of the one fixed set of five that used to be shown for
 // every single event no matter what it was.
 /**
+ * Shrink the HUD to a small tab in place.
+ *
+ * Children are hidden AND parked at <0, 0, -5> — in HUD coordinates that is
+ * behind the viewer, so they neither draw nor take clicks. The root keeps its
+ * proportions and simply scales down, which leaves a recognisable little tab
+ * to touch rather than an invisible hotspot the wearer has to hunt for.
+ */
+minimizeHud()
+{
+    if (gMinimized) return;
+
+    gFullScale = llGetScale();
+    gSavedPos = [];
+
+    integer n = llGetNumberOfPrims();
+    integer i;
+    for (i = 2; i <= n; ++i)
+    {
+        vector p = (vector)llList2String(
+            llGetLinkPrimitiveParams(i, [PRIM_POS_LOCAL]), 0);
+        gSavedPos += [i, p];
+        llSetLinkAlpha(i, 0.0, ALL_SIDES);
+        llSetLinkPrimitiveParamsFast(i, [PRIM_POS_LOCAL, <0.0, 0.0, -5.0>]);
+    }
+
+    // Keep the aspect, just make it small enough to sit out of the way.
+    vector tab = gFullScale * 0.22;
+    if (tab.x < 0.02) tab.x = 0.02;
+    if (tab.y < 0.02) tab.y = 0.02;
+    if (tab.z < 0.02) tab.z = 0.02;
+    llSetScale(tab);
+
+    gMinimized = TRUE;
+    say("HUD tucked away - touch the little tab to bring it back.");
+}
+
+/** Put everything back, and resync on the way in. */
+restoreHud()
+{
+    if (!gMinimized) return;
+
+    integer count = llGetListLength(gSavedPos);
+    integer i;
+    for (i = 0; i < count; i += 2)
+    {
+        integer link = llList2Integer(gSavedPos, i);
+        vector p = llList2Vector(gSavedPos, i + 1);
+        llSetLinkPrimitiveParamsFast(link, [PRIM_POS_LOCAL, p]);
+        llSetLinkAlpha(link, 1.0, ALL_SIDES);
+    }
+    if (gFullScale != ZERO_VECTOR) llSetScale(gFullScale);
+
+    gSavedPos = [];
+    gMinimized = FALSE;
+
+    // The screen has been sitting behind the camera; re-apply the media and
+    // re-register so it comes back live rather than on whatever it last had.
+    gMediaReady = FALSE;
+    scheduleMoap(2);
+    registerWithServer();
+}
+
+/**
  * Rez the aftermath, if the object is there. `nestoria_mess` is expected to
  * clean itself up on a timer the way the comfort chair does — the HUD only
  * puts it on the floor in front of her.
@@ -552,6 +624,14 @@ runCommand(string cmd, string params)
     {
         stopCurrentAnim();
     }
+    else if (cmd == "minimize")
+    {
+        minimizeHud();
+    }
+    else if (cmd == "restore")
+    {
+        restoreHud();
+    }
     else if (cmd == "bag_pack")
     {
         talkWorld("nestoria_bag_pack");
@@ -683,6 +763,8 @@ default
         {
             llRequestPermissions(llGetOwner(), PERMISSION_TRIGGER_ANIMATION);
             gMediaReady = FALSE;
+            // A HUD that came back still tucked away would just look broken.
+            if (gMinimized) restoreHud();
             // Deliberately NOT setMoap() here — see scheduleMoap().
             scheduleMoap(2);
             requestPushUrl();
@@ -780,9 +862,22 @@ default
     {
         if (llDetectedKey(0) != llGetOwner()) return;
 
+        // Touching the frame toggles the HUD away and back. The media face is
+        // interactive, so touching the screen itself goes to the web page and
+        // never gets here — only the frame does.
+        if (gMinimized)
+        {
+            restoreHud();
+            return;
+        }
+
+        // A touch on the frame while open means one of two things: tuck it
+        // away, or "the screen is stuck, fix it". Re-syncing first covers the
+        // second for free, then it minimises.
         if (gMoapUrl == "") setMoap(API_BASE + "/");
         else setMoap(gMoapUrl);
         registerWithServer();
+        minimizeHud();
     }
 
     listen(integer channel, string name, key id, string message)

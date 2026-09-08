@@ -29,44 +29,19 @@ integer gAwaitingCode = FALSE;
 float   gPollWait = 30.0;
 // Media re-asserts still owed. Set on attach/teleport; counted down in timer().
 integer gMoapRetry = 0;
+
+// --- minimise ---------------------------------------------------------------
+// An invisible prim in a HUD still swallows clicks, so hiding is not enough:
+// the children are parked behind the camera plane too. See the same block in
+// nestoria_main_hud.lsl.
+integer gMinimized = FALSE;
+vector  gFullScale;
+list    gSavedPos  = [];
 integer gFailStreak = 0;
 float   gNextHttp = 0.0;
 integer gMediaReady = FALSE;
 
 say(string msg) { llOwnerSay("♥ Nestoria Partner: " + msg); }
-
-// Optional flourish — a missing animation or particle texture is skipped, never
-// an error, so the HUD works with nothing but the script inside it.
-heartsBurst()
-{
-    llParticleSystem([
-        PSYS_PART_FLAGS, PSYS_PART_EMISSIVE_MASK | PSYS_PART_INTERP_COLOR_MASK,
-        PSYS_SRC_PATTERN, PSYS_SRC_PATTERN_EXPLODE,
-        PSYS_PART_START_COLOR, <1.0, 0.72, 0.84>,
-        PSYS_PART_END_ALPHA, 0.0,
-        PSYS_PART_START_SCALE, <0.14, 0.14, 0.0>,
-        PSYS_PART_MAX_AGE, 1.6,
-        PSYS_SRC_BURST_RATE, 0.02,
-        PSYS_SRC_BURST_PART_COUNT, 12,
-        PSYS_SRC_BURST_RADIUS, 0.2,
-        PSYS_SRC_BURST_SPEED_MIN, 0.2,
-        PSYS_SRC_BURST_SPEED_MAX, 0.5,
-        PSYS_SRC_MAX_AGE, 2.0
-    ]);
-    llSetTimerEvent(2.5);
-}
-
-// Roleplay reactions the wearer opted into on the More → My reactions screen.
-// They never touch her labor — the server has already decided everything.
-reactAnim(string anim, string line)
-{
-    say(line);
-    if (llGetInventoryType(anim) == INVENTORY_ANIMATION)
-    {
-        if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) llStartAnimation(anim);
-        else llRequestPermissions(llGetOwner(), PERMISSION_TRIGGER_ANIMATION);
-    }
-}
 
 integer hudPrimCount()
 {
@@ -217,6 +192,90 @@ integer httpIdle()
     return TRUE;
 }
 
+/** Shrink to a small tab in place. Touch the tab to bring it back. */
+minimizeHud()
+{
+    if (gMinimized) return;
+
+    gFullScale = llGetScale();
+    gSavedPos = [];
+
+    integer n = llGetNumberOfPrims();
+    integer i;
+    for (i = 2; i <= n; ++i)
+    {
+        vector p = (vector)llList2String(
+            llGetLinkPrimitiveParams(i, [PRIM_POS_LOCAL]), 0);
+        gSavedPos += [i, p];
+        llSetLinkAlpha(i, 0.0, ALL_SIDES);
+        llSetLinkPrimitiveParamsFast(i, [PRIM_POS_LOCAL, <0.0, 0.0, -5.0>]);
+    }
+
+    vector tab = gFullScale * 0.22;
+    if (tab.x < 0.02) tab.x = 0.02;
+    if (tab.y < 0.02) tab.y = 0.02;
+    if (tab.z < 0.02) tab.z = 0.02;
+    llSetScale(tab);
+
+    gMinimized = TRUE;
+    say("HUD tucked away - touch the little tab to bring it back.");
+}
+
+restoreHud()
+{
+    if (!gMinimized) return;
+
+    integer count = llGetListLength(gSavedPos);
+    integer i;
+    for (i = 0; i < count; i += 2)
+    {
+        integer link = llList2Integer(gSavedPos, i);
+        vector p = llList2Vector(gSavedPos, i + 1);
+        llSetLinkPrimitiveParamsFast(link, [PRIM_POS_LOCAL, p]);
+        llSetLinkAlpha(link, 1.0, ALL_SIDES);
+    }
+    if (gFullScale != ZERO_VECTOR) llSetScale(gFullScale);
+
+    gSavedPos = [];
+    gMinimized = FALSE;
+
+    gMediaReady = FALSE;
+    scheduleMoap(2);
+}
+
+// Optional flourish — a missing animation or particle texture is skipped, never
+// an error, so the HUD works with nothing but the script inside it.
+heartsBurst()
+{
+    llParticleSystem([
+        PSYS_PART_FLAGS, PSYS_PART_EMISSIVE_MASK | PSYS_PART_INTERP_COLOR_MASK,
+        PSYS_SRC_PATTERN, PSYS_SRC_PATTERN_EXPLODE,
+        PSYS_PART_START_COLOR, <1.0, 0.72, 0.84>,
+        PSYS_PART_END_ALPHA, 0.0,
+        PSYS_PART_START_SCALE, <0.14, 0.14, 0.0>,
+        PSYS_PART_MAX_AGE, 1.6,
+        PSYS_SRC_BURST_RATE, 0.02,
+        PSYS_SRC_BURST_PART_COUNT, 12,
+        PSYS_SRC_BURST_RADIUS, 0.2,
+        PSYS_SRC_BURST_SPEED_MIN, 0.2,
+        PSYS_SRC_BURST_SPEED_MAX, 0.5,
+        PSYS_SRC_MAX_AGE, 2.0
+    ]);
+    llSetTimerEvent(2.5);
+}
+
+// Roleplay reactions the wearer opted into on the More → My reactions screen.
+// They never touch her labor — the server has already decided everything.
+reactAnim(string anim, string line)
+{
+    say(line);
+    if (llGetInventoryType(anim) == INVENTORY_ANIMATION)
+    {
+        if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION) llStartAnimation(anim);
+        else llRequestPermissions(llGetOwner(), PERMISSION_TRIGGER_ANIMATION);
+    }
+}
+
 askForCode()
 {
     gAwaitingCode = TRUE;
@@ -242,6 +301,7 @@ default
     {
         if (id == NULL_KEY) return;
         gMediaReady = FALSE;
+        if (gMinimized) restoreHud();
         // Deliberately NOT setMoap() here — see scheduleMoap().
         scheduleMoap(2);
         if (gToken == "") askForCode();
@@ -250,9 +310,24 @@ default
     touch_start(integer n)
     {
         if (llDetectedKey(0) != llGetOwner()) return;
+
+        // The media face is interactive, so a touch that reaches this handler
+        // came from the frame, not the screen. Frame = tuck away / bring back.
+        if (gMinimized)
+        {
+            restoreHud();
+            return;
+        }
+
         if (gMoapUrl == "") setMoap(API_BASE + "/partner");
         else setMoap(gMoapUrl);
-        if (gToken == "") askForCode();
+        // Not paired yet? Pairing matters more than tidying it away.
+        if (gToken == "")
+        {
+            askForCode();
+            return;
+        }
+        minimizeHud();
     }
 
     listen(integer channel, string name, key id, string message)
