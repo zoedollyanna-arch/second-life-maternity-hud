@@ -81,6 +81,7 @@ import {
   MomLaborPanels,
 } from "@/components/hud/partner-panels";
 import { BABY_GROWTH } from "@/lib/pregnancy";
+import { FERTILITY_LEVELS, FERTILITY_COPY } from "@/lib/conception";
 import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, type FoodCategory } from "@/lib/foods";
 import { EVENT_CATEGORIES, EVENT_CATEGORY_LABELS, EVENT_CATEGORY_HINTS } from "@/lib/events";
 import {
@@ -1458,11 +1459,9 @@ function SetupWizard({
   );
 }
 
-const FERTILITY_LEVELS: { key: "low" | "normal" | "high"; label: string; hint: string }[] = [
-  { key: "low", label: "Low", hint: "It may take a while. A slower, longer story." },
-  { key: "normal", label: "Normal", hint: "A realistic chance each time you try." },
-  { key: "high", label: "High", hint: "It usually happens quickly." },
-];
+// Labels come from the same module the server validates against, so a button
+// can never offer a level the server would reject.
+const FERTILITY_OPTIONS = FERTILITY_LEVELS.map((key) => ({ key, ...FERTILITY_COPY[key] }));
 
 /**
  * Try to Conceive.
@@ -1550,7 +1549,7 @@ function ConceiveScreen({
               <Panel>
                 <PanelHeader eyebrow="Fertility level" title="Set how fertile you are" />
                 <div className="hud-fertility">
-                  {FERTILITY_LEVELS.map((level) => (
+                  {FERTILITY_OPTIONS.map((level) => (
                     <button
                       key={level.key}
                       type="button"
@@ -1563,7 +1562,7 @@ function ConceiveScreen({
                   ))}
                 </div>
                 <p className="mt-2 text-center hud-muted">
-                  {FERTILITY_LEVELS.find((l) => l.key === c.fertility)?.hint}
+                  {FERTILITY_OPTIONS.find((l) => l.key === c.fertility)?.hint}
                 </p>
               </Panel>
 

@@ -11,6 +11,16 @@ import {
 } from "../pregnancy";
 import { moodFromKey, rpLineFor, type MoodKey } from "../mood";
 import {
+  ATTEMPT_COOLDOWN_MINUTES,
+  attemptCooldown,
+  normalizeFertility,
+  readTest,
+  rollAttempt,
+  testReadyFrom,
+  FERTILITY_LEVELS,
+  TEST_WAIT_MINUTES,
+} from "../conception";
+import {
   rollEvent,
   choiceByKey,
   choicesForEventKey,
@@ -268,18 +278,10 @@ function isTrying(preg: { status?: string } | null | undefined) {
   return preg?.status === "trying";
 }
 
-// ---------------------------------------------------------------------------
-// Conception
-// ---------------------------------------------------------------------------
-
-/** Odds of a single attempt landing, by fertility setting. */
-const FERTILITY_CHANCE: Record<string, number> = { low: 0.22, normal: 0.45, high: 0.72 };
-
-/** How long after conception a test can read positive. */
-const TEST_WAIT_MINUTES = 5;
-
-/** How long between attempts, so the button is a moment and not a slot machine. */
-const ATTEMPT_COOLDOWN_MINUTES = 2;
+// Conception rules live in ../conception — pure functions over values, so the
+// odds, the cooldown and the test window are unit tested without a database.
+// This file keeps the side effects.
+const ATTEMPT_COOLDOWN_MS = ATTEMPT_COOLDOWN_MINUTES * 60_000;
 
 function isDeliveredPregnancy(preg: { status?: string; labor_stage?: string } | null | undefined) {
   return preg?.status === "delivered" || preg?.labor_stage === "delivered";
@@ -1559,7 +1561,7 @@ export async function getDashboardState(user: HudUser) {
         (!preg.last_attempt_at || Date.now() - new Date(preg.last_attempt_at).getTime() > 0),
       ),
       cooldownEndsAt: preg.last_attempt_at
-        ? new Date(new Date(preg.last_attempt_at).getTime() + 2 * 60_000).toISOString()
+        ? new Date(new Date(preg.last_attempt_at).getTime() + ATTEMPT_COOLDOWN_MS).toISOString()
         : null,
       tryingSince: preg.trying_since ?? null,
     },
@@ -2064,7 +2066,7 @@ export async function performAction(
         return { ok: false, message: "You are already on your journey." };
       }
       const level = str("fertility", 10);
-      if (!["low", "normal", "high"].includes(level)) {
+      if (!(FERTILITY_LEVELS as readonly string[]).includes(level)) {
         return { ok: false, message: "Pick low, normal or high." };
       }
       await db().query(`update pregnancies set fertility = $2, updated_at = now() where id = $1`, [
@@ -2093,35 +2095,31 @@ export async function performAction(
         }
       }
 
-      const last = preg.last_attempt_at ? new Date(preg.last_attempt_at).getTime() : 0;
-      const waited = (Date.now() - last) / 60_000;
-      if (last && waited < ATTEMPT_COOLDOWN_MINUTES) {
-        const left = Math.max(1, Math.ceil(ATTEMPT_COOLDOWN_MINUTES - waited));
-        return { ok: false, message: `Give it a moment — try again in ${left} min.` };
+      const cooldown = attemptCooldown(preg.last_attempt_at, Date.now());
+      if (cooldown.blocked) {
+        return {
+          ok: false,
+          message: `Give it a moment — try again in ${cooldown.minutesLeft} min.`,
+        };
       }
 
-      const fertility = String(preg.fertility ?? "normal");
-      const chance = FERTILITY_CHANCE[fertility] ?? FERTILITY_CHANCE.normal;
-
-      // Already conceived on an earlier attempt and just hasn't tested yet —
-      // don't re-roll and don't move the test window.
-      const alreadyCaught = Boolean(preg.conceived_on);
-      const success = alreadyCaught || Math.random() < chance;
+      const fertility = normalizeFertility(preg.fertility);
+      const outcome = rollAttempt({ fertility, conceivedOn: preg.conceived_on });
 
       const sets = [`attempts = attempts + 1`, `last_attempt_at = now()`, `updated_at = now()`];
-      if (success && !alreadyCaught) {
+      if (outcome.writesConception) {
         sets.push(`conceived_on = now()`);
         sets.push(`test_ready_at = now() + ($2::integer * interval '1 minute')`);
       }
       await db().query(
         `update pregnancies set ${sets.join(", ")} where id = $1`,
-        success && !alreadyCaught ? [preg.id, TEST_WAIT_MINUTES] : [preg.id],
+        outcome.writesConception ? [preg.id, TEST_WAIT_MINUTES] : [preg.id],
       );
       await db().query(
         `insert into conception_attempts
            (pregnancy_id, actor_id, actor_name, fertility, chance, succeeded)
          values ($1, $2, $3, $4, $5, $6)`,
-        [preg.id, user.id, actorName, fertility, chance, success],
+        [preg.id, user.id, actorName, fertility, outcome.chance, outcome.conceived],
       );
 
       await applyCare(
@@ -2159,15 +2157,17 @@ export async function performAction(
         [preg.id],
       );
 
-      const conceivedOn = preg.conceived_on ? new Date(preg.conceived_on) : null;
-      const readyAt = preg.test_ready_at ? new Date(preg.test_ready_at).getTime() : null;
-      const tooEarly = conceivedOn && readyAt && Date.now() < readyAt;
+      const result = readTest({
+        conceivedOn: preg.conceived_on,
+        testReadyAt: preg.test_ready_at,
+        now: Date.now(),
+      });
 
-      if (!conceivedOn || tooEarly) {
+      if (!result.positive) {
         await addNotification(
           momId,
           "The test is negative",
-          conceivedOn
+          result.tooEarly
             ? "It may simply be too early to tell. Try again a little later."
             : "Not this time. There is always another month.",
         );
@@ -2176,10 +2176,10 @@ export async function performAction(
         });
         return {
           ok: true,
-          message: tooEarly
+          message: result.tooEarly
             ? "One line — it might just be too early. Try again shortly."
             : "One line. Not this time ♥",
-          test: { positive: false, tooEarly: Boolean(tooEarly) },
+          test: result,
         };
       }
 
@@ -2208,11 +2208,7 @@ export async function performAction(
           notify: "milestone",
         });
       }
-      return {
-        ok: true,
-        message: "Two lines. You're pregnant ♥",
-        test: { positive: true, tooEarly: false },
-      };
+      return { ok: true, message: "Two lines. You're pregnant ♥", test: result };
     }
 
     case "setup_update": {
