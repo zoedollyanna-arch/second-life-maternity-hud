@@ -321,7 +321,10 @@ export function useHudState(token: string | null) {
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     staleTime: 2_000,
-    retry: 2,
+    // Never retry an unauthorized read. A partner who has not paired yet gets
+    // a 401 by design, and retrying it left him staring at a spinner for
+    // several seconds before the pairing screen appeared.
+    retry: (count, error) => error.message !== "unauthorized" && count < 2,
     queryFn: async () => {
       if (!token) throw new Error("missing token");
       const res = await fetch(`/api/hud/state?token=${encodeURIComponent(token)}`);

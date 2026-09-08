@@ -80,6 +80,147 @@ function Centered({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Where the partner types her pairing code.
+ *
+ * Six single-character boxes rather than one text field: on the shared-media
+ * face a normal input is fiddly to focus and gives no sense of how long the
+ * code is, and this way a typo is obvious at a glance. Typing advances, and
+ * backspace on an empty box steps back, so it behaves the way people expect
+ * a code field to.
+ */
+function PairScreen({ token, onPaired }: { token: string; onPaired: () => void }) {
+  const [chars, setChars] = useState<string[]>(() => Array(6).fill(""));
+  const [status, setStatus] = useState<"idle" | "sending" | "waiting">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const boxes = useRef<(HTMLInputElement | null)[]>([]);
+  const code = chars.join("");
+
+  const put = (i: number, raw: string) => {
+    const v = raw.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    if (!v) {
+      setChars((c) => c.map((x, n) => (n === i ? "" : x)));
+      return;
+    }
+    // Handle a pasted or fast-typed run by filling forward from here.
+    setChars((c) => {
+      const next = [...c];
+      for (let k = 0; k < v.length && i + k < 6; k++) next[i + k] = v[k];
+      return next;
+    });
+    const land = Math.min(5, i + v.length);
+    boxes.current[land]?.focus();
+  };
+
+  const onKey = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace" && !chars[i] && i > 0) boxes.current[i - 1]?.focus();
+    if (e.key === "ArrowLeft" && i > 0) boxes.current[i - 1]?.focus();
+    if (e.key === "ArrowRight" && i < 5) boxes.current[i + 1]?.focus();
+  };
+
+  const submit = async () => {
+    if (code.length !== 6 || status === "sending") return;
+    setStatus("sending");
+    setError(null);
+    try {
+      const res = await fetch("/api/hud/pair", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token, code }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        status?: string;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.ok) {
+        setError(data.error ?? "That did not work. Check the code and try again.");
+        setStatus("idle");
+        setChars(Array(6).fill(""));
+        boxes.current[0]?.focus();
+        return;
+      }
+      setNote(data.message ?? null);
+      if (data.status === "active") {
+        onPaired();
+      } else {
+        // Pending: she still has to accept. Keep polling so the screen unlocks
+        // by itself rather than asking him to touch the HUD again.
+        setStatus("waiting");
+        const id = window.setInterval(onPaired, 4000);
+        window.setTimeout(() => window.clearInterval(id), 5 * 60 * 1000);
+      }
+    } catch {
+      setError("Could not reach the server. Try again in a moment.");
+      setStatus("idle");
+    }
+  };
+
+  return (
+    <Shell>
+      <div className="hud-app is-partner">
+        <div className="flex h-full min-h-0 flex-1 items-center justify-center">
+          <Panel className="w-full max-w-[34rem] text-center">
+            <img src={logo} alt="" className="mx-auto h-12 w-12" />
+            <PanelHeader
+              eyebrow="Partner HUD"
+              title={status === "waiting" ? "Waiting for her" : "Enter her pairing code"}
+              subtitle={
+                status === "waiting"
+                  ? "She just needs to tap Accept on her HUD."
+                  : "It is on the Partner tab of her Pregnancy HUD."
+              }
+            />
+
+            {status !== "waiting" && (
+              <>
+                <div className="mb-3 flex justify-center gap-2">
+                  {chars.map((c, i) => (
+                    <input
+                      key={i}
+                      ref={(el) => {
+                        boxes.current[i] = el;
+                      }}
+                      value={c}
+                      onChange={(e) => put(i, e.target.value)}
+                      onKeyDown={(e) => onKey(i, e)}
+                      inputMode="text"
+                      autoCapitalize="characters"
+                      autoComplete="off"
+                      aria-label={`Code character ${i + 1}`}
+                      className="hud-code-box"
+                    />
+                  ))}
+                </div>
+                {error && <p className="mb-2 hud-copy font-semibold text-[#b4577a]">{error}</p>}
+                <PrimaryButton
+                  onClick={submit}
+                  disabled={code.length !== 6 || status === "sending"}
+                >
+                  {status === "sending" ? "Sending…" : "Link with her"}
+                </PrimaryButton>
+              </>
+            )}
+
+            {status === "waiting" && (
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 className="h-8 w-8 animate-spin text-[#6E93C9]" />
+                {note && <p className="hud-copy">{note}</p>}
+              </div>
+            )}
+
+            <p className="mt-3 hud-muted italic">
+              You can also touch the Partner HUD in world and type the code there.
+            </p>
+          </Panel>
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
 function PartnerPage() {
   const { token } = Route.useSearch();
   const state = useHudState(token ?? null);
@@ -116,22 +257,7 @@ function PartnerPage() {
   // Both land here, because the server refuses to resolve a pregnancy without
   // an active link — which is exactly the protection we want.
   if (state.isError || !state.data || state.data.error) {
-    return (
-      <Centered>
-        <Panel className="w-full max-w-[36rem] text-center">
-          <img src={logo} alt="" className="mx-auto h-14 w-14" />
-          <PanelHeader
-            eyebrow="Waiting"
-            title="Not linked yet"
-            subtitle="Her HUD has to accept before this screen unlocks."
-          />
-          <p className="hud-copy">
-            Touch the Partner HUD and enter the 6-character code from the Partner panel on her
-            Pregnancy HUD. If you already sent it, she just needs to tap Accept.
-          </p>
-        </Panel>
-      </Centered>
-    );
+    return <PairScreen token={token} onPaired={() => state.refetch()} />;
   }
 
   return <PartnerDashboard token={token} />;
@@ -270,7 +396,7 @@ function PartnerDashboard({ token }: { token: string }) {
   return (
     <Shell>
       <HudFrame {...hudZoom}>
-        <div className="hud-app">
+        <div className="hud-app is-partner">
           <header className="hud-topbar">
             <button
               type="button"

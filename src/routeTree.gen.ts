@@ -18,6 +18,7 @@ import { Route as ApiSlEventRouteImport } from './routes/api/sl/event'
 import { Route as ApiSlActionRouteImport } from './routes/api/sl/action'
 import { Route as ApiHudStateRouteImport } from './routes/api/hud/state'
 import { Route as ApiHudPhotoRouteImport } from './routes/api/hud/photo'
+import { Route as ApiHudPairRouteImport } from './routes/api/hud/pair'
 import { Route as ApiHudDemoRouteImport } from './routes/api/hud/demo'
 import { Route as ApiHudActionRouteImport } from './routes/api/hud/action'
 
@@ -66,6 +67,11 @@ const ApiHudPhotoRoute = ApiHudPhotoRouteImport.update({
   path: '/api/hud/photo',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiHudPairRoute = ApiHudPairRouteImport.update({
+  id: '/api/hud/pair',
+  path: '/api/hud/pair',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiHudDemoRoute = ApiHudDemoRouteImport.update({
   id: '/api/hud/demo',
   path: '/api/hud/demo',
@@ -82,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/partner': typeof PartnerRoute
   '/api/hud/action': typeof ApiHudActionRoute
   '/api/hud/demo': typeof ApiHudDemoRoute
+  '/api/hud/pair': typeof ApiHudPairRoute
   '/api/hud/photo': typeof ApiHudPhotoRoute
   '/api/hud/state': typeof ApiHudStateRoute
   '/api/sl/action': typeof ApiSlActionRoute
@@ -95,6 +102,7 @@ export interface FileRoutesByTo {
   '/partner': typeof PartnerRoute
   '/api/hud/action': typeof ApiHudActionRoute
   '/api/hud/demo': typeof ApiHudDemoRoute
+  '/api/hud/pair': typeof ApiHudPairRoute
   '/api/hud/photo': typeof ApiHudPhotoRoute
   '/api/hud/state': typeof ApiHudStateRoute
   '/api/sl/action': typeof ApiSlActionRoute
@@ -109,6 +117,7 @@ export interface FileRoutesById {
   '/partner': typeof PartnerRoute
   '/api/hud/action': typeof ApiHudActionRoute
   '/api/hud/demo': typeof ApiHudDemoRoute
+  '/api/hud/pair': typeof ApiHudPairRoute
   '/api/hud/photo': typeof ApiHudPhotoRoute
   '/api/hud/state': typeof ApiHudStateRoute
   '/api/sl/action': typeof ApiSlActionRoute
@@ -124,6 +133,7 @@ export interface FileRouteTypes {
     | '/partner'
     | '/api/hud/action'
     | '/api/hud/demo'
+    | '/api/hud/pair'
     | '/api/hud/photo'
     | '/api/hud/state'
     | '/api/sl/action'
@@ -137,6 +147,7 @@ export interface FileRouteTypes {
     | '/partner'
     | '/api/hud/action'
     | '/api/hud/demo'
+    | '/api/hud/pair'
     | '/api/hud/photo'
     | '/api/hud/state'
     | '/api/sl/action'
@@ -150,6 +161,7 @@ export interface FileRouteTypes {
     | '/partner'
     | '/api/hud/action'
     | '/api/hud/demo'
+    | '/api/hud/pair'
     | '/api/hud/photo'
     | '/api/hud/state'
     | '/api/sl/action'
@@ -164,6 +176,7 @@ export interface RootRouteChildren {
   PartnerRoute: typeof PartnerRoute
   ApiHudActionRoute: typeof ApiHudActionRoute
   ApiHudDemoRoute: typeof ApiHudDemoRoute
+  ApiHudPairRoute: typeof ApiHudPairRoute
   ApiHudPhotoRoute: typeof ApiHudPhotoRoute
   ApiHudStateRoute: typeof ApiHudStateRoute
   ApiSlActionRoute: typeof ApiSlActionRoute
@@ -238,6 +251,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHudPhotoRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/hud/pair': {
+      id: '/api/hud/pair'
+      path: '/api/hud/pair'
+      fullPath: '/api/hud/pair'
+      preLoaderRoute: typeof ApiHudPairRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/hud/demo': {
       id: '/api/hud/demo'
       path: '/api/hud/demo'
@@ -260,6 +280,7 @@ const rootRouteChildren: RootRouteChildren = {
   PartnerRoute: PartnerRoute,
   ApiHudActionRoute: ApiHudActionRoute,
   ApiHudDemoRoute: ApiHudDemoRoute,
+  ApiHudPairRoute: ApiHudPairRoute,
   ApiHudPhotoRoute: ApiHudPhotoRoute,
   ApiHudStateRoute: ApiHudStateRoute,
   ApiSlActionRoute: ApiSlActionRoute,
