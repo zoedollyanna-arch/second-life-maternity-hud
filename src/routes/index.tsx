@@ -504,7 +504,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
   return (
     <Shell>
       <HudFrame {...hudZoom}>
-        <div className="hud-app">
+        <div className={`hud-app ${active === "home" ? "hud-home-app" : ""}`}>
           {active !== "home" && (
             <header className="hud-topbar">
               <button
@@ -547,7 +547,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
           )}
 
           {preg.delivered && (
-            <div className="shrink-0 rounded-2xl bg-white/80 px-3 py-1.5 text-center">
+            <div className="hud-float shrink-0 rounded-2xl bg-white/80 px-3 py-1.5 text-center">
               <span className="hud-copy font-semibold">
                 Your little one has arrived
                 {preg.babyName ? ` — ${preg.babyName}` : ""}.
@@ -556,7 +556,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
           )}
 
           {data.activeEvent && data.preferences?.popupSurface !== "world" && (
-            <div className="pointer-events-none absolute inset-x-2 top-2 z-30">
+            <div className="hud-float pointer-events-none">
               <div className="pointer-events-auto">
                 <EventCard
                   event={data.activeEvent}
@@ -574,93 +574,82 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
             </div>
           )}
 
+          {active === "home" && (
+            <>
+              {(data.requests?.incoming?.length ?? 0) > 0 && (
+                <section className="hud-float">
+                  <RequestInbox data={data} act={act} pending={action.isPending} />
+                </section>
+              )}
+              {(data.partner?.pendingLinks?.length ?? 0) > 0 && (
+                <section className="hud-float">
+                  <LinkApprovals data={data} act={act} pending={action.isPending} />
+                </section>
+              )}
+              <header className="hud-home-header">
+                <h1>Nestoria</h1>
+                <p>your journey, beautifully</p>
+              </header>
+
+              <section className="hud-home-grid">
+                {homeTiles.map(({ key, label, icon, tint }) => (
+                  <FeatureCard
+                    key={key}
+                    label={label}
+                    icon={icon}
+                    tint={tint}
+                    badge={key === "notifications" && data.unread > 0 ? data.unread : undefined}
+                    onSelect={() => openApp(key)}
+                  />
+                ))}
+              </section>
+
+              <section className="hud-panel hud-home-summary">
+                <button
+                  type="button"
+                  onClick={() => openApp("pregnancy")}
+                  className="hud-home-preg"
+                >
+                  <span className="hud-home-figure">
+                    <img src={iconPregnancy} alt="" loading="eager" width={72} height={72} />
+                  </span>
+                  <div className="hud-home-preg-copy">
+                    <h2>Pregnancy</h2>
+                    <p className="hud-home-weeks">
+                      {preg.week} weeks, {preg.day} days
+                    </p>
+                    <p className="hud-home-sub">{trimesterLabel}</p>
+                    <span className="hud-home-progress">
+                      <span style={{ width: `${Math.max(2, Math.min(100, preg.progressPct))}%` }} />
+                    </span>
+                    <p className="hud-home-due">Due Date: {dueDate}</p>
+                  </div>
+                </button>
+
+                <button type="button" onClick={() => openApp("health")} className="hud-home-health">
+                  <h2>Health Overview</h2>
+                  <StatMeter
+                    label="Sickness"
+                    value={stats.sickness}
+                    icon={Thermometer}
+                    tone="lavender"
+                  />
+                  <StatMeter label="Hunger" value={stats.hunger} icon={Utensils} tone="blush" />
+                  <StatMeter
+                    label="Bladder"
+                    value={stats.bladder}
+                    icon={Droplet}
+                    tone="lavender"
+                  />
+                  <StatMeter label="Mood" value={stats.mood} icon={Smile} tone="blush" />
+                </button>
+              </section>
+            </>
+          )}
+
+          {active !== "home" && (
           <div className="hud-stage">
             <main className={`hud-main ${pageScrolls ? "is-scroll" : ""}`}>
-              {active === "home" && (
-                <div className="hud-home">
-                  {(data.requests?.incoming?.length ?? 0) > 0 && (
-                    <section className="relative z-10 shrink-0">
-                      <RequestInbox data={data} act={act} pending={action.isPending} />
-                    </section>
-                  )}
-                  {(data.partner?.pendingLinks?.length ?? 0) > 0 && (
-                    <section className="relative z-10 shrink-0">
-                      <LinkApprovals data={data} act={act} pending={action.isPending} />
-                    </section>
-                  )}
-                  <header className="hud-home-header">
-                    <h1>Nestoria</h1>
-                    <p>your journey, beautifully</p>
-                  </header>
-
-                  <section className="hud-home-grid">
-                    {homeTiles.map(({ key, label, icon, tint }) => (
-                      <FeatureCard
-                        key={key}
-                        label={label}
-                        icon={icon}
-                        tint={tint}
-                        badge={key === "notifications" && data.unread > 0 ? data.unread : undefined}
-                        onSelect={() => openApp(key)}
-                      />
-                    ))}
-                  </section>
-
-                  <section className="hud-panel hud-home-summary">
-                    <button
-                      type="button"
-                      onClick={() => openApp("pregnancy")}
-                      className="hud-home-preg"
-                    >
-                      <span className="hud-home-figure">
-                        <img
-                          src={iconPregnancy}
-                          alt=""
-                          loading="eager"
-                          width={512}
-                          height={512}
-                        />
-                      </span>
-                      <div className="hud-home-preg-copy">
-                        <h2>Pregnancy</h2>
-                        <p className="hud-home-weeks">
-                          {preg.week} weeks, {preg.day} days
-                        </p>
-                        <p className="hud-home-sub">{trimesterLabel}</p>
-                        <span className="hud-home-progress">
-                          <span
-                            style={{ width: `${Math.max(2, Math.min(100, preg.progressPct))}%` }}
-                          />
-                        </span>
-                        <p className="hud-home-due">Due Date: {dueDate}</p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => openApp("health")}
-                      className="hud-home-health"
-                    >
-                      <h2>Health Overview</h2>
-                      <StatMeter
-                        label="Sickness"
-                        value={stats.sickness}
-                        icon={Thermometer}
-                        tone="lavender"
-                      />
-                      <StatMeter label="Hunger" value={stats.hunger} icon={Utensils} tone="blush" />
-                      <StatMeter
-                        label="Bladder"
-                        value={stats.bladder}
-                        icon={Droplet}
-                        tone="lavender"
-                      />
-                      <StatMeter label="Mood" value={stats.mood} icon={Smile} tone="blush" />
-                    </button>
-                  </section>
-                </div>
-              )}
-
               {active === "more" && (
                 <AppPage title="More" onBack={() => setActive("home")}>
                   <Panel className="is-scroll">
@@ -1236,6 +1225,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
               )}
             </main>
           </div>
+          )}
 
           <BottomNav
             items={DOCK_NAV.map(({ key, label, icon }) => ({ id: key, label, Icon: icon }))}

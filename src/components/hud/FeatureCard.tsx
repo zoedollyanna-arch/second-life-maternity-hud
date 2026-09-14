@@ -22,8 +22,8 @@ export function FeatureCard({ label, icon, tint, badge, onSelect }: FeatureCardP
           src={icon}
           alt=""
           loading="eager"
-          width={512}
-          height={512}
+          width={44}
+          height={44}
           className="hud-feature-art"
         />
         {badge ? <span className="hud-feature-badge">{badge}</span> : null}

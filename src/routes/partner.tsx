@@ -409,7 +409,7 @@ function PartnerDashboard({ token }: { token: string }) {
   return (
     <Shell>
       <HudFrame {...hudZoom}>
-        <div className="hud-app is-partner">
+        <div className={`hud-app is-partner ${active === "home" ? "hud-home-app" : ""}`}>
           {active !== "home" && (
             <header className="hud-topbar">
               <button
@@ -441,7 +441,7 @@ function PartnerDashboard({ token }: { token: string }) {
           )}
 
           {labor?.inLabor && (
-            <div className="shrink-0 rounded-2xl bg-[#F6C6D6]/40 px-3 py-1.5 text-center">
+            <div className="hud-float shrink-0 rounded-2xl bg-[#F6C6D6]/40 px-3 py-1.5 text-center">
               <span className="hud-copy font-semibold">
                 {LABOR_PHASE_LABEL[labor.phase]} · contractions {labor.intensity}%
                 {labor.waterBroken ? " · water broken" : ""}
@@ -449,25 +449,27 @@ function PartnerDashboard({ token }: { token: string }) {
             </div>
           )}
           {preg.delivered && (
-            <div className="shrink-0 rounded-2xl bg-white/80 px-3 py-1.5 text-center">
+            <div className="hud-float shrink-0 rounded-2xl bg-white/80 px-3 py-1.5 text-center">
               <span className="hud-copy font-semibold">
                 Your little one has arrived{preg.babyName ? ` — ${preg.babyName}` : ""} ♥
               </span>
             </div>
           )}
 
+          {active === "home" && (
+            <HomeScreen
+              data={data}
+              onOpen={openMore}
+              onNav={(key) => {
+                setActive(key);
+                setMoreScreen(null);
+              }}
+            />
+          )}
+
+          {active !== "home" && (
           <div className="hud-stage">
-            <main className={`hud-main ${active === "home" ? "" : "is-scroll"}`}>
-              {active === "home" && (
-                <HomeScreen
-                  data={data}
-                  onOpen={openMore}
-                  onNav={(key) => {
-                    setActive(key);
-                    setMoreScreen(null);
-                  }}
-                />
-              )}
+            <main className="hud-main is-scroll">
               {active === "mom" && (
                 <MomScreen data={data} act={act} pending={action.isPending} momName={momName} />
               )}
@@ -488,6 +490,7 @@ function PartnerDashboard({ token }: { token: string }) {
               )}
             </main>
           </div>
+          )}
 
           <BottomNav
             items={DOCK.map(({ key, label, icon }) => ({ id: key, label, Icon: icon }))}
@@ -624,9 +627,9 @@ function HomeScreen({
   ];
 
   return (
-    <div className="hud-home">
+    <>
       {labor?.hospitalAdvised && !labor.atHospital && !preg.delivered && (
-        <div className="relative z-10 shrink-0 rounded-2xl bg-[#F6C6D6]/40 px-3 py-1.5 text-center">
+        <div className="hud-float rounded-2xl bg-[#F6C6D6]/40 px-3 py-1.5 text-center">
           <span className="hud-copy font-semibold">
             Time for the hospital — be ready to leave with her.
           </span>
@@ -654,7 +657,7 @@ function HomeScreen({
       <section className="hud-panel hud-home-summary">
         <button type="button" onClick={() => onNav("mom")} className="hud-home-preg">
           <span className="hud-home-figure">
-            <img src={iconPartner} alt="" loading="eager" width={512} height={512} />
+            <img src={iconPartner} alt="" loading="eager" width={72} height={72} />
           </span>
           <div className="hud-home-preg-copy">
             <h2>{data.partner.name ?? "Your partner"}</h2>
@@ -695,7 +698,7 @@ function HomeScreen({
           )}
         </button>
       </section>
-    </div>
+    </>
   );
 }
 
