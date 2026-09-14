@@ -36,14 +36,23 @@ import {
   Bath,
   CloudRain,
   Briefcase,
-  HeartPulse,
-  Hospital,
   MoreHorizontal,
   Activity,
+  HeartPulse,
+  PersonStanding,
+  Thermometer,
 } from "lucide-react";
 import logo from "@/assets/nestoria-logo.png";
 import pregnancyHero from "@/assets/pregnancy-hero.jpg";
 import babyHero from "@/assets/baby-hero.jpg";
+import iconPregnancy from "../../../pixel-perfect-main/src/assets/icon-pregnancy.png";
+import iconHealth from "../../../pixel-perfect-main/src/assets/icon-health.png";
+import iconCare from "../../../pixel-perfect-main/src/assets/icon-care.png";
+import iconPartner from "../../../pixel-perfect-main/src/assets/icon-partner.png";
+import iconJournal from "../../../pixel-perfect-main/src/assets/icon-journal.png";
+import iconBaby from "../../../pixel-perfect-main/src/assets/icon-baby.png";
+import iconNotifications from "../../../pixel-perfect-main/src/assets/icon-notifications.png";
+import iconSettings from "../../../pixel-perfect-main/src/assets/icon-settings.png";
 import { Toaster } from "@/components/ui/sonner";
 import {
   Dialog,
@@ -107,19 +116,7 @@ import {
   configureSound,
 } from "@/lib/sounds";
 import { LAYOUT_PREVIEW_STATE } from "@/lib/hud-preview";
-import {
-  PregnancyIcon,
-  HealthIcon,
-  CareIcon,
-  PartnerIcon,
-  JournalIcon,
-  BabyIcon,
-  NotificationsIcon,
-  SettingsIcon,
-  HospitalBagIcon,
-  MilestonesIcon,
-  DecorCloud,
-} from "@/components/hud/icons";
+import { DecorCloud } from "@/components/hud/icons";
 import {
   CloudBar,
   Meter,
@@ -131,6 +128,9 @@ import {
   HudFrame,
   useHudZoom,
 } from "@/components/hud/chrome";
+import { FeatureCard, type FeatureTint } from "@/components/hud/FeatureCard";
+import { StatMeter } from "@/components/hud/StatMeter";
+import { BottomNav } from "@/components/hud/BottomNav";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>): { token?: string } => ({
@@ -161,8 +161,8 @@ const DOCK_NAV: {
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
   { key: "home", label: "Home", icon: Home },
-  { key: "pregnancy", label: "Pregnancy", icon: Sparkles },
-  { key: "health", label: "Health", icon: Heart },
+  { key: "pregnancy", label: "Pregnancy", icon: PersonStanding },
+  { key: "health", label: "Health", icon: HeartPulse },
   { key: "baby", label: "Baby", icon: Baby },
   { key: "more", label: "More", icon: MoreHorizontal },
 ];
@@ -349,10 +349,8 @@ function ConnectScreen() {
                 className="h-[clamp(56px,8vh,88px)] w-[clamp(56px,8vh,88px)]"
                 style={{ animation: "float 5s ease-in-out infinite" }}
               />
-              <h1 className="hud-brand mt-3">NESTORIA</h1>
-              <p className="font-script text-[clamp(16px,2vw,22px)] text-[#A77ACB]">
-                where every family journey begins
-              </p>
+              <h1 className="hud-wordmark mt-2">Nestoria</h1>
+              <p className="hud-tagline">your journey, beautifully</p>
               <p className="mt-2 hud-muted">Pregnancy & Family HUD</p>
             </Panel>
             <Panel className="flex min-h-0 flex-col justify-center">
@@ -458,7 +456,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
     () =>
       new Date(preg.dueDate).toLocaleDateString(undefined, {
         year: "numeric",
-        month: "short",
+        month: "long",
         day: "numeric",
       }),
     [preg.dueDate],
@@ -479,17 +477,17 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
   const homeTiles: {
     key: NavKey;
     label: string;
-    icon: React.ComponentType<{ className?: string }>;
-    tint: "lav" | "cream" | "blush";
+    icon: string;
+    tint: FeatureTint;
   }[] = [
-    { key: "pregnancy", label: "Pregnancy", icon: PregnancyIcon, tint: "lav" },
-    { key: "health", label: "Health", icon: HealthIcon, tint: "lav" },
-    { key: "care", label: "Care & Comfort", icon: CareIcon, tint: "cream" },
-    { key: "partner", label: "Partner", icon: PartnerIcon, tint: "blush" },
-    { key: "journal", label: "Journal", icon: JournalIcon, tint: "blush" },
-    { key: "baby", label: "Baby", icon: BabyIcon, tint: "blush" },
-    { key: "notifications", label: "Notifications", icon: NotificationsIcon, tint: "cream" },
-    { key: "settings", label: "Settings", icon: SettingsIcon, tint: "lav" },
+    { key: "pregnancy", label: "Pregnancy", icon: iconPregnancy, tint: "lavender" },
+    { key: "health", label: "Health", icon: iconHealth, tint: "lavender" },
+    { key: "care", label: "Care & Comfort", icon: iconCare, tint: "cream" },
+    { key: "partner", label: "Partner", icon: iconPartner, tint: "blush" },
+    { key: "journal", label: "Journal", icon: iconJournal, tint: "blush" },
+    { key: "baby", label: "Baby", icon: iconBaby, tint: "blush" },
+    { key: "notifications", label: "Notifications", icon: iconNotifications, tint: "cream" },
+    { key: "settings", label: "Settings", icon: iconSettings, tint: "lavender" },
   ];
 
   // Not pregnant yet: the journey starts before the pregnancy does.
@@ -509,44 +507,46 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
     <Shell>
       <HudFrame {...hudZoom}>
         <div className="hud-app">
-          <header className="hud-topbar">
-            <button
-              type="button"
-              onClick={() => setActive("home")}
-              className="flex min-w-0 items-center gap-3 text-left"
-            >
-              <img
-                src={logo}
-                alt=""
-                width={44}
-                height={44}
-                className="h-8 w-8 shrink-0 rounded-lg"
-              />
-              <div className="min-w-0">
-                <div className="hud-brand truncate">NESTORIA</div>
-                <div className="hud-subtitle truncate">Pregnancy & Family</div>
+          {active !== "home" && (
+            <header className="hud-topbar">
+              <button
+                type="button"
+                onClick={() => setActive("home")}
+                className="flex min-w-0 items-center gap-3 text-left"
+              >
+                <img
+                  src={logo}
+                  alt=""
+                  width={44}
+                  height={44}
+                  className="h-8 w-8 shrink-0 rounded-lg"
+                />
+                <div className="min-w-0">
+                  <div className="hud-brand truncate">NESTORIA</div>
+                  <div className="hud-subtitle truncate">Pregnancy & Family</div>
+                </div>
+              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openApp("notifications")}
+                  aria-label="Notifications"
+                  className="hud-icon-btn relative"
+                >
+                  <Bell className="h-5 w-5" />
+                  {data.unread > 0 && <span className="hud-unread">{data.unread}</span>}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openApp("settings")}
+                  aria-label="Settings"
+                  className="hud-icon-btn"
+                >
+                  <Settings className="h-5 w-5" />
+                </button>
               </div>
-            </button>
-            <div className="flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={() => openApp("notifications")}
-                aria-label="Notifications"
-                className="hud-icon-btn relative"
-              >
-                <Bell className="h-5 w-5" />
-                {data.unread > 0 && <span className="hud-unread">{data.unread}</span>}
-              </button>
-              <button
-                type="button"
-                onClick={() => openApp("settings")}
-                aria-label="Settings"
-                className="hud-icon-btn"
-              >
-                <Settings className="h-5 w-5" />
-              </button>
-            </div>
-          </header>
+            </header>
+          )}
 
           {preg.delivered && (
             <div className="shrink-0 rounded-2xl bg-white/80 px-3 py-1.5 text-center">
@@ -575,89 +575,99 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
           <div className="hud-stage">
             <main className={`hud-main ${pageScrolls ? "is-scroll" : ""}`}>
               {active === "home" && (
-                <div className="hud-home">
+                <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-[0.6vh] overflow-hidden">
                   {(data.requests?.incoming?.length ?? 0) > 0 && (
-                    <section>
+                    <section className="relative z-10 shrink-0">
                       <RequestInbox data={data} act={act} pending={action.isPending} />
                     </section>
                   )}
                   {(data.partner?.pendingLinks?.length ?? 0) > 0 && (
-                    <section>
+                    <section className="relative z-10 shrink-0">
                       <LinkApprovals data={data} act={act} pending={action.isPending} />
                     </section>
                   )}
-                  {/* Wordmark, with the drifting clouds from the mockup. */}
-                  <section className="hud-hero">
-                    <DecorCloud className="hud-hero-cloud is-left" />
-                    <DecorCloud className="hud-hero-cloud is-right" />
-                    <div className="hud-hero-text">
-                      <h1 className="hud-wordmark">Nestoria</h1>
-                      <p className="hud-tagline">your journey, beautifully</p>
-                    </div>
+                  <header className="relative z-10 flex shrink-0 flex-col items-center justify-center py-[0.4vh]">
+                    <h1 className="font-display text-[clamp(2rem,7vh,3.6rem)] leading-[1.05] text-primary drop-shadow-[0_2px_6px_rgba(200,180,225,0.6)]">
+                      Nestoria
+                    </h1>
+                    <p className="text-[clamp(0.78rem,2vh,1.05rem)] tracking-wide text-muted-foreground">
+                      your journey, beautifully
+                    </p>
+                  </header>
+
+                  <section className="relative z-10 grid min-h-0 flex-[1.35] grid-cols-4 grid-rows-2 gap-[clamp(0.35rem,1.2vh,0.9rem)]">
+                    {homeTiles.map(({ key, label, icon, tint }) => (
+                      <FeatureCard
+                        key={key}
+                        label={label}
+                        icon={icon}
+                        tint={tint}
+                        badge={key === "notifications" && data.unread > 0 ? data.unread : undefined}
+                        onSelect={() => openApp(key)}
+                      />
+                    ))}
                   </section>
 
-                  <section className="min-h-0">
-                    <div className="hud-tiles">
-                      {homeTiles.map(({ key, label, icon: Icon, tint }) => (
-                        <button
-                          key={label}
-                          type="button"
-                          onClick={() => openApp(key)}
-                          className="hud-tile"
-                        >
-                          <span className={`hud-tile-icon is-${tint}`}>
-                            <Icon />
-                          </span>
-                          <span className="hud-tile-label">{label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-
-                  {/* Summary strip: pregnancy at a glance, health in clouds. */}
-                  <section className="hud-summary">
+                  <section className="hud-panel relative z-10 grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] gap-[clamp(0.5rem,2%,1.2rem)] rounded-[1.8rem] p-[clamp(0.5rem,1.7vh,1.1rem)]">
                     <button
                       type="button"
-                      className="hud-summary-card is-preg"
                       onClick={() => openApp("pregnancy")}
+                      className="flex min-h-0 items-center gap-[clamp(0.5rem,3%,1rem)] border-r border-lavender-soft pr-[clamp(0.5rem,3%,1rem)] text-left"
                     >
-                      <span className="hud-summary-title">Pregnancy</span>
-                      <span className="hud-summary-figure">
-                        <PregnancyIcon />
-                      </span>
-                      <span className="hud-summary-weeks">
-                        {preg.week} weeks, {preg.day} days
-                      </span>
-                      <span className="hud-summary-sub">{trimesterLabel}</span>
-                      <span className="hud-progress">
-                        <span
-                          className="hud-progress-fill"
-                          style={{ width: `${Math.max(2, Math.min(100, preg.progressPct))}%` }}
+                      <span className="grid aspect-square h-[86%] shrink-0 place-items-center rounded-full bg-gradient-to-br from-lavender-soft via-pearl to-blush-soft p-[8%] shadow-soft ring-1 ring-pearl">
+                        <img
+                          src={iconPregnancy}
+                          alt=""
+                          loading="lazy"
+                          width={512}
+                          height={512}
+                          className="h-full w-full object-contain"
                         />
                       </span>
-                      <span className="hud-summary-due">Due Date: {dueDate}</span>
+                      <div className="min-w-0 flex-1">
+                        <h2 className="text-[clamp(0.82rem,2.2vh,1.1rem)] font-bold text-primary">
+                          Pregnancy
+                        </h2>
+                        <p className="text-[clamp(0.95rem,2.8vh,1.4rem)] font-bold leading-tight">
+                          {preg.week} weeks, {preg.day} days
+                        </p>
+                        <p className="text-[clamp(0.72rem,1.9vh,0.95rem)] text-muted-foreground">
+                          {trimesterLabel}
+                        </p>
+                        <span className="mt-[0.45rem] block h-[clamp(0.6rem,1.8vh,0.95rem)] w-full overflow-hidden rounded-full bg-cream shadow-[inset_0_1px_3px_rgba(170,150,200,0.25)]">
+                          <span
+                            className="block h-full rounded-full bg-gradient-to-r from-lavender-soft via-lavender to-blush"
+                            style={{ width: `${Math.max(2, Math.min(100, preg.progressPct))}%` }}
+                          />
+                        </span>
+                        <p className="mt-[0.3rem] text-[clamp(0.7rem,1.8vh,0.9rem)] text-muted-foreground">
+                          Due Date: {dueDate}
+                        </p>
+                      </div>
                     </button>
 
                     <button
                       type="button"
-                      className="hud-summary-card is-health"
                       onClick={() => openApp("health")}
+                      className="flex min-h-0 flex-col justify-center gap-[clamp(0.2rem,1vh,0.5rem)] text-left"
                     >
-                      <span className="hud-summary-title is-left">Health Overview</span>
-                      {(
-                        [
-                          ["Sickness", stats.sickness, "lavender"],
-                          ["Hunger", stats.hunger, "blush"],
-                          ["Bladder", stats.bladder, "lavender"],
-                          ["Mood", stats.mood, "blush"],
-                        ] as const
-                      ).map(([label, value, tone]) => (
-                        <span key={label} className="hud-mini-meter">
-                          <span className="hud-mini-label">{label}</span>
-                          <CloudBar value={value} tone={tone} />
-                          <span className="hud-mini-value">{Math.round(value)}%</span>
-                        </span>
-                      ))}
+                      <h2 className="text-[clamp(0.82rem,2.2vh,1.1rem)] font-bold text-primary">
+                        Health Overview
+                      </h2>
+                      <StatMeter
+                        label="Sickness"
+                        value={stats.sickness}
+                        icon={Thermometer}
+                        tone="lavender"
+                      />
+                      <StatMeter label="Hunger" value={stats.hunger} icon={Utensils} tone="blush" />
+                      <StatMeter
+                        label="Bladder"
+                        value={stats.bladder}
+                        icon={Droplet}
+                        tone="lavender"
+                      />
+                      <StatMeter label="Mood" value={stats.mood} icon={Smile} tone="blush" />
                     </button>
                   </section>
                 </div>
@@ -1239,25 +1249,14 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
             </main>
           </div>
 
-          <nav className="hud-dock" aria-label="Primary">
-            {DOCK_NAV.map(({ key, label, icon: Icon }) => {
-              const isActive = dockKey(active) === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  className={`hud-dock-btn ${isActive ? "is-active" : ""}`}
-                  onClick={() => {
-                    backTo.current = "home";
-                    setActive(key);
-                  }}
-                >
-                  <Icon />
-                  <span>{label}</span>
-                </button>
-              );
-            })}
-          </nav>
+          <BottomNav
+            items={DOCK_NAV.map(({ key, label, icon }) => ({ id: key, label, Icon: icon }))}
+            active={dockKey(active)}
+            onSelect={(id) => {
+              backTo.current = "home";
+              setActive(id as NavKey);
+            }}
+          />
         </div>
       </HudFrame>
       <Toaster position="top-center" />

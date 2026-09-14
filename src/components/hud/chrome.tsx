@@ -1,5 +1,6 @@
 import { useCallback, useRef, type ReactNode } from "react";
 
+import { Decor } from "./Decor";
 import { HudIconDefs } from "./icons";
 
 /** Layout fills the MOAP face. Do not apply transform:scale or zoom. */
@@ -199,7 +200,7 @@ export function Shell({ children }: { children: ReactNode }) {
       {/* Gradients and filters every icon and meter pip references. Once per
           document — see the note in icons.tsx about duplicate SVG ids. */}
       <HudIconDefs />
-      <Ambient />
+      <Decor />
       {children}
     </div>
   );

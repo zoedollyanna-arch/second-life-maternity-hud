@@ -15,16 +15,23 @@ import {
   Activity,
   MoreHorizontal,
   ChevronLeft,
-  Check,
   Trophy,
   Wind,
   Baby,
-  Footprints,
   ClipboardList,
   Settings,
   Hourglass,
+  Zap,
 } from "lucide-react";
 import logo from "@/assets/nestoria-logo.png";
+import iconPregnancy from "../../../pixel-perfect-main/src/assets/icon-pregnancy.png";
+import iconHealth from "../../../pixel-perfect-main/src/assets/icon-health.png";
+import iconCare from "../../../pixel-perfect-main/src/assets/icon-care.png";
+import iconPartner from "../../../pixel-perfect-main/src/assets/icon-partner.png";
+import iconJournal from "../../../pixel-perfect-main/src/assets/icon-journal.png";
+import iconBaby from "../../../pixel-perfect-main/src/assets/icon-baby.png";
+import iconNotifications from "../../../pixel-perfect-main/src/assets/icon-notifications.png";
+import iconSettings from "../../../pixel-perfect-main/src/assets/icon-settings.png";
 import { Toaster } from "@/components/ui/sonner";
 import {
   HudFrame,
@@ -36,6 +43,9 @@ import {
   CloudBar,
   useHudZoom,
 } from "@/components/hud/chrome";
+import { FeatureCard, type FeatureTint } from "@/components/hud/FeatureCard";
+import { StatMeter } from "@/components/hud/StatMeter";
+import { BottomNav } from "@/components/hud/BottomNav";
 import { useHudState, useHudAction, type HudState } from "@/lib/hud-api";
 import {
   PARTNER_ACTIONS,
@@ -44,7 +54,7 @@ import {
   PARTNER_TITLES,
   type PartnerActionDef,
 } from "@/lib/partner";
-import { HospitalBagPanels, MilestonesPanel } from "@/components/hud/partner-panels";
+import { HospitalBagPanels } from "@/components/hud/partner-panels";
 import { playForAction, playChime, playError, playHearts } from "@/lib/sounds";
 
 export const Route = createFileRoute("/partner")({
@@ -55,14 +65,16 @@ export const Route = createFileRoute("/partner")({
 });
 
 type PartnerNav = "home" | "mom" | "labor" | "bag" | "more";
+type MoreScreenKey = "milestones" | "appointments" | "alerts" | "reactions" | "connection";
 
-const DOCK: { key: PartnerNav; label: string; icon: React.ComponentType }[] = [
-  { key: "home", label: "Home", icon: Home },
-  { key: "mom", label: "Mom", icon: Heart },
-  { key: "labor", label: "Labor", icon: Activity },
-  { key: "bag", label: "Bag", icon: Briefcase },
-  { key: "more", label: "More", icon: MoreHorizontal },
-];
+const DOCK: { key: PartnerNav; label: string; icon: React.ComponentType<{ className?: string }> }[] =
+  [
+    { key: "home", label: "Home", icon: Home },
+    { key: "mom", label: "Mom", icon: Heart },
+    { key: "labor", label: "Labor", icon: Activity },
+    { key: "bag", label: "Bag", icon: Briefcase },
+    { key: "more", label: "More", icon: MoreHorizontal },
+  ];
 
 // ---------------------------------------------------------------------------
 // Shell states
@@ -163,9 +175,10 @@ function PairScreen({ token, onPaired }: { token: string; onPaired: () => void }
       <div className="hud-app is-partner">
         <div className="flex h-full min-h-0 flex-1 items-center justify-center">
           <Panel className="w-full max-w-[34rem] text-center">
-            <img src={logo} alt="" className="mx-auto h-12 w-12" />
+            <h1 className="hud-wordmark">Nestoria</h1>
+            <p className="hud-tagline mb-2">Partner HUD</p>
             <PanelHeader
-              eyebrow="Partner HUD"
+              eyebrow="Stay close"
               title={status === "waiting" ? "Waiting for her" : "Enter her pairing code"}
               subtitle={
                 status === "waiting"
@@ -230,8 +243,8 @@ function PartnerPage() {
     return (
       <Centered>
         <Panel className="w-full max-w-[36rem] text-center">
-          <img src={logo} alt="Nestoria" className="mx-auto h-16 w-16" />
-          <h1 className="hud-brand mt-3">Nestoria Partner</h1>
+          <h1 className="hud-wordmark">Nestoria</h1>
+          <p className="hud-tagline">stay close</p>
           <p className="mt-3 hud-copy">
             Wear the Partner HUD in Second Life and enter her pairing code. This screen loads
             automatically on the HUD face.
@@ -397,33 +410,35 @@ function PartnerDashboard({ token }: { token: string }) {
     <Shell>
       <HudFrame {...hudZoom}>
         <div className="hud-app is-partner">
-          <header className="hud-topbar">
-            <button
-              type="button"
-              onClick={() => {
-                setActive("home");
-                setMoreScreen(null);
-              }}
-              className="flex min-w-0 items-center gap-3 text-left"
-            >
-              <img src={logo} alt="" className="h-11 w-11 shrink-0 rounded-xl" />
-              <div className="min-w-0">
-                <div className="hud-brand truncate">NESTORIA</div>
-                <div className="hud-subtitle truncate">{title} · stay close</div>
-              </div>
-            </button>
-            <div className="flex shrink-0 items-center gap-2">
+          {active !== "home" && (
+            <header className="hud-topbar">
               <button
                 type="button"
-                onClick={() => openMore("alerts")}
-                aria-label="Alerts"
-                className="hud-icon-btn relative"
+                onClick={() => {
+                  setActive("home");
+                  setMoreScreen(null);
+                }}
+                className="flex min-w-0 items-center gap-3 text-left"
               >
-                <Bell className="h-5 w-5" />
-                {data.unread > 0 && <span className="hud-unread">{data.unread}</span>}
+                <img src={logo} alt="" className="h-11 w-11 shrink-0 rounded-xl" />
+                <div className="min-w-0">
+                  <div className="hud-brand truncate">NESTORIA</div>
+                  <div className="hud-subtitle truncate">{title} · stay close</div>
+                </div>
               </button>
-            </div>
-          </header>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openMore("alerts")}
+                  aria-label="Alerts"
+                  className="hud-icon-btn relative"
+                >
+                  <Bell className="h-5 w-5" />
+                  {data.unread > 0 && <span className="hud-unread">{data.unread}</span>}
+                </button>
+              </div>
+            </header>
+          )}
 
           {labor?.inLabor && (
             <div className="shrink-0 rounded-2xl bg-[#F6C6D6]/40 px-3 py-1.5 text-center">
@@ -442,9 +457,16 @@ function PartnerDashboard({ token }: { token: string }) {
           )}
 
           <div className="hud-stage">
-            <main className="hud-main is-scroll">
+            <main className={`hud-main ${active === "home" ? "" : "is-scroll"}`}>
               {active === "home" && (
-                <HomeScreen data={data} act={act} pending={action.isPending} onOpen={openMore} />
+                <HomeScreen
+                  data={data}
+                  onOpen={openMore}
+                  onNav={(key) => {
+                    setActive(key);
+                    setMoreScreen(null);
+                  }}
+                />
               )}
               {active === "mom" && (
                 <MomScreen data={data} act={act} pending={action.isPending} momName={momName} />
@@ -467,22 +489,14 @@ function PartnerDashboard({ token }: { token: string }) {
             </main>
           </div>
 
-          <nav className="hud-dock" aria-label="Primary">
-            {DOCK.map(({ key, label, icon: Icon }) => (
-              <button
-                key={key}
-                type="button"
-                className={`hud-dock-btn ${active === key ? "is-active" : ""}`}
-                onClick={() => {
-                  setActive(key);
-                  if (key !== "more") setMoreScreen(null);
-                }}
-              >
-                <Icon />
-                <span>{label}</span>
-              </button>
-            ))}
-          </nav>
+          <BottomNav
+            items={DOCK.map(({ key, label, icon }) => ({ id: key, label, Icon: icon }))}
+            active={active}
+            onSelect={(id) => {
+              setActive(id as PartnerNav);
+              if (id !== "more") setMoreScreen(null);
+            }}
+          />
         </div>
       </HudFrame>
       <Toaster position="top-center" />
@@ -542,14 +556,12 @@ function ActionButton({
 
 function HomeScreen({
   data,
-  act,
-  pending,
   onOpen,
+  onNav,
 }: {
   data: HudState;
-  act: (name: string, params?: Record<string, unknown>) => void;
-  pending: boolean;
-  onOpen: (s: "milestones" | "appointments" | "alerts") => void;
+  onOpen: (s: MoreScreenKey) => void;
+  onNav: (key: PartnerNav) => void;
 }) {
   const preg = data.pregnancy;
   const labor = preg.labor;
@@ -565,125 +577,162 @@ function HomeScreen({
     [preg.dueDate],
   );
   const latest = data.sharedEvents[0];
-  const milestone = data.milestones[0];
-  const bag = data.hospitalBag;
+  const trimesterLabel =
+    preg.trimester === 1 ? "1st Trimester" : preg.trimester === 2 ? "2nd Trimester" : "3rd Trimester";
+
+  const tiles: {
+    key: string;
+    label: string;
+    icon: string;
+    tint: FeatureTint;
+    badge?: number;
+    onSelect: () => void;
+  }[] = [
+    { key: "mom", label: "Mom", icon: iconPregnancy, tint: "lavender", onSelect: () => onNav("mom") },
+    { key: "labor", label: "Labor", icon: iconHealth, tint: "lavender", onSelect: () => onNav("labor") },
+    { key: "bag", label: "Hospital Bag", icon: iconCare, tint: "cream", onSelect: () => onNav("bag") },
+    { key: "support", label: "Support", icon: iconPartner, tint: "blush", onSelect: () => onNav("mom") },
+    {
+      key: "milestones",
+      label: "Milestones",
+      icon: iconBaby,
+      tint: "blush",
+      onSelect: () => onOpen("milestones"),
+    },
+    {
+      key: "appointments",
+      label: "Appointments",
+      icon: iconJournal,
+      tint: "blush",
+      onSelect: () => onOpen("appointments"),
+    },
+    {
+      key: "alerts",
+      label: "Alerts",
+      icon: iconNotifications,
+      tint: "cream",
+      badge: data.unread > 0 ? data.unread : undefined,
+      onSelect: () => onOpen("alerts"),
+    },
+    {
+      key: "connection",
+      label: "Connection",
+      icon: iconSettings,
+      tint: "lavender",
+      onSelect: () => onOpen("connection"),
+    },
+  ];
 
   return (
-    <div className="space-y-2">
-      <Panel>
-        <PanelHeader
-          eyebrow="Connected"
-          title={data.partner.name ?? "Your partner"}
-          subtitle={
-            show("viewWeek")
-              ? `Week ${preg.week}+${preg.day} · due ${dueDate}`
-              : "She has kept the details private."
-          }
-        />
-        {show("viewWeek") && <CloudBar value={preg.progressPct} />}
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          {show("viewStage") && <Row label="Stage" value={preg.baby.size} />}
-          {show("viewKicks") && <Row label="Kicks today" value={`${preg.baby.kicksToday}`} />}
-          {show("viewLabor") && (
-            <Row
-              label="Labor"
-              value={
-                preg.delivered
-                  ? "Delivered ♥"
-                  : labor
-                    ? LABOR_PHASE_LABEL[labor.phase]
-                    : "Not active"
-              }
-            />
-          )}
-          {bag && <Row label="Hospital bag" value={`${bag.packed}/${bag.total}`} />}
-        </div>
-        {latest && (
-          <p className="mt-2 text-center hud-muted italic">
-            Latest: {latest.title}
-            {latest.body ? ` — ${latest.body}` : ""}
-          </p>
-        )}
-      </Panel>
-
+    <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-[0.6vh] overflow-hidden">
       {labor?.hospitalAdvised && !labor.atHospital && !preg.delivered && (
-        <Panel>
-          <PanelHeader eyebrow="Now" title="Time for the hospital" />
-          <p className="text-center hud-copy">
-            Labor is established. She decides when to go — be ready to leave with her.
-          </p>
-        </Panel>
+        <div className="relative z-10 shrink-0 rounded-2xl bg-[#F6C6D6]/40 px-3 py-1.5 text-center">
+          <span className="hud-copy font-semibold">
+            Time for the hospital — be ready to leave with her.
+          </span>
+        </div>
       )}
 
-      <Panel>
-        <PanelHeader eyebrow="Be there" title="Quick support" />
-        <div className="hud-care-grid">
-          <ActionButton
-            actionKey="partner_comfort"
-            data={data}
-            act={act}
-            pending={pending}
-            icon={Heart}
-          />
-          <ActionButton actionKey="hug" data={data} act={act} pending={pending} icon={HandHeart} />
-          <ActionButton actionKey="kiss" data={data} act={act} pending={pending} icon={Sparkles} />
-          <ActionButton
-            actionKey="partner_check_on"
-            data={data}
-            act={act}
-            pending={pending}
-            icon={Stethoscope}
-            label="Check on her"
-          />
-          <ActionButton
-            actionKey="partner_help_rest"
-            data={data}
-            act={act}
-            pending={pending}
-            icon={Moon}
-          />
-          <ActionButton
-            actionKey="partner_ice_chips"
-            data={data}
-            act={act}
-            pending={pending}
-            icon={Droplet}
-          />
-          <ActionButton
-            actionKey="partner_labor_support"
-            data={data}
-            act={act}
-            pending={pending}
-            icon={Activity}
-          />
-          <ActionButton
-            actionKey="feel_baby_kick"
-            data={data}
-            act={act}
-            pending={pending}
-            icon={Footprints}
-          />
-        </div>
-      </Panel>
+      <header className="relative z-10 flex shrink-0 flex-col items-center justify-center py-[0.4vh]">
+        <h1 className="font-display text-[clamp(2rem,7vh,3.6rem)] leading-[1.05] text-primary drop-shadow-[0_2px_6px_rgba(200,180,225,0.6)]">
+          Nestoria
+        </h1>
+        <p className="text-[clamp(0.78rem,2vh,1.05rem)] tracking-wide text-muted-foreground">
+          stay close
+        </p>
+      </header>
 
-      <div className="grid grid-cols-1 gap-2 min-[800px]:grid-cols-3">
-        <button type="button" className="hud-card text-left" onClick={() => onOpen("milestones")}>
-          <div className="hud-label">Milestones</div>
-          <div className="hud-copy font-semibold">{milestone ? milestone.title : "None yet"}</div>
-        </button>
-        <button type="button" className="hud-card text-left" onClick={() => onOpen("appointments")}>
-          <div className="hud-label">Appointments</div>
-          <div className="hud-copy font-semibold">
-            {show("viewAppointments") ? "View & attend" : "Private"}
+      <section className="relative z-10 grid min-h-0 flex-[1.35] grid-cols-4 grid-rows-2 gap-[clamp(0.35rem,1.2vh,0.9rem)]">
+        {tiles.map((tile) => (
+          <FeatureCard
+            key={tile.key}
+            label={tile.label}
+            icon={tile.icon}
+            tint={tile.tint}
+            badge={tile.badge}
+            onSelect={tile.onSelect}
+          />
+        ))}
+      </section>
+
+      <section className="hud-panel relative z-10 grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] gap-[clamp(0.5rem,2%,1.2rem)] rounded-[1.8rem] p-[clamp(0.5rem,1.7vh,1.1rem)]">
+        <button
+          type="button"
+          onClick={() => onNav("mom")}
+          className="flex min-h-0 items-center gap-[clamp(0.5rem,3%,1rem)] border-r border-lavender-soft pr-[clamp(0.5rem,3%,1rem)] text-left"
+        >
+          <span className="grid aspect-square h-[86%] shrink-0 place-items-center rounded-full bg-gradient-to-br from-lavender-soft via-pearl to-blush-soft p-[8%] shadow-soft ring-1 ring-pearl">
+            <img
+              src={iconPartner}
+              alt=""
+              loading="lazy"
+              width={512}
+              height={512}
+              className="h-full w-full object-contain"
+            />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[clamp(0.82rem,2.2vh,1.1rem)] font-bold text-primary">
+              {data.partner.name ?? "Your partner"}
+            </h2>
+            {show("viewWeek") ? (
+              <>
+                <p className="text-[clamp(0.95rem,2.8vh,1.4rem)] font-bold leading-tight">
+                  {preg.week} weeks, {preg.day} days
+                </p>
+                <p className="text-[clamp(0.72rem,1.9vh,0.95rem)] text-muted-foreground">
+                  {show("viewStage") ? trimesterLabel : "Connected"}
+                </p>
+                <span className="mt-[0.45rem] block h-[clamp(0.6rem,1.8vh,0.95rem)] w-full overflow-hidden rounded-full bg-cream shadow-[inset_0_1px_3px_rgba(170,150,200,0.25)]">
+                  <span
+                    className="block h-full rounded-full bg-gradient-to-r from-lavender-soft via-lavender to-blush"
+                    style={{ width: `${Math.max(2, Math.min(100, preg.progressPct))}%` }}
+                  />
+                </span>
+                <p className="mt-[0.3rem] text-[clamp(0.7rem,1.8vh,0.9rem)] text-muted-foreground">
+                  Due Date: {dueDate}
+                </p>
+              </>
+            ) : (
+              <p className="text-[clamp(0.72rem,1.9vh,0.95rem)] text-muted-foreground">
+                She has kept the details private.
+              </p>
+            )}
+            {latest && (
+              <p className="mt-[0.3rem] text-[clamp(0.7rem,1.8vh,0.9rem)] text-muted-foreground italic">
+                Latest: {latest.title}
+              </p>
+            )}
           </div>
         </button>
-        <button type="button" className="hud-card text-left" onClick={() => onOpen("alerts")}>
-          <div className="hud-label">Alerts</div>
-          <div className="hud-copy font-semibold">
-            {data.unread > 0 ? `${data.unread} new` : "All caught up"}
-          </div>
+
+        <button
+          type="button"
+          onClick={() => onNav("mom")}
+          className="flex min-h-0 flex-col justify-center gap-[clamp(0.2rem,1vh,0.5rem)] text-left"
+        >
+          <h2 className="text-[clamp(0.82rem,2.2vh,1.1rem)] font-bold text-primary">
+            Health Overview
+          </h2>
+          {show("viewWellness") ? (
+            <>
+              <StatMeter label="Energy" value={data.stats.energy} icon={Zap} tone="lavender" />
+              <StatMeter label="Rest" value={data.stats.rest} icon={Moon} tone="blush" />
+              <StatMeter label="Comfort" value={data.stats.comfort} icon={Heart} tone="lavender" />
+              <StatMeter
+                label="Hydration"
+                value={data.stats.hydration}
+                icon={Droplet}
+                tone="blush"
+              />
+            </>
+          ) : (
+            <p className="text-[clamp(0.72rem,1.9vh,0.95rem)] text-muted-foreground">
+              Wellbeing is private.
+            </p>
+          )}
         </button>
-      </div>
+      </section>
     </div>
   );
 }
@@ -1075,8 +1124,6 @@ function LaborScreen({
 // ---------------------------------------------------------------------------
 // MORE
 // ---------------------------------------------------------------------------
-
-type MoreScreenKey = "milestones" | "appointments" | "alerts" | "reactions" | "connection";
 
 function MoreScreen({
   data,
