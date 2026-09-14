@@ -577,7 +577,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
           <div className="hud-stage">
             <main className={`hud-main ${pageScrolls ? "is-scroll" : ""}`}>
               {active === "home" && (
-                <div className="relative z-10 flex min-h-0 flex-1 flex-col gap-[0.6vh] overflow-hidden">
+                <div className="hud-home">
                   {(data.requests?.incoming?.length ?? 0) > 0 && (
                     <section className="relative z-10 shrink-0">
                       <RequestInbox data={data} act={act} pending={action.isPending} />
@@ -588,16 +588,12 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       <LinkApprovals data={data} act={act} pending={action.isPending} />
                     </section>
                   )}
-                  <header className="relative z-10 flex shrink-0 flex-col items-center justify-center py-[0.4vh]">
-                    <h1 className="font-display text-[clamp(2rem,7vh,3.6rem)] font-bold leading-[1.05] text-primary drop-shadow-[0_2px_6px_rgba(200,180,225,0.6)]">
-                      Nestoria
-                    </h1>
-                    <p className="font-sans text-[clamp(0.78rem,2vh,1.05rem)] tracking-wide text-muted-foreground">
-                      your journey, beautifully
-                    </p>
+                  <header className="hud-home-header">
+                    <h1>Nestoria</h1>
+                    <p>your journey, beautifully</p>
                   </header>
 
-                  <section className="relative z-10 grid min-h-0 flex-[1.35] grid-cols-4 grid-rows-2 gap-[clamp(0.35rem,1.2vh,0.9rem)]">
+                  <section className="hud-home-grid">
                     {homeTiles.map(({ key, label, icon, tint }) => (
                       <FeatureCard
                         key={key}
@@ -610,52 +606,42 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                     ))}
                   </section>
 
-                  <section className="hud-panel relative z-10 grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] gap-[clamp(0.5rem,2%,1.2rem)] rounded-[1.8rem] p-[clamp(0.5rem,1.7vh,1.1rem)]">
+                  <section className="hud-panel hud-home-summary">
                     <button
                       type="button"
                       onClick={() => openApp("pregnancy")}
-                      className="flex min-h-0 items-center gap-[clamp(0.5rem,3%,1rem)] border-r border-lavender-soft pr-[clamp(0.5rem,3%,1rem)] text-left"
+                      className="hud-home-preg"
                     >
-                      <span className="grid aspect-square h-[86%] shrink-0 place-items-center rounded-full bg-gradient-to-br from-lavender-soft via-pearl to-blush-soft p-[8%] shadow-soft ring-1 ring-pearl">
+                      <span className="hud-home-figure">
                         <img
                           src={iconPregnancy}
                           alt=""
                           loading="eager"
                           width={512}
                           height={512}
-                          className="h-full w-full object-contain"
                         />
                       </span>
-                      <div className="min-w-0 flex-1">
-                        <h2 className="font-sans text-[clamp(0.82rem,2.2vh,1.1rem)] font-bold text-primary">
-                          Pregnancy
-                        </h2>
-                        <p className="font-sans text-[clamp(0.95rem,2.8vh,1.4rem)] font-bold leading-tight">
+                      <div className="hud-home-preg-copy">
+                        <h2>Pregnancy</h2>
+                        <p className="hud-home-weeks">
                           {preg.week} weeks, {preg.day} days
                         </p>
-                        <p className="text-[clamp(0.72rem,1.9vh,0.95rem)] text-muted-foreground">
-                          {trimesterLabel}
-                        </p>
-                        <span className="mt-[0.45rem] block h-[clamp(0.6rem,1.8vh,0.95rem)] w-full overflow-hidden rounded-full bg-cream shadow-[inset_0_1px_3px_rgba(170,150,200,0.25)]">
+                        <p className="hud-home-sub">{trimesterLabel}</p>
+                        <span className="hud-home-progress">
                           <span
-                            className="block h-full rounded-full bg-gradient-to-r from-lavender-soft via-lavender to-blush"
                             style={{ width: `${Math.max(2, Math.min(100, preg.progressPct))}%` }}
                           />
                         </span>
-                        <p className="mt-[0.3rem] text-[clamp(0.7rem,1.8vh,0.9rem)] text-muted-foreground">
-                          Due Date: {dueDate}
-                        </p>
+                        <p className="hud-home-due">Due Date: {dueDate}</p>
                       </div>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => openApp("health")}
-                      className="flex min-h-0 flex-col justify-center gap-[clamp(0.2rem,1vh,0.5rem)] text-left"
+                      className="hud-home-health"
                     >
-                      <h2 className="font-sans text-[clamp(0.82rem,2.2vh,1.1rem)] font-bold text-primary">
-                        Health Overview
-                      </h2>
+                      <h2>Health Overview</h2>
                       <StatMeter
                         label="Sickness"
                         value={stats.sickness}

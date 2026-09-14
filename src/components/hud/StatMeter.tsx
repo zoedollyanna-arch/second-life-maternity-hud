@@ -41,17 +41,15 @@ export function StatMeter({ label, value, icon: Icon, tone }: StatMeterProps) {
   const fill = tone === "lavender" ? "var(--lavender)" : "var(--blush)";
 
   return (
-    <div className="flex items-center gap-[0.5rem]">
-      <span className="grid h-[clamp(1.3rem,3.2vh,1.9rem)] w-[clamp(1.3rem,3.2vh,1.9rem)] shrink-0 place-items-center rounded-full bg-mist text-primary">
-        <Icon className="h-[60%] w-[60%]" />
+    <div className="hud-stat-meter">
+      <span className="hud-stat-icon">
+        <Icon />
       </span>
-      <span className="w-[clamp(3.4rem,9%,5rem)] shrink-0 text-[clamp(0.72rem,1.9vh,0.95rem)] font-semibold">
-        {label}
-      </span>
+      <span className="hud-stat-label">{label}</span>
       <svg
         viewBox={`0 0 ${W} ${CH}`}
         preserveAspectRatio="xMidYMid meet"
-        className="h-[clamp(1.1rem,3.6vh,1.9rem)] min-w-0 flex-1"
+        className="hud-stat-clouds"
         role="img"
         aria-label={`${label}: ${pct}%`}
       >
@@ -65,9 +63,7 @@ export function StatMeter({ label, value, icon: Icon, tone }: StatMeterProps) {
           <CloudRow fill={fill} stroke={fill} />
         </g>
       </svg>
-      <span className="w-[3ch] shrink-0 text-right text-[clamp(0.72rem,1.9vh,0.95rem)] font-bold tabular-nums">
-        {pct}%
-      </span>
+      <span className="hud-stat-pct">{pct}%</span>
     </div>
   );
 }
