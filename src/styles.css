@@ -805,7 +805,7 @@
 
 .hud-summary-figure {
   display: grid;
-  aspect-square;
+  aspect-ratio: 1 / 1;
   height: 86%;
   max-height: 110px;
   min-height: 56px;

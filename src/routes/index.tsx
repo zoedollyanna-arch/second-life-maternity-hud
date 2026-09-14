@@ -556,18 +556,22 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
           )}
 
           {data.activeEvent && data.preferences?.popupSurface !== "world" && (
-            <EventCard
-              event={data.activeEvent}
-              pending={action.isPending}
-              onChoose={(choice) =>
-                act("random_event_choice", {
-                  choice,
-                  eventId: data.activeEvent!.id,
-                  eventType: data.activeEvent!.key,
-                })
-              }
-              onDismiss={() => act("event_dismiss")}
-            />
+            <div className="pointer-events-none absolute inset-x-2 top-2 z-30">
+              <div className="pointer-events-auto">
+                <EventCard
+                  event={data.activeEvent}
+                  pending={action.isPending}
+                  onChoose={(choice) =>
+                    act("random_event_choice", {
+                      choice,
+                      eventId: data.activeEvent!.id,
+                      eventType: data.activeEvent!.key,
+                    })
+                  }
+                  onDismiss={() => act("event_dismiss")}
+                />
+              </div>
+            </div>
           )}
 
           <div className="hud-stage">
