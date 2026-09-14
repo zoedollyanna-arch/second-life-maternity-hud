@@ -5,7 +5,6 @@ import {
   Home,
   Heart,
   Baby,
-  Users,
   BookHeart,
   Bell,
   Settings,
@@ -37,7 +36,6 @@ import {
   CloudRain,
   Briefcase,
   MoreHorizontal,
-  Activity,
   HeartPulse,
   PersonStanding,
   Thermometer,
@@ -45,14 +43,14 @@ import {
 import logo from "@/assets/nestoria-logo.png";
 import pregnancyHero from "@/assets/pregnancy-hero.jpg";
 import babyHero from "@/assets/baby-hero.jpg";
-import iconPregnancy from "../../../pixel-perfect-main/src/assets/icon-pregnancy.png";
-import iconHealth from "../../../pixel-perfect-main/src/assets/icon-health.png";
-import iconCare from "../../../pixel-perfect-main/src/assets/icon-care.png";
-import iconPartner from "../../../pixel-perfect-main/src/assets/icon-partner.png";
-import iconJournal from "../../../pixel-perfect-main/src/assets/icon-journal.png";
-import iconBaby from "../../../pixel-perfect-main/src/assets/icon-baby.png";
-import iconNotifications from "../../../pixel-perfect-main/src/assets/icon-notifications.png";
-import iconSettings from "../../../pixel-perfect-main/src/assets/icon-settings.png";
+import iconPregnancy from "@/assets/icon-pregnancy.png";
+import iconHealth from "@/assets/icon-health.png";
+import iconCare from "@/assets/icon-care.png";
+import iconPartner from "@/assets/icon-partner.png";
+import iconJournal from "@/assets/icon-journal.png";
+import iconBaby from "@/assets/icon-baby.png";
+import iconNotifications from "@/assets/icon-notifications.png";
+import iconSettings from "@/assets/icon-settings.png";
 import { Toaster } from "@/components/ui/sonner";
 import {
   Dialog,
@@ -170,17 +168,17 @@ const DOCK_NAV: {
 const MORE_APPS: {
   key: NavKey;
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: string;
 }[] = [
-  { key: "care", label: "Care", icon: HandHeart },
-  { key: "partner", label: "Partner", icon: Users },
-  { key: "labor", label: "Labor", icon: Activity },
-  { key: "bag", label: "Hospital bag", icon: Briefcase },
-  { key: "journal", label: "Journal", icon: BookHeart },
-  { key: "milestones", label: "Milestones", icon: Trophy },
-  { key: "nutrition", label: "Nutrition", icon: Apple },
-  { key: "notifications", label: "Alerts", icon: Bell },
-  { key: "settings", label: "Settings", icon: Settings },
+  { key: "care", label: "Care", icon: iconCare },
+  { key: "partner", label: "Partner", icon: iconPartner },
+  { key: "labor", label: "Labor", icon: iconHealth },
+  { key: "bag", label: "Hospital bag", icon: iconCare },
+  { key: "journal", label: "Journal", icon: iconJournal },
+  { key: "milestones", label: "Milestones", icon: iconBaby },
+  { key: "nutrition", label: "Nutrition", icon: iconCare },
+  { key: "notifications", label: "Alerts", icon: iconNotifications },
+  { key: "settings", label: "Settings", icon: iconSettings },
 ];
 
 function dockKey(active: NavKey): NavKey {
@@ -207,7 +205,7 @@ function AppPage({
           <ChevronLeft className="h-5 w-5" />
           Back
         </button>
-        <h2 className="hud-title">{title}</h2>
+        <h2 className="hud-title font-serif">{title}</h2>
         <span className="w-[72px] shrink-0" aria-hidden />
       </div>
       {children}
@@ -587,10 +585,10 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                     </section>
                   )}
                   <header className="relative z-10 flex shrink-0 flex-col items-center justify-center py-[0.4vh]">
-                    <h1 className="font-display text-[clamp(2rem,7vh,3.6rem)] leading-[1.05] text-primary drop-shadow-[0_2px_6px_rgba(200,180,225,0.6)]">
+                    <h1 className="font-display text-[clamp(2rem,7vh,3.6rem)] font-bold leading-[1.05] text-primary drop-shadow-[0_2px_6px_rgba(200,180,225,0.6)]">
                       Nestoria
                     </h1>
-                    <p className="text-[clamp(0.78rem,2vh,1.05rem)] tracking-wide text-muted-foreground">
+                    <p className="font-sans text-[clamp(0.78rem,2vh,1.05rem)] tracking-wide text-muted-foreground">
                       your journey, beautifully
                     </p>
                   </header>
@@ -618,17 +616,17 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                         <img
                           src={iconPregnancy}
                           alt=""
-                          loading="lazy"
+                          loading="eager"
                           width={512}
                           height={512}
                           className="h-full w-full object-contain"
                         />
                       </span>
                       <div className="min-w-0 flex-1">
-                        <h2 className="text-[clamp(0.82rem,2.2vh,1.1rem)] font-bold text-primary">
+                        <h2 className="font-sans text-[clamp(0.82rem,2.2vh,1.1rem)] font-bold text-primary">
                           Pregnancy
                         </h2>
-                        <p className="text-[clamp(0.95rem,2.8vh,1.4rem)] font-bold leading-tight">
+                        <p className="font-sans text-[clamp(0.95rem,2.8vh,1.4rem)] font-bold leading-tight">
                           {preg.week} weeks, {preg.day} days
                         </p>
                         <p className="text-[clamp(0.72rem,1.9vh,0.95rem)] text-muted-foreground">
@@ -651,7 +649,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                       onClick={() => openApp("health")}
                       className="flex min-h-0 flex-col justify-center gap-[clamp(0.2rem,1vh,0.5rem)] text-left"
                     >
-                      <h2 className="text-[clamp(0.82rem,2.2vh,1.1rem)] font-bold text-primary">
+                      <h2 className="font-sans text-[clamp(0.82rem,2.2vh,1.1rem)] font-bold text-primary">
                         Health Overview
                       </h2>
                       <StatMeter
@@ -677,15 +675,15 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                 <AppPage title="More" onBack={() => setActive("home")}>
                   <Panel className="is-scroll">
                     <div className="hud-more-list">
-                      {MORE_APPS.map(({ key, label, icon: Icon }) => (
+                      {MORE_APPS.map(({ key, label, icon }) => (
                         <button
                           key={label}
                           type="button"
                           className="hud-more-row"
                           onClick={() => openApp(key, "more")}
                         >
-                          <span className="hud-tile-icon">
-                            <Icon />
+                          <span className="hud-tile-icon overflow-hidden p-1">
+                            <img src={icon} alt="" className="h-full w-full object-contain" />
                           </span>
                           {label}
                         </button>

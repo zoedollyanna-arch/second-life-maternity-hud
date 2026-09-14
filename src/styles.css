@@ -77,22 +77,22 @@
 }
 
 :root {
-  --radius: 1.25rem;
+  --radius: 1.1rem;
   /* Nestoria palette: #D6C6E7 lavender, #F6C6D6 blush, #FFF4E6 cream, #E9E3EF cloud */
-  --background: oklch(0.965 0.015 305);
-  --foreground: oklch(0.32 0.08 300);
-  --card: oklch(0.99 0.008 320);
-  --card-foreground: oklch(0.32 0.08 300);
-  --popover: oklch(0.99 0.008 320);
-  --popover-foreground: oklch(0.32 0.08 300);
-  --primary: oklch(0.62 0.13 300);
-  --primary-foreground: oklch(0.99 0.005 320);
-  --secondary: oklch(0.88 0.06 340);
-  --secondary-foreground: oklch(0.35 0.09 340);
-  --muted: oklch(0.94 0.02 310);
-  --muted-foreground: oklch(0.52 0.06 300);
-  --accent: oklch(0.85 0.08 305);
-  --accent-foreground: oklch(0.32 0.1 300);
+  --background: oklch(0.965 0.015 310);
+  --foreground: oklch(0.38 0.06 300);
+  --card: oklch(0.995 0.004 90);
+  --card-foreground: oklch(0.38 0.06 300);
+  --popover: oklch(0.995 0.004 90);
+  --popover-foreground: oklch(0.38 0.06 300);
+  --primary: oklch(0.72 0.09 300);
+  --primary-foreground: oklch(0.995 0.004 90);
+  --secondary: oklch(0.92 0.05 350);
+  --secondary-foreground: oklch(0.42 0.07 350);
+  --muted: oklch(0.95 0.012 310);
+  --muted-foreground: oklch(0.58 0.045 305);
+  --accent: oklch(0.94 0.03 350);
+  --accent-foreground: oklch(0.42 0.07 350);
   --destructive: oklch(0.65 0.18 25);
   --destructive-foreground: oklch(0.984 0.003 247.858);
   --border: oklch(0.9 0.03 305);
@@ -189,26 +189,30 @@
     height: 100%;
     margin: 0;
     padding: 0;
-  }
-
-  html,
-  body {
     overflow: hidden;
   }
 
   body {
     color: var(--color-foreground);
-    background: var(--gradient-sky);
-    background-attachment: fixed;
+    background:
+      radial-gradient(70% 45% at 20% 8%, oklch(1 0 0 / 0.75) 0%, transparent 60%),
+      radial-gradient(60% 40% at 82% 6%, oklch(1 0 0 / 0.6) 0%, transparent 60%),
+      linear-gradient(
+        170deg,
+        oklch(0.925 0.045 305) 0%,
+        oklch(0.955 0.03 320) 38%,
+        oklch(0.97 0.025 355) 68%,
+        oklch(0.985 0.02 85) 100%
+      );
     font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
 
-  h1,
-  h2,
-  h3,
-  h4 {
+  .hud-title,
+  .hud-brand,
+  .hud-stat {
     font-family: var(--font-serif);
     letter-spacing: 0.01em;
   }

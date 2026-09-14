@@ -19,7 +19,7 @@ export function FeatureCard({ label, icon, tint, badge, onSelect }: FeatureCardP
     <button
       type="button"
       onClick={onSelect}
-      className="group relative flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-[0.3rem] hover:-translate-y-[2px] active:translate-y-0"
+      className="group relative flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-[0.3rem] transition-transform duration-200 hover:-translate-y-[2px] active:translate-y-0"
     >
       <span
         className={`hud-tile relative flex aspect-square min-h-0 flex-1 items-center justify-center rounded-[28%] bg-gradient-to-br ${tiles[tint]} p-[11%]`}
@@ -27,7 +27,7 @@ export function FeatureCard({ label, icon, tint, badge, onSelect }: FeatureCardP
         <img
           src={icon}
           alt=""
-          loading="lazy"
+          loading="eager"
           width={512}
           height={512}
           className="h-full w-full object-contain drop-shadow-[0_4px_8px_rgba(160,140,190,0.25)]"
@@ -38,7 +38,7 @@ export function FeatureCard({ label, icon, tint, badge, onSelect }: FeatureCardP
           </span>
         ) : null}
       </span>
-      <span className="text-[clamp(0.8rem,2.1vh,1.15rem)] font-semibold leading-none text-foreground">
+      <span className="font-sans text-[clamp(0.8rem,2.1vh,1.15rem)] font-semibold leading-none text-foreground">
         {label}
       </span>
     </button>

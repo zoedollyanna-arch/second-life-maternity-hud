@@ -24,14 +24,14 @@ import {
   Zap,
 } from "lucide-react";
 import logo from "@/assets/nestoria-logo.png";
-import iconPregnancy from "../../../pixel-perfect-main/src/assets/icon-pregnancy.png";
-import iconHealth from "../../../pixel-perfect-main/src/assets/icon-health.png";
-import iconCare from "../../../pixel-perfect-main/src/assets/icon-care.png";
-import iconPartner from "../../../pixel-perfect-main/src/assets/icon-partner.png";
-import iconJournal from "../../../pixel-perfect-main/src/assets/icon-journal.png";
-import iconBaby from "../../../pixel-perfect-main/src/assets/icon-baby.png";
-import iconNotifications from "../../../pixel-perfect-main/src/assets/icon-notifications.png";
-import iconSettings from "../../../pixel-perfect-main/src/assets/icon-settings.png";
+import iconPregnancy from "@/assets/icon-pregnancy.png";
+import iconHealth from "@/assets/icon-health.png";
+import iconCare from "@/assets/icon-care.png";
+import iconPartner from "@/assets/icon-partner.png";
+import iconJournal from "@/assets/icon-journal.png";
+import iconBaby from "@/assets/icon-baby.png";
+import iconNotifications from "@/assets/icon-notifications.png";
+import iconSettings from "@/assets/icon-settings.png";
 import { Toaster } from "@/components/ui/sonner";
 import {
   HudFrame,
@@ -570,7 +570,7 @@ function HomeScreen({
   const dueDate = useMemo(
     () =>
       new Date(preg.dueDate).toLocaleDateString(undefined, {
-        month: "short",
+        month: "long",
         day: "numeric",
         year: "numeric",
       }),
@@ -634,10 +634,10 @@ function HomeScreen({
       )}
 
       <header className="relative z-10 flex shrink-0 flex-col items-center justify-center py-[0.4vh]">
-        <h1 className="font-display text-[clamp(2rem,7vh,3.6rem)] leading-[1.05] text-primary drop-shadow-[0_2px_6px_rgba(200,180,225,0.6)]">
+        <h1 className="font-display text-[clamp(2rem,7vh,3.6rem)] font-bold leading-[1.05] text-primary drop-shadow-[0_2px_6px_rgba(200,180,225,0.6)]">
           Nestoria
         </h1>
-        <p className="text-[clamp(0.78rem,2vh,1.05rem)] tracking-wide text-muted-foreground">
+        <p className="font-sans text-[clamp(0.78rem,2vh,1.05rem)] tracking-wide text-muted-foreground">
           stay close
         </p>
       </header>
@@ -665,19 +665,19 @@ function HomeScreen({
             <img
               src={iconPartner}
               alt=""
-              loading="lazy"
+              loading="eager"
               width={512}
               height={512}
               className="h-full w-full object-contain"
             />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="text-[clamp(0.82rem,2.2vh,1.1rem)] font-bold text-primary">
+            <h2 className="font-sans text-[clamp(0.82rem,2.2vh,1.1rem)] font-bold text-primary">
               {data.partner.name ?? "Your partner"}
             </h2>
             {show("viewWeek") ? (
               <>
-                <p className="text-[clamp(0.95rem,2.8vh,1.4rem)] font-bold leading-tight">
+                <p className="font-sans text-[clamp(0.95rem,2.8vh,1.4rem)] font-bold leading-tight">
                   {preg.week} weeks, {preg.day} days
                 </p>
                 <p className="text-[clamp(0.72rem,1.9vh,0.95rem)] text-muted-foreground">
@@ -711,7 +711,7 @@ function HomeScreen({
           onClick={() => onNav("mom")}
           className="flex min-h-0 flex-col justify-center gap-[clamp(0.2rem,1vh,0.5rem)] text-left"
         >
-          <h2 className="text-[clamp(0.82rem,2.2vh,1.1rem)] font-bold text-primary">
+          <h2 className="font-sans text-[clamp(0.82rem,2.2vh,1.1rem)] font-bold text-primary">
             Health Overview
           </h2>
           {show("viewWellness") ? (

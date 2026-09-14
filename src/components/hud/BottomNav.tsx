@@ -27,7 +27,7 @@ export function BottomNav({
             key={id}
             type="button"
             onClick={() => onSelect(id)}
-            className={`flex flex-1 flex-col items-center justify-center gap-[0.15rem] rounded-full py-[0.35rem] ${
+            className={`flex flex-1 flex-col items-center justify-center gap-[0.15rem] rounded-full py-[0.35rem] transition-all duration-200 ${
               isActive
                 ? "hud-dock-active bg-gradient-to-b from-lavender-soft via-lavender to-lavender text-primary-foreground shadow-soft ring-1 ring-pearl/70"
                 : "text-muted-foreground hover:bg-pearl/70"
