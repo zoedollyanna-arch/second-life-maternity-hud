@@ -166,8 +166,8 @@ heartsBurst()
 // The screen's resolution. 1024×824 matches the in-world tablet face
 // (~0.51268m × 0.41277m, ratio 1.242:1). AUTO_SCALE is off so the page
 // fills the face without a second browser zoom.
-integer SCREEN_WIDTH  = 1024;
-integer SCREEN_HEIGHT = 824;
+integer SCREEN_WIDTH  = 800;
+integer SCREEN_HEIGHT = 450;
 
 integer hudPrimCount()
 {

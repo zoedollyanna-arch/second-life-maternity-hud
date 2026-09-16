@@ -39,6 +39,8 @@ import {
   HeartPulse,
   PersonStanding,
   Thermometer,
+  Minus,
+  Maximize2,
 } from "lucide-react";
 import logo from "@/assets/nestoria-logo.png";
 import pregnancyHero from "@/assets/pregnancy-hero.jpg";
@@ -315,6 +317,29 @@ function Index() {
       </Shell>
     );
   }
+  useEffect(() => {
+    if (state.data?.user?.role === "partner" && token) {
+      window.location.replace(`/partner?token=${encodeURIComponent(token)}`);
+    }
+  }, [state.data?.user?.role, token]);
+
+  if (state.data?.user?.role === "partner") {
+    return (
+      <Shell>
+        <HudFrame {...hudZoom}>
+          <div className="flex h-full min-h-0 flex-1 items-center justify-center">
+            <div className="text-center">
+              <Loader2 className="mx-auto h-10 w-10 animate-spin text-[color:var(--lavender-deep)]" />
+              <p className="mt-4 font-display text-xl text-[color:var(--lavender-deep)]">
+                Opening your Partner HUD…
+              </p>
+            </div>
+          </div>
+        </HudFrame>
+      </Shell>
+    );
+  }
+
   return <Dashboard token={token} data={state.data} />;
 }
 
@@ -369,6 +394,14 @@ function ConnectScreen() {
               <PrimaryButton onClick={startDemo} disabled={starting}>
                 {starting ? "Starting demo…" : "Preview a demo dashboard"}
               </PrimaryButton>
+              <div className="mt-2 text-center">
+                <a
+                  href="/partner"
+                  className="hud-muted text-xs font-semibold underline hover:text-foreground"
+                >
+                  Switch to Partner HUD
+                </a>
+              </div>
             </Panel>
           </div>
         </div>
@@ -384,9 +417,15 @@ function ConnectScreen() {
 
 function Dashboard({ token, data }: { token: string; data: HudState }) {
   const [active, setActive] = useState<NavKey>("home");
+  const [isMinimized, setIsMinimized] = useState(false);
   const backTo = useRef<NavKey>("home");
   const hudZoom = useHudZoom();
   const action = useHudAction(token);
+
+  const handleMinimize = () => {
+    act("hud_minimize", undefined, { silent: true });
+    setIsMinimized(true);
+  };
 
   const openApp = (key: NavKey, from: NavKey = "home") => {
     backTo.current = from;
@@ -449,20 +488,16 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
   }, [data.ultrasounds.length]);
 
   const preg = data.pregnancy;
-  const stats = useLiveStats(data);
   const dueDate = useMemo(
     () =>
       new Date(preg.dueDate).toLocaleDateString(undefined, {
-        year: "numeric",
         month: "long",
         day: "numeric",
+        year: "numeric",
       }),
     [preg.dueDate],
   );
-  const nextMilestone = useMemo(
-    () => BABY_GROWTH.find((m) => m.week > preg.week) ?? BABY_GROWTH[BABY_GROWTH.length - 1],
-    [preg.week],
-  );
+  const stats = data.stats;
   const trimesterLabel =
     preg.trimester === 1
       ? "1st Trimester"
@@ -488,9 +523,34 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
     { key: "settings", label: "Settings", icon: iconSettings, tint: "lavender" },
   ];
 
+  if (isMinimized) {
+    return (
+      <Shell>
+        <div className="flex h-screen w-screen items-end justify-end p-4 pointer-events-none">
+          <button
+            type="button"
+            onClick={() => setIsMinimized(false)}
+            className="pointer-events-auto flex items-center gap-2 rounded-full bg-white/95 px-4 py-2 text-sm font-bold text-[#A77ACB] shadow-lg hover:bg-white cursor-pointer transition-all border border-white"
+          >
+            <img src={logo} alt="" className="h-5 w-5 rounded-full" />
+            <span>Expand HUD</span>
+            <Maximize2 className="h-4 w-4" />
+          </button>
+        </div>
+      </Shell>
+    );
+  }
+
   // Not pregnant yet: the journey starts before the pregnancy does.
   if (data.conception?.trying && data.user.role === "mom") {
-    return <ConceiveScreen data={data} act={act} pending={action.isPending} />;
+    return (
+      <ConceiveScreen
+        data={data}
+        act={act}
+        pending={action.isPending}
+        onMinimize={handleMinimize}
+      />
+    );
   }
 
   if (!preg.setupComplete && data.user.role === "mom") {
@@ -542,6 +602,15 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                 >
                   <Settings className="h-5 w-5" />
                 </button>
+                <button
+                  type="button"
+                  onClick={handleMinimize}
+                  title="Minimize HUD"
+                  aria-label="Minimize HUD"
+                  className="hud-icon-btn"
+                >
+                  <Minus className="h-4 w-4" />
+                </button>
               </div>
             </header>
           )}
@@ -586,9 +655,18 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                   <LinkApprovals data={data} act={act} pending={action.isPending} />
                 </section>
               )}
-              <header className="hud-home-header">
+              <header className="hud-home-header relative">
                 <h1>Nestoria</h1>
                 <p>your journey, beautifully</p>
+                <button
+                  type="button"
+                  onClick={handleMinimize}
+                  title="Minimize HUD"
+                  aria-label="Minimize HUD"
+                  className="absolute right-0 top-1/2 -translate-y-1/2 hud-icon-btn h-8 w-8 !min-h-0 !min-w-0"
+                >
+                  <Minus className="h-4 w-4" />
+                </button>
               </header>
 
               <section className="hud-home-grid">
@@ -1451,10 +1529,12 @@ function ConceiveScreen({
   data,
   act,
   pending,
+  onMinimize,
 }: {
   data: HudState;
   act: (name: string, params?: Record<string, unknown>) => void;
   pending: boolean;
+  onMinimize?: () => void;
 }) {
   const hudZoom = useHudZoom();
   const c = data.conception!;
@@ -1488,6 +1568,17 @@ function ConceiveScreen({
                 <div className="hud-subtitle truncate">Your journey starts here</div>
               </div>
             </div>
+            {onMinimize && (
+              <button
+                type="button"
+                onClick={onMinimize}
+                title="Minimize HUD"
+                aria-label="Minimize HUD"
+                className="hud-icon-btn"
+              >
+                <Minus className="h-4 w-4" />
+              </button>
+            )}
           </header>
 
           <div className="hud-stage">

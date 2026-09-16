@@ -30,7 +30,7 @@ export const Route = createFileRoute("/api/sl/partner-link")({
           const { rows } = await db().query(
             `select p.id, p.user_id, u.avatar_key as mom_key, u.avatar_name as mom_name
              from pregnancies p join hud_users u on u.id = p.user_id
-             where p.partner_code = $1 and p.status = 'active' limit 1`,
+              where p.partner_code = $1 and p.status in ('active', 'trying') limit 1`,
             [code],
           );
           const preg = rows[0];

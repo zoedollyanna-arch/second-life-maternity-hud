@@ -14,8 +14,8 @@ string  API_SECRET = "2175039403870ed15116d0dcf330095af3f6a398e83bca01";
 
 integer MOAP_LINK     = 2;
 integer MOAP_FACE     = 4;
-integer SCREEN_WIDTH  = 1024;
-integer SCREEN_HEIGHT = 824;
+integer SCREEN_WIDTH  = 800;
+integer SCREEN_HEIGHT = 450;
 integer POLL_SECONDS  = 30;
 
 string  gToken = "";
@@ -365,7 +365,8 @@ default
                 if (text != JSON_INVALID && text != "") say(text);
                 if (cmd == "hearts")      heartsBurst();
                 else if (cmd == "faint")  reactAnim("nestoria_faint", "The room tilts. You sit down hard.");
-                else if (cmd == "vomit")  reactAnim("nestoria_vomit", "Your stomach turns.");
+                else if (cmd == "vomit")    reactAnim("nestoria_vomit", "Your stomach turns.");
+                else if (cmd == "minimize") minimizeHud();
                 i++;
             }
             return;

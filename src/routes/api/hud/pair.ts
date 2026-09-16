@@ -3,6 +3,9 @@ import { json, readJson, sessionFromRequest } from "@/lib/server/http";
 import { db } from "@/lib/server/db";
 import { requestLink } from "@/lib/server/partner";
 
+import { randomUUID } from "node:crypto";
+import { getOrCreateUser, createSession } from "@/lib/server/game";
+
 /**
  * Redeem a pairing code from the Partner HUD *screen*.
  *
@@ -20,8 +23,12 @@ export const Route = createFileRoute("/api/hud/pair")({
     handlers: {
       POST: async ({ request }) => {
         const body = await readJson(request);
-        const user = await sessionFromRequest(request, body);
-        if (!user) return json({ error: "unauthorized" }, 401);
+        let user = await sessionFromRequest(request, body);
+        let createdToken: string | null = null;
+        if (!user) {
+          user = await getOrCreateUser(randomUUID(), "Partner Resident", "partner");
+          createdToken = await createSession(user.id);
+        }
 
         const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
         if (!/^[A-Z0-9]{6}$/.test(code)) {
@@ -34,7 +41,7 @@ export const Route = createFileRoute("/api/hud/pair")({
         const { rows } = await db().query(
           `select p.id, p.user_id, u.avatar_key as mom_key, u.avatar_name as mom_name
              from pregnancies p join hud_users u on u.id = p.user_id
-            where p.partner_code = $1 and p.status = 'active' limit 1`,
+            where p.partner_code = $1 and p.status in ('active', 'trying') limit 1`,
           [code],
         );
         const preg = rows[0];
@@ -55,6 +62,7 @@ export const Route = createFileRoute("/api/hud/pair")({
             ok: true,
             status: link.status,
             momName: preg.mom_name,
+            token: createdToken ?? undefined,
             message:
               link.status === "active"
                 ? `Paired with ${preg.mom_name}. Your screen is live.`

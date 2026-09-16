@@ -22,6 +22,8 @@ import {
   Settings,
   Hourglass,
   Zap,
+  Minus,
+  Maximize2,
 } from "lucide-react";
 import logo from "@/assets/nestoria-logo.png";
 import iconPregnancy from "@/assets/icon-pregnancy.png";
@@ -43,6 +45,7 @@ import {
   CloudBar,
   useHudZoom,
 } from "@/components/hud/chrome";
+import { DecorCloud } from "@/components/hud/icons";
 import { FeatureCard, type FeatureTint } from "@/components/hud/FeatureCard";
 import { StatMeter } from "@/components/hud/StatMeter";
 import { BottomNav } from "@/components/hud/BottomNav";
@@ -54,8 +57,11 @@ import {
   PARTNER_TITLES,
   type PartnerActionDef,
 } from "@/lib/partner";
+import { FERTILITY_LEVELS, FERTILITY_COPY } from "@/lib/conception";
 import { HospitalBagPanels } from "@/components/hud/partner-panels";
 import { playForAction, playChime, playError, playHearts } from "@/lib/sounds";
+
+const FERTILITY_OPTIONS = FERTILITY_LEVELS.map((key) => ({ key, ...FERTILITY_COPY[key] }));
 
 export const Route = createFileRoute("/partner")({
   validateSearch: (search: Record<string, unknown>): { token?: string } => ({
@@ -144,6 +150,7 @@ function PairScreen({ token, onPaired }: { token: string; onPaired: () => void }
       const data = (await res.json()) as {
         ok?: boolean;
         status?: string;
+        token?: string;
         message?: string;
         error?: string;
       };
@@ -155,6 +162,10 @@ function PairScreen({ token, onPaired }: { token: string; onPaired: () => void }
         return;
       }
       setNote(data.message ?? null);
+      if (data.token) {
+        window.location.search = `?token=${encodeURIComponent(data.token)}`;
+        return;
+      }
       if (data.status === "active") {
         onPaired();
       } else {
@@ -207,6 +218,29 @@ function PairScreen({ token, onPaired }: { token: string; onPaired: () => void }
                     />
                   ))}
                 </div>
+
+                <div className="mb-3 flex items-center justify-center gap-2 max-w-[280px] mx-auto">
+                  <input
+                    type="text"
+                    placeholder="Enter Partner Code…"
+                    value={code}
+                    maxLength={6}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6);
+                      setChars(Array(6).fill("").map((_, idx) => v[idx] || ""));
+                    }}
+                    className="flex-1 h-10 px-3 rounded-xl border border-[#c3d4ee] bg-white font-sans text-center text-sm font-semibold tracking-wider text-[#35415c] uppercase placeholder:normal-case placeholder:font-normal placeholder:text-muted-foreground focus:border-[#6e93c9] focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={submit}
+                    disabled={code.length !== 6 || status === "sending"}
+                    className="h-10 px-4 rounded-xl bg-gradient-to-r from-[#7ea2d6] to-[#4f79b8] text-white font-bold text-sm shadow hover:brightness-105 disabled:opacity-50 cursor-pointer"
+                  >
+                    {status === "sending" ? "…" : "Link"}
+                  </button>
+                </div>
+
                 {error && <p className="mb-2 hud-copy font-semibold text-[#b4577a]">{error}</p>}
                 <PrimaryButton
                   onClick={submit}
@@ -240,18 +274,7 @@ function PartnerPage() {
   const hudZoom = useHudZoom();
 
   if (!token) {
-    return (
-      <Centered>
-        <Panel className="w-full max-w-[36rem] text-center">
-          <h1 className="hud-wordmark">Nestoria</h1>
-          <p className="hud-tagline">stay close</p>
-          <p className="mt-3 hud-copy">
-            Wear the Partner HUD in Second Life and enter her pairing code. This screen loads
-            automatically on the HUD face.
-          </p>
-        </Panel>
-      </Centered>
-    );
+    return <PairScreen token="" onPaired={() => state.refetch()} />;
   }
 
   if (state.isLoading) {
@@ -329,6 +352,141 @@ function gateFor(def: PartnerActionDef, data: HudState): Gate {
 // Dashboard
 // ---------------------------------------------------------------------------
 
+function PartnerConceiveScreen({
+  data,
+  act,
+  pending,
+  onMinimize,
+}: {
+  data: HudState;
+  act: (name: string, params?: Record<string, unknown>) => void;
+  pending: boolean;
+  onMinimize: () => void;
+}) {
+  const hudZoom = useHudZoom();
+  const c = data.conception!;
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const cooldownLeft = c.cooldownEndsAt
+    ? Math.max(0, Math.ceil((new Date(c.cooldownEndsAt).getTime() - now) / 1000))
+    : 0;
+  const waiting = cooldownLeft > 0;
+  const momName = data.partner.name ?? "your partner";
+
+  return (
+    <Shell>
+      <HudFrame {...hudZoom}>
+        <div className="hud-app is-partner">
+          <header className="hud-topbar">
+            <div className="flex min-w-0 items-center gap-3">
+              <img
+                src={logo}
+                alt=""
+                width={32}
+                height={32}
+                className="h-8 w-8 shrink-0 rounded-lg"
+              />
+              <div className="min-w-0">
+                <div className="hud-brand truncate">NESTORIA</div>
+                <div className="hud-subtitle truncate">Partner HUD · Start your journey</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onMinimize}
+              title="Minimize HUD"
+              aria-label="Minimize HUD"
+              className="hud-icon-btn"
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+          </header>
+
+          <div className="hud-stage">
+            <main className="hud-main is-scroll">
+              <Panel>
+                <div className="hud-hero">
+                  <DecorCloud className="hud-hero-cloud is-left" />
+                  <DecorCloud className="hud-hero-cloud is-right" />
+                  <div className="hud-hero-text">
+                    <h1 className="hud-wordmark">Try to Conceive</h1>
+                    <p className="hud-tagline">Start your journey together with {momName}.</p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="hud-conceive-btn"
+                  disabled={pending || waiting}
+                  onClick={() => act("conceive_attempt")}
+                >
+                  <Heart className="h-6 w-6" />
+                  <span>{waiting ? `Wait ${cooldownLeft}s` : "CONCEIVE"}</span>
+                </button>
+
+                {c.attempts > 0 && (
+                  <p className="mt-2 text-center hud-muted italic">
+                    {c.attempts === 1
+                      ? "You have tried once."
+                      : `You have tried ${c.attempts} times.`}
+                    {c.testsTaken > 0 &&
+                      ` ${c.testsTaken} test${c.testsTaken === 1 ? "" : "s"} taken.`}
+                  </p>
+                )}
+              </Panel>
+
+              <Panel>
+                <PanelHeader eyebrow="Fertility level" title="Set how fertile she is" />
+                <div className="hud-fertility">
+                  {FERTILITY_OPTIONS.map((level) => (
+                    <button
+                      key={level.key}
+                      type="button"
+                      disabled={pending}
+                      onClick={() => act("fertility_set", { fertility: level.key })}
+                      className={`hud-fertility-btn ${c.fertility === level.key ? "is-on" : ""}`}
+                    >
+                      {level.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-center hud-muted">
+                  {FERTILITY_OPTIONS.find((l) => l.key === c.fertility)?.hint}
+                </p>
+              </Panel>
+
+              <Panel>
+                <PanelHeader
+                  eyebrow="Pregnancy test"
+                  title="Take a test"
+                  subtitle="A test only reads true once enough time has passed."
+                />
+                <PrimaryButton disabled={pending} onClick={() => act("pregnancy_test")}>
+                  Take a pregnancy test
+                </PrimaryButton>
+              </Panel>
+
+              <Panel>
+                <PanelHeader
+                  eyebrow="Connected"
+                  title={`Linked with ${momName}`}
+                  subtitle="Either of you can start the attempt or take a test."
+                />
+              </Panel>
+            </main>
+          </div>
+        </div>
+      </HudFrame>
+      <Toaster position="top-center" />
+    </Shell>
+  );
+}
+
 function PartnerDashboard({ token }: { token: string }) {
   const state = useHudState(token);
   const data = state.data!;
@@ -336,6 +494,12 @@ function PartnerDashboard({ token }: { token: string }) {
   const hudZoom = useHudZoom();
   const [active, setActive] = useState<PartnerNav>("home");
   const [moreScreen, setMoreScreen] = useState<MoreScreenKey | null>(null);
+  const [isMinimized, setIsMinimized] = useState(false);
+
+  const handleMinimize = () => {
+    action.mutate({ action: "hud_minimize" });
+    setIsMinimized(true);
+  };
 
   const unreadRef = useRef(data.unread);
   const laborRef = useRef(data.pregnancy.labor?.phase);
@@ -396,6 +560,35 @@ function PartnerDashboard({ token }: { token: string }) {
       },
     );
 
+  if (isMinimized) {
+    return (
+      <Shell>
+        <div className="flex h-screen w-screen items-end justify-end p-4 pointer-events-none">
+          <button
+            type="button"
+            onClick={() => setIsMinimized(false)}
+            className="pointer-events-auto flex items-center gap-2 rounded-full bg-white/95 px-4 py-2 text-sm font-bold text-[#4F79B8] shadow-lg hover:bg-white cursor-pointer transition-all border border-white"
+          >
+            <img src={logo} alt="" className="h-5 w-5 rounded-full" />
+            <span>Expand Partner HUD</span>
+            <Maximize2 className="h-4 w-4" />
+          </button>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (data.conception?.trying) {
+    return (
+      <PartnerConceiveScreen
+        data={data}
+        act={act}
+        pending={action.isPending}
+        onMinimize={handleMinimize}
+      />
+    );
+  }
+
   const preg = data.pregnancy;
   const labor = preg.labor;
   const momName = data.partner.name ?? "your partner";
@@ -436,6 +629,15 @@ function PartnerDashboard({ token }: { token: string }) {
                   <Bell className="h-5 w-5" />
                   {data.unread > 0 && <span className="hud-unread">{data.unread}</span>}
                 </button>
+                <button
+                  type="button"
+                  onClick={handleMinimize}
+                  title="Minimize HUD"
+                  aria-label="Minimize HUD"
+                  className="hud-icon-btn"
+                >
+                  <Minus className="h-4 w-4" />
+                </button>
               </div>
             </header>
           )}
@@ -464,6 +666,7 @@ function PartnerDashboard({ token }: { token: string }) {
                 setActive(key);
                 setMoreScreen(null);
               }}
+              onMinimize={handleMinimize}
             />
           )}
 
@@ -561,10 +764,12 @@ function HomeScreen({
   data,
   onOpen,
   onNav,
+  onMinimize,
 }: {
   data: HudState;
   onOpen: (s: MoreScreenKey) => void;
   onNav: (key: PartnerNav) => void;
+  onMinimize?: () => void;
 }) {
   const preg = data.pregnancy;
   const labor = preg.labor;
@@ -636,9 +841,20 @@ function HomeScreen({
         </div>
       )}
 
-      <header className="hud-home-header">
+      <header className="hud-home-header relative">
         <h1>Nestoria</h1>
-        <p>stay close</p>
+        <p>{(data.settings?.partnerTitle as string) ?? "Partner"} · stay close</p>
+        {onMinimize && (
+          <button
+            type="button"
+            onClick={onMinimize}
+            title="Minimize HUD"
+            aria-label="Minimize HUD"
+            className="absolute right-0 top-1/2 -translate-y-1/2 hud-icon-btn h-8 w-8 !min-h-0 !min-w-0"
+          >
+            <Minus className="h-4 w-4" />
+          </button>
+        )}
       </header>
 
       <section className="hud-home-grid">

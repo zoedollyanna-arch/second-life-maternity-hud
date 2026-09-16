@@ -64,6 +64,8 @@ const WEB_ACTIONS = new Set([
   "sleep",
   "vomit",
   "cry",
+  "hud_minimize",
+  "minimize",
   "feel_kick",
   "count_kick",
   "contractions",

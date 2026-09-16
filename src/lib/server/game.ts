@@ -2605,6 +2605,73 @@ export async function performAction(
       });
       return { ok: true, message: "Snack logged." };
 
+    case "sleep": {
+      await applyCare(
+        momId,
+        preg.id,
+        action,
+        { energy: 45, rest: 40, comfort: 12, sickness: -6, stress: -10, mood: 6 },
+        "Slept",
+      );
+      await queueAnim(momId, "hud", "sleep");
+      await queueCommand(momId, "hud", "say", {
+        text: `${actorName} settles in for a peaceful sleep. Energy +45, Rest +40.`,
+      });
+      return { ok: true, message: "You take a deep, restful sleep. Energy and rest restored." };
+    }
+
+    case "vomit": {
+      await applyCare(
+        momId,
+        preg.id,
+        action,
+        { sickness: -22, hunger: -10, hydration: -12, comfort: -6, mood: -4, stress: 3 },
+        "Vomited",
+      );
+      await queueAnim(momId, "hud", "vomit");
+      await queueCommand(momId, "hud", "say", {
+        text: `${actorName} rushes to be sick. Sickness eased, but she needs water and rest.`,
+      });
+      if (preg.partner_user_id) {
+        await notifyPartner(
+          preg,
+          `${momName} is feeling sick`,
+          "She just had a vomiting spell. Water, a cold cloth, or a check-in would help.",
+          { severity: "urgent", notify: "sickness" },
+        );
+      }
+      return { ok: true, message: "Nausea eased a bit. Remember to rehydrate and rest." };
+    }
+
+    case "cry": {
+      await applyCare(
+        momId,
+        preg.id,
+        action,
+        { stress: -8, mood: -6, comfort: 4, energy: -3 },
+        "Had a good cry",
+      );
+      await queueAnim(momId, "hud", "cry");
+      await queueCommand(momId, "hud", "say", {
+        text: `${actorName} lets the tears out with a quiet cry. Stress eased.`,
+      });
+      if (preg.partner_user_id) {
+        await notifyPartner(
+          preg,
+          `${momName} is having an emotional moment`,
+          "She is having a little cry. Some comfort, a hug, or sweet words would mean the world.",
+          { severity: "info", notify: "mood" },
+        );
+      }
+      return { ok: true, message: "You let the emotions out. Sometimes a good cry helps." };
+    }
+
+    case "hud_minimize":
+    case "minimize": {
+      await queueCommand(user.id, isPartner ? "partner" : "hud", "minimize", {});
+      return { ok: true, message: "HUD tucked away." };
+    }
+
     // ---- affection & partner ----------------------------------------------
     case "support": {
       await bumpStats(momId, { mood: 8 });
