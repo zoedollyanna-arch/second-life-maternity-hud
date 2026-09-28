@@ -91,6 +91,7 @@ import {
 } from "@/components/hud/partner-panels";
 import { BABY_GROWTH } from "@/lib/pregnancy";
 import { formatWait } from "@/lib/care";
+import { careProp } from "@/lib/props";
 import { FERTILITY_LEVELS, FERTILITY_COPY } from "@/lib/conception";
 import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, type FoodCategory } from "@/lib/foods";
 import { EVENT_CATEGORIES, EVENT_CATEGORY_LABELS, EVENT_CATEGORY_HINTS } from "@/lib/events";
@@ -430,6 +431,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
   const [active, setActive] = useState<NavKey>("home");
   const [isMinimized, setIsMinimized] = useState(false);
   const [vitaminAsk, setVitaminAsk] = useState(false);
+  const [orderFood, setOrderFood] = useState<{ key: string; name: string } | null>(null);
   const [careNow, setCareNow] = useState(() => Date.now());
   const backTo = useRef<NavKey>("home");
   const hudZoom = useHudZoom();
@@ -1232,7 +1234,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                         </div>
                       ))}
                     </div>
-                    <p className="mt-3 hud-muted">Lemon water and prenatals arrive as little props. Accept them, Add them, and the goodness counts when you finish ♥</p>
+                    <p className="mt-3 hud-muted">Lemon water and prenatals arrive as little props. Toast, smoothie, chocolate, and the salmon bagel come by Nestoria Food Delivery. Finish the scene and Mom's care updates ♥</p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <button
                         className="hud-food-chip"
@@ -1262,7 +1264,13 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                               {items.map((food) => (
                                 <button
                                   key={food.key}
-                                  onClick={() => act("food_eat", { food: food.key })}
+                                  onClick={() => {
+                                    if (careProp(food.key)?.food) {
+                                      setOrderFood({ key: food.key, name: food.name });
+                                      return;
+                                    }
+                                    act("food_eat", { food: food.key });
+                                  }}
                                   className="hud-food-chip"
                                 >
                                   {food.name}
@@ -1382,6 +1390,39 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
           />
         </div>
       </HudFrame>
+      <Dialog open={orderFood != null} onOpenChange={(open) => !open && setOrderFood(null)}>
+        <DialogContent className="rounded-[28px]">
+          <DialogHeader>
+            <DialogTitle className="text-center font-display text-2xl text-[color:var(--lavender-deep)]">
+              Would you like to order this?
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-center hud-muted">
+            {orderFood?.name} will be delivered by Nestoria Food Delivery ♥
+          </p>
+          <DialogFooter className="gap-2 sm:justify-center">
+            <button
+              type="button"
+              className="min-h-11 rounded-full bg-white/80 px-6 font-semibold text-[#A77ACB]"
+              onClick={() => setOrderFood(null)}
+            >
+              No
+            </button>
+            <button
+              type="button"
+              className="min-h-11 rounded-full px-6 font-semibold text-white"
+              style={{ background: "var(--gradient-lavender)" }}
+              onClick={() => {
+                const key = orderFood?.key;
+                setOrderFood(null);
+                if (key) act("food_eat", { food: key });
+              }}
+            >
+              Yes
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={vitaminAsk} onOpenChange={setVitaminAsk}>
         <DialogContent className="rounded-[28px]">
           <DialogHeader>

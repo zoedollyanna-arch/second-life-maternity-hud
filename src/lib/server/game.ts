@@ -2130,7 +2130,8 @@ export async function performAction(
     action === "prop_complete" ||
     action === "prop_request" ||
     action === "drink_water" ||
-    action === "vitamins"
+    action === "vitamins" ||
+    ((action === "food_eat" || action === "eat") && source === "web")
   ) {
     if (isPartner) return { ok: false, message: "Use your partner support actions to help her." };
     if (action === "prop_complete") {
@@ -2144,16 +2145,26 @@ export async function performAction(
         Number(preg.duration_days),
       );
     }
-    if (source !== "web" && action !== "prop_request") {
+    if ((action === "drink_water" || action === "vitamins") && source !== "web") {
       return {
         ok: false,
         message: "Update the water and prenatal props, then take them in-world. This click did not change her stats.",
       };
     }
     const key =
-      action === "drink_water" ? "water" : action === "vitamins" ? "prenatals" : params.prop;
-    if (!careProp(key)) return { ok: false, message: "That care prop is not in this HUD." };
-    return requestProp(momId, key, actionLabor.inLabor, Number(preg.duration_days));
+      action === "drink_water"
+        ? "water"
+        : action === "vitamins"
+          ? "prenatals"
+          : action === "prop_request"
+            ? params.prop
+            : params.food ?? params.foodKey;
+    if (careProp(key)) {
+      return requestProp(momId, key, actionLabor.inLabor, Number(preg.duration_days));
+    }
+    if (action !== "food_eat" && action !== "eat") {
+      return { ok: false, message: "That care prop is not in this HUD." };
+    }
   }
 
   switch (action) {

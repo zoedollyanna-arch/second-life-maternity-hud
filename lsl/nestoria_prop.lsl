@@ -84,10 +84,23 @@ loadConfig()
             gSeconds = desc == "water" ? 20.0 : 12.0;
             gItemName = desc == "water" ? "Water with Lemon" : "Prenatal Vitamins";
         }
+        else if (desc == "chocolate_fruit_toast" || desc == "chocolate_bar"
+            || desc == "salmon_bagel" || desc == "smoothie")
+        {
+            gAction = desc;
+            gAnimType = desc == "smoothie" ? "drink" : "eat";
+            gSeconds = desc == "salmon_bagel" ? 35.0 : desc == "smoothie" ? 20.0 : 25.0;
+            if (desc == "chocolate_fruit_toast") gItemName = "Chocolate & Fruit Toast";
+            else if (desc == "chocolate_bar") gItemName = "Chocolate Bar";
+            else if (desc == "salmon_bagel") gItemName = "Salmon Bagel";
+            else gItemName = "Fruit Smoothie";
+        }
     }
     if (gSeconds < 5.0) gSeconds = 30.0;
     if (gAnimType != "drink" && gAnimType != "hold") gAnimType = "eat";
-    gDose = (gAction == "drink_water" || gAction == "vitamins");
+    gDose = (gAction == "drink_water" || gAction == "vitamins"
+        || gAction == "chocolate_fruit_toast" || gAction == "smoothie"
+        || gAction == "chocolate_bar" || gAction == "salmon_bagel");
 }
 
 string emojiFor()
@@ -177,7 +190,8 @@ stopAnim()
 string doseKey()
 {
     if (gAction == "vitamins") return "prenatals";
-    return "water";
+    if (gAction == "drink_water") return "water";
+    return gAction;
 }
 
 begin()

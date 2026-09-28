@@ -133,7 +133,13 @@ export const LAYOUT_PREVIEW_STATE: HudState = {
   currentCraving: null,
   ultrasounds: [],
   newUltrasounds: 0,
-  foods: [],
+  foods: [
+    { key: "chocolate_fruit_toast", name: "Chocolate & Fruit Toast", category: "breakfast", cravingRelief: 24, note: "", deltas: {} },
+    { key: "french_toast", name: "French toast", category: "breakfast", cravingRelief: 24, note: "", deltas: {} },
+    { key: "salmon_bagel", name: "Salmon Bagel", category: "meals", cravingRelief: 26, note: "", deltas: {} },
+    { key: "chocolate_bar", name: "Chocolate bar", category: "desserts", cravingRelief: 28, note: "", deltas: {} },
+    { key: "smoothie", name: "Fruit smoothie", category: "drinks", cravingRelief: 20, note: "", deltas: {} },
+  ],
   care: {
     prenatals: { ready: true, nextAt: null },
     water: { ready: true, nextAt: null },

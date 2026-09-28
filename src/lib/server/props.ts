@@ -170,7 +170,7 @@ export async function requestProp(
       ? "Accept the bottle, then Add it. The goodness counts when you finish taking it ♥"
       : prop.key === "water"
         ? "Accept the lemon water, then Add it. Hydration counts when you finish the sip ♥"
-        : `${prop.name} requested. Accept it in inventory, then Add it to enjoy. Care updates when you finish.`;
+        : `Nestoria Food Delivery sent ${prop.name}. Accept it, then Add it. Mom's care updates when you finish ♥`;
   return { ok: true, message: hint, delivery: true };
 }
 

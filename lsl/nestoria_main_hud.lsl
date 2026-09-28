@@ -566,7 +566,8 @@ openEventDialog(string params)
 
 giveProp(string item)
 {
-    list allowed = ["nestoria_water", "nestoria_prenatals"];
+    list allowed = ["nestoria_chocolate_fruit_toast", "nestoria_smoothie",
+        "nestoria_chocolate_bar", "nestoria_salmon_bagel", "nestoria_water", "nestoria_prenatals"];
     if (llListFindList(allowed, [item]) == -1) return;
     if (llGetInventoryType(item) != INVENTORY_OBJECT)
     {
@@ -974,7 +975,10 @@ default
                 string propAction = llList2String(parts, 1);
                 string propParam = llList2String(parts, 2);
                 // "nestoria_prop_done|<water|prenatals>|<use id>" — one credit, retried safely.
-                if ((propAction == "water" || propAction == "prenatals") && llStringLength(propParam) == 36)
+                if ((propAction == "water" || propAction == "prenatals"
+                    || propAction == "chocolate_fruit_toast" || propAction == "smoothie"
+                    || propAction == "chocolate_bar" || propAction == "salmon_bagel")
+                    && llStringLength(propParam) == 36)
                 {
                     creditProp(id, propAction, propParam);
                 }
