@@ -450,6 +450,19 @@ export const EVENT_DEFINITIONS: EventDefinition[] = [
     choices: ["snack", "ginger", "ask_partner", "ignore"],
     weight: (c) => (c.trimester === 1 ? 2.2 : 0.7) * (1 + over(c.stats.sickness, 35)),
   },
+  {
+    key: "prenatal_reminder",
+    category: "body",
+    title: "Prenatal time",
+    bodies: [
+      "A quiet little nudge. The prenatal bottle has been waiting, and baby notices the routine.",
+      "She meant to take them. The day got soft around the edges. One small dose would help.",
+      "The vitamins are still on the shelf. A little care now keeps the next hours kinder.",
+    ],
+    deltas: { comfort: -1 },
+    choices: ["vitamins", "water", "rest", "ignore"],
+    weight: (c) => (c.week < 4 ? 0 : 0.8) * (1 + lack(c.stats.vitamins, 45) * 4),
+  },
 
   // ---- body --------------------------------------------------------------
   {

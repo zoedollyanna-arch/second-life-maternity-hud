@@ -4,6 +4,7 @@ import { performAction } from "@/lib/server/game";
 
 // Actions the web dashboard buttons may trigger.
 const WEB_ACTIONS = new Set([
+  "prop_request",
   "drink_water",
   "eat",
   "food_eat",

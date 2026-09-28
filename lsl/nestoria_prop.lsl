@@ -44,6 +44,11 @@ integer gRunning  = FALSE;
 float   gStarted;
 integer gSaid25; integer gSaid50; integer gSaid75;
 string  gAnimPlaying = "";
+string  gUse = "";
+integer gDose = FALSE;
+integer gSent = FALSE;
+integer gAcked = FALSE;
+integer gListen = 0;
 
 // Must match comfortChannel() in nestoria_main_hud.lsl
 integer hudChannel()
@@ -69,8 +74,20 @@ loadConfig()
         gSeconds  = (float)llList2String(parts, 3);
         gItemName = llStringTrim(llList2String(parts, 4), STRING_TRIM);
     }
+    else
+    {
+        string desc = llStringTrim(llGetObjectDesc(), STRING_TRIM);
+        if (desc == "water" || desc == "prenatals")
+        {
+            gAction = desc == "water" ? "drink_water" : "vitamins";
+            gAnimType = desc == "water" ? "drink" : "hold";
+            gSeconds = desc == "water" ? 20.0 : 12.0;
+            gItemName = desc == "water" ? "Water with Lemon" : "Prenatal Vitamins";
+        }
+    }
     if (gSeconds < 5.0) gSeconds = 30.0;
     if (gAnimType != "drink" && gAnimType != "hold") gAnimType = "eat";
+    gDose = (gAction == "drink_water" || gAction == "vitamins");
 }
 
 string emojiFor()
@@ -104,7 +121,14 @@ sayLine(integer pct)
 {
     string who = ownerName();
     string line = "";
-    if (gAnimType == "drink")
+    if (gAction == "drink_water")
+    {
+        if (pct == 25) line = who + " takes a bright little sip of lemon water.";
+        else if (pct == 50) line = who + " sips slowly, letting the lemon water settle.";
+        else if (pct == 75) line = who + " tips the cup for the last lemony drops.";
+        else line = who + " finishes her lemon water with a happy sigh. Ahh, much better!";
+    }
+    else if (gAnimType == "drink")
     {
         if (pct == 25) line = who + " takes a long, refreshing sip of " + gItemName + ".";
         else if (pct == 50) line = who + " sips slowly - staying hydrated for two.";
@@ -131,6 +155,10 @@ sayLine(integer pct)
 startAnim()
 {
     string wanted = "nestoria_" + gAnimType;
+    if (gAction == "vitamins" && llGetInventoryType("nestoria_vitamins") == INVENTORY_ANIMATION)
+        wanted = "nestoria_vitamins";
+    else if (gAction == "vitamins" && llGetInventoryType("nestoria_hold") == INVENTORY_ANIMATION)
+        wanted = "nestoria_hold";
     if (llGetInventoryType(wanted) == INVENTORY_ANIMATION
         && (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION))
     {
@@ -146,11 +174,19 @@ stopAnim()
     gAnimPlaying = "";
 }
 
+string doseKey()
+{
+    if (gAction == "vitamins") return "prenatals";
+    return "water";
+}
+
 begin()
 {
+    if (gSent) return;
     loadConfig();
     gRunning = TRUE;
     gSaid25 = FALSE; gSaid50 = FALSE; gSaid75 = FALSE;
+    if (gDose && gUse == "") gUse = (string)llGenerateKey();
     llResetTime();
     gStarted = llGetTime();
     startAnim();
@@ -158,18 +194,40 @@ begin()
     llSetTimerEvent(TICK);
 }
 
+reportDose()
+{
+    if (!gDose || gUse == "" || gAcked) return;
+    gSent = TRUE;
+    llRegionSay(hudChannel(), "nestoria_prop_done|" + doseKey() + "|" + gUse);
+}
+
 finish()
 {
+    if (gAcked || (gDose && gSent)) return;
     gRunning = FALSE;
-    llSetTimerEvent(0.0);
-    llSetText("", ZERO_VECTOR, 0.0);
     stopAnim();
     sayLine(100);
-    // Tell the Main HUD to credit the action on the server
+    if (gDose)
+    {
+        llSetText("♥ " + gItemName + " ♥\n" + progressBar(1.0) + "\nAll finished! Saving your care...", TEXT_COLOR, 1.0);
+        reportDose();
+        llSetTimerEvent(8.0);
+        return;
+    }
+    llSetTimerEvent(0.0);
+    llSetText("", ZERO_VECTOR, 0.0);
     llRegionSay(hudChannel(), "nestoria_prop_done|" + gAction + "|" + gParam + "|" + gItemName);
     llSleep(1.0);
     if (llGetAttached() && (llGetPermissions() & PERMISSION_ATTACH))
         llDetachFromAvatar();
+}
+
+clearWorn()
+{
+    llSetTimerEvent(0.0);
+    gRunning = FALSE;
+    stopAnim();
+    llSetText("", ZERO_VECTOR, 0.0);
 }
 
 default
@@ -177,6 +235,8 @@ default
     state_entry()
     {
         loadConfig();
+        llListenRemove(gListen);
+        gListen = llListen(hudChannel(), "", NULL_KEY, "");
         if (llGetAttached())
         {
             llRequestPermissions(llGetOwner(), PERMISSION_TRIGGER_ANIMATION | PERMISSION_ATTACH);
@@ -193,11 +253,7 @@ default
         {
             llRequestPermissions(llGetOwner(), PERMISSION_TRIGGER_ANIMATION | PERMISSION_ATTACH);
         }
-        else
-        {
-            llSetTimerEvent(0.0);
-            gRunning = FALSE;
-        }
+        else clearWorn();
     }
 
     run_time_permissions(integer perm)
@@ -210,8 +266,9 @@ default
     {
         if (llGetAttached())
         {
-            // touching the worn prop restarts the little scene
-            if (!gRunning && llDetectedKey(0) == llGetOwner()) begin();
+            if (llDetectedKey(0) != llGetOwner()) return;
+            if (gSent && !gAcked) reportDose();
+            else if (!gRunning) begin();
         }
         else
         {
@@ -219,8 +276,34 @@ default
         }
     }
 
+    listen(integer channel, string name, key id, string message)
+    {
+        if (channel != hudChannel() || llGetOwnerKey(id) != llGetOwner()) return;
+        list parts = llParseStringKeepNulls(message, ["|"], []);
+        if (llList2String(parts, 0) != "nestoria_prop_ack" || llList2String(parts, 1) != gUse) return;
+        if (llList2String(parts, 2) == "ok")
+        {
+            gAcked = TRUE;
+            llSetTimerEvent(0.0);
+            llSetText("", ZERO_VECTOR, 0.0);
+            stopAnim();
+            if (llGetAttached() && (llGetPermissions() & PERMISSION_ATTACH))
+                llDetachFromAvatar();
+        }
+        else
+        {
+            llSetTimerEvent(0.0);
+            llSetText("♥ Not saved\n" + gItemName + " can rest for now", TEXT_COLOR, 1.0);
+        }
+    }
+
     timer()
     {
+        if (gSent && !gAcked)
+        {
+            reportDose();
+            return;
+        }
         if (!gRunning) { llSetTimerEvent(0.0); return; }
         float frac = (llGetTime() - gStarted) / gSeconds;
         if (frac >= 1.0) { finish(); return; }

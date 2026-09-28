@@ -40,6 +40,8 @@ import {
   type PartnerNotifyKey,
 } from "../preferences";
 import { CRAVING_POOL, FOOD_ITEMS, foodByKey, foodForCraving, foodSummary } from "../foods";
+import { careProp } from "../props";
+import { careStatus, completeProp, requestProp, settleMissedPrenatal } from "./props";
 import {
   PARTNER_ACTIONS,
   HOSPITAL_BAG_ITEMS,
@@ -883,6 +885,45 @@ async function answerEvent(
     choice = choiceByKey("ice_chips") ?? choice;
   }
 
+  // A sip or a prenatal is finished on the worn prop. The popup stays open
+  // until that completion, and the prop — not this click — changes her stats.
+  if (choice.key === "water" || choice.key === "vitamins") {
+    const propKey = choice.key === "water" ? "water" : "prenatals";
+    const status = await careStatus(momId, Number(preg.duration_days));
+    const dose = choice.key === "water" ? status.water : status.prenatals;
+    if (!dose.ready) {
+      const { rows } = await db().query(
+        `update event_history set answered_at = now(), choice = $2
+          where pregnancy_id = $1 and answered_at is null
+          returning id`,
+        [preg.id, choice.key],
+      );
+      if (!rows[0]) return { ok: false, message: "That moment has already passed." };
+      return {
+        ok: true,
+        message:
+          choice.key === "water"
+            ? "You already had your lemon water, so this thirsty moment can rest ♥"
+            : "You already took your prenatal, so this little reminder can rest ♥",
+      };
+    }
+    const requested = await requestProp(
+      momId,
+      propKey,
+      snapshotOf(preg as any).inLabor,
+      Number(preg.duration_days),
+    );
+    if (!requested.ok) return requested;
+    return {
+      ok: true,
+      delivery: true,
+      message:
+        choice.key === "water"
+          ? "Lemon water is on its way. Take a sip in-world and this moment is done ♥"
+          : "Your prenatals are on the way. Take them in-world and this moment is done ♥",
+    };
+  }
+
   const params: unknown[] = [preg.id, choice.key];
   let where = "pregnancy_id = $1 and answered_at is null";
   if (explicitEventId && /^[0-9a-f-]{36}$/i.test(explicitEventId)) {
@@ -1442,6 +1483,24 @@ export async function getDashboardState(user: HudUser) {
     progress.trimester,
     DECAY_MULTIPLIER[prefs.decayPace],
   );
+  if (preg.status === "active" && Boolean(preg.setup_complete) && !delivered && preg.conceived_at) {
+    try {
+      const missed = await settleMissedPrenatal(
+        momId,
+        preg.id,
+        Number(preg.duration_days),
+        new Date(preg.conceived_at),
+      );
+      if (missed) {
+        for (const [name, delta] of Object.entries(missed)) {
+          const key = name as keyof typeof stats;
+          stats[key] = clamp(Number(stats[key] ?? 0) + Number(delta));
+        }
+      }
+    } catch (error) {
+      console.error("prenatal schedule", error);
+    }
+  }
   const activeEvent = user.role === "mom" ? await activeEventFor(preg.id) : null;
 
   const [
@@ -1656,6 +1715,13 @@ export async function getDashboardState(user: HudUser) {
     ultrasounds,
     newUltrasounds: ultrasounds.filter((u) => !u.seen).length,
     foods: FOOD_ITEMS.map(foodSummary),
+    care: await careStatus(momId, Number(preg.duration_days)).catch((error) => {
+      console.error("care status", error);
+      return {
+        prenatals: { ready: true, nextAt: null },
+        water: { ready: true, nextAt: null },
+      };
+    }),
     recentEvents: events.rows,
     popupFrequencyMinutes,
     nextEventAt,
@@ -2058,6 +2124,38 @@ export async function performAction(
   const stats = await getStatsWithDecay(momId, actionProgress.trimester);
   const actionLabor = snapshotOf(preg as any);
 
+  // Water and prenatals are worn props. The browser can request the object,
+  // and only the Second Life completion may change Mom's stats.
+  if (
+    action === "prop_complete" ||
+    action === "prop_request" ||
+    action === "drink_water" ||
+    action === "vitamins"
+  ) {
+    if (isPartner) return { ok: false, message: "Use your partner support actions to help her." };
+    if (action === "prop_complete") {
+      if (source !== "sl") return { ok: false, message: "Finish the attached prop in Second Life." };
+      return completeProp(
+        momId,
+        preg.id,
+        params.prop,
+        params.use_id,
+        actionLabor.inLabor,
+        Number(preg.duration_days),
+      );
+    }
+    if (source !== "web" && action !== "prop_request") {
+      return {
+        ok: false,
+        message: "Update the water and prenatal props, then take them in-world. This click did not change her stats.",
+      };
+    }
+    const key =
+      action === "drink_water" ? "water" : action === "vitamins" ? "prenatals" : params.prop;
+    if (!careProp(key)) return { ok: false, message: "That care prop is not in this HUD." };
+    return requestProp(momId, key, actionLabor.inLabor, Number(preg.duration_days));
+  }
+
   switch (action) {
     // ---- setup / pregnancy controls ---------------------------------------
     // ---- conception --------------------------------------------------------
@@ -2431,30 +2529,6 @@ export async function performAction(
       return { ok: true, message: "Appointment scheduled." };
 
     // ---- self care (mom) --------------------------------------------------
-    case "drink_water": {
-      // No water once labor starts — ice chips only. The partner's "bring
-      // water" already refused here; hers has to as well, or the rule is
-      // decoration.
-      if (actionLabor.inLabor) {
-        return {
-          ok: false,
-          message: "No water during labor — ice chips only. Try Ice chips instead.",
-        };
-      }
-      await applyCare(
-        momId,
-        preg.id,
-        action,
-        { hydration: 25, bladder: -10, baby_wellness: 2 },
-        "Drank water",
-      );
-      await queueAnim(momId, "hud", "drink");
-      await queueCommand(momId, "hud", "say", {
-        text: "You sip some refreshing water. Hydration +25.",
-      });
-      return { ok: true, message: "You drink some water. Hydration restored." };
-    }
-
     /**
      * Ice chips: the one thing she may have during labor, and a perfectly
      * ordinary cold drink the rest of the time. Its own action rather than a
@@ -2508,20 +2582,6 @@ export async function performAction(
       await queueAnim(momId, "hud", "rest");
       await queueCommand(momId, "hud", "say", { text: "You take a peaceful rest. Energy +30." });
       return { ok: true, message: "You take a moment to rest." };
-
-    case "vitamins":
-      await applyCare(
-        momId,
-        preg.id,
-        action,
-        { vitamins: 40, immunity: 10, nutrition: 8, baby_wellness: 4 },
-        "Took vitamins",
-      );
-      await queueAnim(momId, "hud", "vitamins");
-      await queueCommand(momId, "hud", "say", {
-        text: "Prenatal vitamins taken. Immunity boosted.",
-      });
-      return { ok: true, message: "Prenatal vitamins taken." };
 
     case "medicine":
       await applyCare(

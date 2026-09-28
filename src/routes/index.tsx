@@ -90,6 +90,7 @@ import {
   MomLaborPanels,
 } from "@/components/hud/partner-panels";
 import { BABY_GROWTH } from "@/lib/pregnancy";
+import { formatWait } from "@/lib/care";
 import { FERTILITY_LEVELS, FERTILITY_COPY } from "@/lib/conception";
 import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, type FoodCategory } from "@/lib/foods";
 import { EVENT_CATEGORIES, EVENT_CATEGORY_LABELS, EVENT_CATEGORY_HINTS } from "@/lib/events";
@@ -278,6 +279,14 @@ function Index() {
   const layoutPreview = import.meta.env.DEV && token === "layout-preview";
   const state = useHudState(layoutPreview ? null : (token ?? null));
   const hudZoom = useHudZoom();
+  // This has to stay above every return. The first paint is still loading, and
+  // a hook that appears only after the session arrives makes React throw and
+  // the root error page replaces the whole HUD — including Pregnancy.
+  useEffect(() => {
+    if (state.data?.user?.role === "partner" && token) {
+      window.location.replace(`/partner?token=${encodeURIComponent(token)}`);
+    }
+  }, [state.data?.user?.role, token]);
 
   if (layoutPreview) {
     return <Dashboard token="layout-preview" data={LAYOUT_PREVIEW_STATE} />;
@@ -317,11 +326,6 @@ function Index() {
       </Shell>
     );
   }
-  useEffect(() => {
-    if (state.data?.user?.role === "partner" && token) {
-      window.location.replace(`/partner?token=${encodeURIComponent(token)}`);
-    }
-  }, [state.data?.user?.role, token]);
 
   if (state.data?.user?.role === "partner") {
     return (
@@ -415,9 +419,18 @@ function ConnectScreen() {
 // Dashboard
 // ---------------------------------------------------------------------------
 
+function waitLeft(nextAt: string | null, now: number) {
+  if (!nextAt) return null;
+  const left = new Date(nextAt).getTime() - now;
+  if (!Number.isFinite(left) || left <= 0) return null;
+  return formatWait(left);
+}
+
 function Dashboard({ token, data }: { token: string; data: HudState }) {
   const [active, setActive] = useState<NavKey>("home");
   const [isMinimized, setIsMinimized] = useState(false);
+  const [vitaminAsk, setVitaminAsk] = useState(false);
+  const [careNow, setCareNow] = useState(() => Date.now());
   const backTo = useRef<NavKey>("home");
   const hudZoom = useHudZoom();
   const action = useHudAction(token);
@@ -440,7 +453,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
         onSuccess: (res) => {
           if (opts?.silent) return;
           toast.success(res.message);
-          playForAction(name);
+          if (!res.delivery) playForAction(name);
         },
         onError: (err) => {
           if (opts?.silent) return;
@@ -458,6 +471,14 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
   useEffect(() => {
     configureSound({ enabled: soundOn, volume: soundVol });
   }, [soundOn, soundVol]);
+  useEffect(() => {
+    const id = window.setInterval(() => setCareNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const prenatalWait = waitLeft(data.care?.prenatals?.nextAt ?? null, careNow);
+  const waterWait = waitLeft(data.care?.water?.nextAt ?? null, careNow);
+  const prenatalReady = data.care?.prenatals?.ready !== false && !prenatalWait;
+  const waterReady = data.care?.water?.ready !== false && !waterWait;
 
   // Chime when new notifications arrive (heard in SL through the media screen)
   const unreadRef = useRef(data.unread);
@@ -488,6 +509,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
   }, [data.ultrasounds.length]);
 
   const preg = data.pregnancy;
+  const nextMilestone = BABY_GROWTH.find((milestone) => milestone.week > preg.week);
   const dueDate = useMemo(
     () =>
       new Date(preg.dueDate).toLocaleDateString(undefined, {
@@ -775,7 +797,7 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                           <Row label="Current stage" value={trimesterLabel} />
                           <Row
                             label="Next milestone"
-                            value={`Week ${nextMilestone.week} · ${nextMilestone.size}`}
+                            value={nextMilestone ? `Week ${nextMilestone.week} · ${nextMilestone.size}` : "Ready to meet baby"}
                           />
                           <Row
                             label="Kicks today"
@@ -930,8 +952,16 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                         // becomes the one thing she may actually have.
                         preg.labor?.inLabor
                           ? { icon: Droplet, label: "Ice chips", action: "ice_chips" }
-                          : { icon: Droplet, label: "Water", action: "drink_water" },
-                        { icon: Pill, label: "Vitamins", action: "vitamins" },
+                          : {
+                              icon: Droplet,
+                              label: waterReady ? "Get water" : "Sipped ♥",
+                              action: "drink_water",
+                            },
+                        {
+                          icon: Pill,
+                          label: prenatalReady ? "Get prenatals" : "Taken ♥",
+                          action: "vitamins",
+                        },
                         { icon: Heart, label: "Comfort", action: "comfort" },
                         { icon: Stethoscope, label: "Medicine", action: "medicine" },
                         { icon: Moon, label: "Sleep", action: "sleep" },
@@ -944,14 +974,34 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                           key={label}
                           type="button"
                           className="hud-action"
-                          disabled={action.isPending}
-                          onClick={() => act(name)}
+                          disabled={
+                            action.isPending ||
+                            (name === "vitamins" && !prenatalReady) ||
+                            (name === "drink_water" && !waterReady)
+                          }
+                          onClick={() => {
+                            if (name === "vitamins") {
+                              setVitaminAsk(true);
+                              return;
+                            }
+                            act(name);
+                          }}
                         >
                           <Icon className="h-6 w-6 shrink-0 text-[#A77ACB]" />
                           <span>{label}</span>
                         </button>
                       ))}
                     </div>
+                    {!prenatalReady && prenatalWait && (
+                      <p className="mt-2 text-center hud-muted">
+                        Prenatal taken ♥ next dose in {prenatalWait}
+                      </p>
+                    )}
+                    {!preg.labor?.inLabor && !waterReady && waterWait && (
+                      <p className="mt-2 text-center hud-muted">
+                        Lemon water sipped ♥ another glass in {waterWait}
+                      </p>
+                    )}
                     {data.partner.linked && (
                       <button
                         type="button"
@@ -1182,6 +1232,23 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
                         </div>
                       ))}
                     </div>
+                    <p className="mt-3 hud-muted">Lemon water and prenatals arrive as little props. Accept them, Add them, and the goodness counts when you finish ♥</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <button
+                        className="hud-food-chip"
+                        disabled={!waterReady || action.isPending}
+                        onClick={() => act("drink_water")}
+                      >
+                        {waterReady ? "Get lemon water" : `Lemon water · ${waterWait}`}
+                      </button>
+                      <button
+                        className="hud-food-chip"
+                        disabled={!prenatalReady || action.isPending}
+                        onClick={() => setVitaminAsk(true)}
+                      >
+                        {prenatalReady ? "Get Prenatal Vitamins" : `Prenatal taken · ${prenatalWait}`}
+                      </button>
+                    </div>
                     <div className="mt-3 max-h-[40vh] space-y-3 overflow-y-auto pr-1">
                       {FOOD_CATEGORIES.map((category) => {
                         const items = data.foods.filter((food) => food.category === category);
@@ -1315,6 +1382,38 @@ function Dashboard({ token, data }: { token: string; data: HudState }) {
           />
         </div>
       </HudFrame>
+      <Dialog open={vitaminAsk} onOpenChange={setVitaminAsk}>
+        <DialogContent className="rounded-[28px]">
+          <DialogHeader>
+            <DialogTitle className="text-center font-display text-2xl text-[color:var(--lavender-deep)]">
+              Take Prenatal Vitamins?
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-center hud-muted">
+            Yes sends the little bottle. The goodness counts when you actually take it ♥
+          </p>
+          <DialogFooter className="gap-2 sm:justify-center">
+            <button
+              type="button"
+              className="min-h-11 rounded-full bg-white/80 px-6 font-semibold text-[#A77ACB]"
+              onClick={() => setVitaminAsk(false)}
+            >
+              No
+            </button>
+            <button
+              type="button"
+              className="min-h-11 rounded-full px-6 font-semibold text-white"
+              style={{ background: "var(--gradient-lavender)" }}
+              onClick={() => {
+                setVitaminAsk(false);
+                act("vitamins");
+              }}
+            >
+              Yes
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Toaster position="top-center" />
     </Shell>
   );

@@ -4,6 +4,8 @@ import { performAction } from "@/lib/server/game";
 
 // Actions the in-world scripts (mainly the partner HUD) may trigger.
 const SL_ACTIONS = new Set([
+  "prop_complete",
+  "prop_request",
   "hug",
   "support",
   "partner_message",
@@ -73,7 +75,9 @@ export const Route = createFileRoute("/api/sl/action")({
           const action = typeof body.action === "string" ? body.action : "";
           if (!SL_ACTIONS.has(action)) return json({ error: "unknown action" }, 400);
 
-          const result = await performAction(user, action, body, "sl");
+          const params = typeof body.params === "object" && body.params !== null
+            ? body.params as Record<string, unknown> : body;
+          const result = await performAction(user, action, params, "sl");
           return json(result, result.ok ? 200 : 400);
         }),
     },

@@ -40,6 +40,24 @@ export interface FoodItem {
 
 export const FOOD_ITEMS: FoodItem[] = [
   {
+    key: "chocolate_fruit_toast",
+    name: "Chocolate & Fruit Toast",
+    category: "breakfast",
+    cravingTags: ["chocolate fruit toast", "chocolate & fruit toast", "fruit toast"],
+    deltas: { hunger: 18, mood: 10, nutrition: 6, energy: 4 },
+    cravingRelief: 24,
+    note: "Sweet chocolate, bright fruit, and a cozy little toast moment.",
+  },
+  {
+    key: "salmon_bagel",
+    name: "Salmon Bagel",
+    category: "meals",
+    cravingTags: ["salmon bagel", "salmon", "bagel"],
+    deltas: { hunger: 26, mood: 6, nutrition: 12, energy: 5, baby_wellness: 3 },
+    cravingRelief: 26,
+    note: "A filling bagel for a peaceful lunch break.",
+  },
+  {
     key: "french_toast",
     name: "French toast",
     category: "breakfast",

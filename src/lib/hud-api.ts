@@ -193,6 +193,10 @@ export interface HudState {
   } | null;
   ultrasounds: { index: number; week: number; seen: boolean; unlockedAt: string; url: string }[];
   newUltrasounds: number;
+  care?: {
+    prenatals: { ready: boolean; nextAt: string | null };
+    water: { ready: boolean; nextAt: string | null };
+  };
   foods: {
     key: string;
     name: string;
@@ -349,6 +353,7 @@ export function useHudState(token: string | null) {
 }
 
 export interface ActionResponse {
+  delivery?: boolean;
   ok: boolean;
   message: string;
   /** Present on pregnancy_test. */

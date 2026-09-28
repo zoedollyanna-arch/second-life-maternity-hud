@@ -134,6 +134,10 @@ export const LAYOUT_PREVIEW_STATE: HudState = {
   ultrasounds: [],
   newUltrasounds: 0,
   foods: [],
+  care: {
+    prenatals: { ready: true, nextAt: null },
+    water: { ready: true, nextAt: null },
+  },
   recentEvents: [],
   requests: { incoming: [], outgoing: [] },
   hospitalBag: null,

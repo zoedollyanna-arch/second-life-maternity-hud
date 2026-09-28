@@ -42,6 +42,10 @@ key     gRegisterReq = NULL_KEY;
 key     gPollReq     = NULL_KEY;
 key     gUrlReq      = NULL_KEY;
 key     gActionReq   = NULL_KEY;
+key     gPropReq     = NULL_KEY;
+key     gPropSender  = NULL_KEY;
+string  gPropUse     = "";
+float   gPropRequestAt = 0.0;
 integer gListenHandle;
 integer gMenuChannel;
 integer gChairChannel;
@@ -560,9 +564,48 @@ openEventDialog(string params)
     llDialog(llGetOwner(), message, buttons + ["Close"], gMenuChannel);
 }
 
+giveProp(string item)
+{
+    list allowed = ["nestoria_water", "nestoria_prenatals"];
+    if (llListFindList(allowed, [item]) == -1) return;
+    if (llGetInventoryType(item) != INVENTORY_OBJECT)
+    {
+        say("Missing prop: " + item + ". Put the prepared object in the HUD root contents. No care has been credited.");
+        return;
+    }
+    if (!(llGetInventoryPermMask(item, MASK_OWNER) & PERM_COPY))
+    {
+        say(item + " needs Copy permission for this wearer before the attached HUD can give it.");
+        return;
+    }
+    llGiveInventory(llGetOwner(), item);
+    say("Inventory offer sent for " + item + ". Accept, then Add it to enjoy your little care moment ♥");
+}
+
+creditProp(key sender, string prop, string useId)
+{
+    if (gToken == "")
+    {
+        registerWithServer();
+        return;
+    }
+    if (gPropReq != NULL_KEY && llGetTime() - gPropRequestAt < 45.0) return;
+    if (llGetTime() < gNextHttp) return;
+    gPropSender = sender;
+    gPropUse = useId;
+    gPropRequestAt = llGetTime();
+    string body = llList2Json(JSON_OBJECT, ["token", gToken,
+        "action", "prop_complete", "prop", prop, "use_id", useId]);
+    gPropReq = llHTTPRequest(API_BASE + "/api/sl/action", httpOpts("POST", TRUE), body);
+}
+
 runCommand(string cmd, string params)
 {
-    if (cmd == "say")
+    if (cmd == "give_prop")
+    {
+        giveProp(llJsonGetValue(params, ["item"]));
+    }
+    else if (cmd == "say")
     {
         say(llJsonGetValue(params, ["text"]));
     }
@@ -813,7 +856,29 @@ default
 
     http_response(key id, integer status, list meta, string body)
     {
-        if (id == gRegisterReq)
+        if (id == gPropReq)
+        {
+            gPropReq = NULL_KEY;
+            if (status == 200 && llJsonGetValue(body, ["ok"]) == JSON_TRUE)
+            {
+                llRegionSayTo(gPropSender, comfortChannel(), "nestoria_prop_ack|" + gPropUse + "|ok");
+                say(llJsonGetValue(body, ["message"]));
+            }
+            else if (status == 401)
+            {
+                gToken = "";
+                registerWithServer();
+            }
+            else if (status == 400 || status == 403)
+            {
+                llRegionSayTo(gPropSender, comfortChannel(), "nestoria_prop_ack|" + gPropUse + "|error");
+                string reason = llJsonGetValue(body, ["message"]);
+                if (reason == JSON_INVALID || reason == "") reason = "That dose could not be saved.";
+                say(reason);
+            }
+            else noteHttpStatus(status);
+        }
+        else if (id == gRegisterReq)
         {
             gRegisterReq = NULL_KEY;
             noteHttpStatus(status);
@@ -905,13 +970,20 @@ default
             }
             else if (llSubStringIndex(message, "nestoria_prop_done|") == 0)
             {
-                // "nestoria_prop_done|<action>|<param>|<Display Name>"
                 list parts = llParseStringKeepNulls(message, ["|"], []);
                 string propAction = llList2String(parts, 1);
                 string propParam = llList2String(parts, 2);
-                // props may only trigger these gentle self-care actions
-                if (propAction == "food_eat" || propAction == "drink_water"
-                    || propAction == "vitamins" || propAction == "eat" || propAction == "snack")
+                // "nestoria_prop_done|<water|prenatals>|<use id>" — one credit, retried safely.
+                if ((propAction == "water" || propAction == "prenatals") && llStringLength(propParam) == 36)
+                {
+                    creditProp(id, propAction, propParam);
+                }
+                // Older water and vitamin props must not award stats by name.
+                else if (propAction == "drink_water" || propAction == "vitamins")
+                {
+                    say("Update this prop with the current script, then take it again. Nothing was added to her stats.");
+                }
+                else if (propAction == "food_eat" || propAction == "eat" || propAction == "snack")
                 {
                     string propParams = "{}";
                     if (propParam != "")

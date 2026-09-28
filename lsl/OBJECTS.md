@@ -115,8 +115,19 @@ HUD when finished (props never need the API secret).
 | Ice chips            | `food_eat\|ice_chips\|drink\|15\|Ice Chips`                     |
 | Corn starch          | `food_eat\|corn_starch\|eat\|20\|Corn Starch`                   |
 | Chalk                | `food_eat\|chalk\|eat\|20\|Chalk`                               |
-| Water bottle         | `drink_water\|\|drink\|20\|Water Bottle`                        |
-| Vitamin bottle       | `vitamins\|\|hold\|12\|Prenatal Vitamins`                       |
+| Water with lemon     | `drink_water\|\|drink\|20\|Water with Lemon`                    |
+| Prenatal vitamins    | `vitamins\|\|hold\|12\|Prenatal Vitamins`                       |
+
+Water and prenatals do not change Mom's stats when the HUD button is clicked.
+The worn prop plays the sip or vitamin scene, shows the heart progress bar,
+and the HUD confirms that one use with the server. A second click during the
+cooldown asks for another bottle and is refused. Detaching early clears the
+animation and hovertext without a credit. Other foods in the table still
+credit through `food_eat` when their scene finishes.
+
+The Main HUD gives these two objects from its root contents. Name them
+`nestoria_water` and `nestoria_prenatals`, keep them Copy for the wearer,
+and use `nestoria_vitamins` (or `nestoria_hold`) inside the bottle.
 
 Setup per prop: full-perm mesh food/bottle → drop in `nestoria_prop.lsl` →
 paste the description line → (optional) add a full-perm animation named
