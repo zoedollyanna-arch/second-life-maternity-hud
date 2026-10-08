@@ -259,7 +259,7 @@ function PairScreen({ token, onPaired }: { token: string; onPaired: () => void }
             )}
 
             <p className="mt-3 hud-muted italic">
-              You can also touch the Partner HUD in world and type the code there.
+              You can also touch the Partner HUD's outer frame, choose Pair, and enter her code.
             </p>
           </Panel>
         </div>
@@ -274,7 +274,7 @@ function PartnerPage() {
   const hudZoom = useHudZoom();
 
   if (!token) {
-    return <PairScreen token="" onPaired={() => state.refetch()} />;
+    return <PartnerConnectionScreen expired={false} />;
   }
 
   if (state.isLoading) {
@@ -289,14 +289,48 @@ function PartnerPage() {
     );
   }
 
-  // No active link yet: either she hasn't accepted, or there is no link at all.
-  // Both land here, because the server refuses to resolve a pregnancy without
-  // an active link — which is exactly the protection we want.
-  if (state.isError || !state.data || state.data.error) {
+  if (state.error?.message === "unauthorized") {
+    return <PartnerConnectionScreen expired />;
+  }
+
+  // Pairing is only for an authenticated wearer without an active link.
+  // An expired token or server failure must not send them through pairing.
+  if (state.data?.error === "no_pregnancy") {
     return <PairScreen token={token} onPaired={() => state.refetch()} />;
+  }
+  if (state.isError || !state.data || state.data.error) {
+    return (
+      <Centered>
+        <Panel className="w-full max-w-[34rem] text-center">
+          <PanelHeader eyebrow="Connection" title="Your Partner HUD is temporarily unavailable" />
+          <p className="mb-4 hud-copy">Try again in a moment. Your partner link is kept.</p>
+          <PrimaryButton onClick={() => void state.refetch()}>Try again</PrimaryButton>
+        </Panel>
+      </Centered>
+    );
   }
 
   return <PartnerDashboard token={token} />;
+}
+
+function PartnerConnectionScreen({ expired }: { expired: boolean }) {
+  return (
+    <Centered>
+      <Panel className="w-full max-w-[34rem] text-center">
+        <PanelHeader
+          eyebrow="Partner HUD"
+          title={expired ? "Reconnect your Partner HUD" : "Connect your Partner HUD"}
+        />
+        <p className="hud-copy">
+          Touch the outer frame of your Partner HUD in Second Life and choose <b>Sync</b>.
+          It reconnects this screen without removing your partner link.
+        </p>
+        <p className="mt-3 hud-muted">
+          If the menu has no Sync option, ask your HUD provider for the updated Partner HUD script.
+        </p>
+      </Panel>
+    </Centered>
+  );
 }
 
 // ---------------------------------------------------------------------------

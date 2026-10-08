@@ -1,40 +1,12 @@
-// ============================================================================
-// NESTORIA PREGNANCY HUD — Main HUD script
-// ----------------------------------------------------------------------------
-// Drop this script into the root prim of the HUD object. Shared media (MOAP)
-// is shown on link 2, face 4. API_BASE is the live Render host.
-//
-// SETUP (edit these two lines before saving):
-//   API_BASE   = your deployed Nestoria server, no trailing slash
-//   API_SECRET = must match SL_API_SECRET in the server's .env
-//
-// Inventory (referenced by name):
-//   object "nestoria_chair"     — comfort chair (REQUIRED for the Comfort
-//                                 action; contains nestoria_comfort_chair.lsl)
-//   object "nestoria_hospital_bed" — optional; rezzed if present when
-//                                 she goes to hospital. Worn bag is separate.
-//
-// Optional inventory — sounds are OPTIONAL because the MOAP dashboard plays
-// all system sounds through the media screen itself:
-//   sound  "nestoria_chime"     — soft notification chime
-//   sound  "nestoria_heartbeat" — baby heartbeat loop sample
-//   sound  "nestoria_sip"       — drinking sound
-//   anim   "nestoria_drink"      — drink animation
-//   anim   "nestoria_rest"       — rest / relax animation
-//   anim   "nestoria_vitamins"   — take-pill animation
-//   anim   "nestoria_belly_hold" — belly-holding animation
-// Missing items are skipped gracefully.
-// ============================================================================
+// NESTORIA - Main HUD network script. Compile with Mono.
+// Required alongside nestoria_hud_media.lsl and nestoria_hud_effects.lsl in
+// the SAME ROOT PRIM. Keep all props, animations and sounds there too.
+// Only this script needs API_BASE and API_SECRET. Screen settings are in media.
+// Network responses stay here; helpers receive individual commands only.
 
 string  API_BASE   = "https://second-life-maternity-hud-t2b3.onrender.com";
 string  API_SECRET = "2175039403870ed15116d0dcf330095af3f6a398e83bca01";  // same value as SL_API_SECRET in the server .env
-
-integer MOAP_LINK     = 2;      // child prim that is the screen
-integer MOAP_FACE     = 4;      // face on that prim
 integer POLL_SECONDS  = 30;     // fallback poll when push is unavailable
-float   VOLUME        = 0.7;
-
-// ---------------------------------------------------------------------------
 string  gToken       = "";      // session token from /api/sl/register
 string  gMoapUrl     = "";
 string  gCallbackUrl = "";      // llRequestURL result, pushed to the server
@@ -46,30 +18,20 @@ key     gPropReq     = NULL_KEY;
 key     gPropSender  = NULL_KEY;
 string  gPropUse     = "";
 float   gPropRequestAt = 0.0;
-integer gListenHandle;
-integer gMenuChannel;
 integer gChairChannel;
 integer gChairListen;
-string  gDialogKind  = "";
-string  gDialogEvent = "";
-string  gDialogId    = "";     // event_history row id, so the answer closes it
-list    gDialogKeys  = [];     // choice keys, index-aligned with gDialogLabels
-list    gDialogLabels = [];    // the button text actually shown
 float   gPollWait    = 30.0;
-// Media re-asserts still owed. Set on attach/teleport; counted down in timer().
-integer gMoapRetry   = 0;
 integer gFailStreak  = 0;
 float   gNextHttp    = 0.0;
-integer gMediaReady  = FALSE;
+string  gCommands   = "";      // only retained while dispatching a received batch
 
-// --- minimise ---------------------------------------------------------------
-// Tucking the HUD away is not just an alpha change: an invisible prim in a HUD
-// still swallows mouse clicks, so a "hidden" screen would keep blocking that
-// part of the display. The child prims are therefore moved behind the camera
-// plane as well, and their original local positions are remembered here.
-integer gMinimized   = FALSE;
-vector  gFullScale;             // root prim scale before minimising
-list    gSavedPos    = [];      // [link, local position, link, local position...]
+// Root-prim protocol (keep these values identical in all three HUD scripts).
+// Commands carry only one params object in str, and the command name in id.
+integer LM_COMMAND = 7100;
+integer LM_ACTION = 7101;
+integer LM_MEDIA_URL = 7102;
+integer LM_SYNC = 7103;
+integer LM_MEDIA_READY = 7104;
 
 // Private channel shared with the rezzed comfort chair (same formula there).
 integer comfortChannel()
@@ -82,201 +44,11 @@ say(string msg)
     llOwnerSay("♥ Nestoria: " + msg);
 }
 
-playSoundByName(string name)
-{
-    if (llGetInventoryType(name) == INVENTORY_SOUND)
-        llPlaySound(name, VOLUME);
-}
-
-// The animation currently playing, so it can be stopped when the next one
-// starts. Without this a vomit or a cry would leave her stuck in the pose.
-string  gCurrentAnim = "";
-
-stopCurrentAnim()
-{
-    if (gCurrentAnim == "") return;
-    if (llGetPermissions() & PERMISSION_TRIGGER_ANIMATION)
-        llStopAnimation(gCurrentAnim);
-    gCurrentAnim = "";
-}
-
-// Play an animation from the HUD's contents if it is there. Every animation
-// the board asks for has a hook, whether or not the asset exists yet — drop in
-// an animation with the matching name and it starts working, no script edit.
-//
-// Expected names (all optional):
-//   nestoria_rest      nestoria_sleep     nestoria_yawn
-//   nestoria_drink     nestoria_vitamins  nestoria_belly_hold
-//   nestoria_vomit     nestoria_cry       nestoria_bathroom
-//   nestoria_comfort   nestoria_contraction
-startAnimByName(string name)
-{
-    if (llGetInventoryType(name) != INVENTORY_ANIMATION) return;
-    if (!(llGetPermissions() & PERMISSION_TRIGGER_ANIMATION))
-    {
-        llRequestPermissions(llGetOwner(), PERMISSION_TRIGGER_ANIMATION);
-        return;
-    }
-    stopCurrentAnim();
-    llStartAnimation(name);
-    gCurrentAnim = name;
-    // Do not stretch the timer while media re-asserts are still owed.
-    if (gMoapRetry == 0) llSetTimerEvent(gPollWait);
-}
-
-/**
- * Play `name`, falling back to `fallback` when that animation has not been
- * made yet. Keeps "Sleep" working with only a rest animation in inventory,
- * while using a real sleep animation the moment one is added.
- */
-startAnimOr(string name, string fallback)
-{
-    if (llGetInventoryType(name) == INVENTORY_ANIMATION) startAnimByName(name);
-    else if (fallback != "") startAnimByName(fallback);
-}
-
-playSoundOr(string name, string fallback)
-{
-    if (llGetInventoryType(name) == INVENTORY_SOUND) playSoundByName(name);
-    else if (fallback != "") playSoundByName(fallback);
-}
-
-heartsBurst()
-{
-    llParticleSystem([
-        PSYS_PART_FLAGS, PSYS_PART_EMISSIVE_MASK | PSYS_PART_INTERP_COLOR_MASK
-                       | PSYS_PART_INTERP_SCALE_MASK | PSYS_PART_FOLLOW_VELOCITY_MASK,
-        PSYS_SRC_PATTERN, PSYS_SRC_PATTERN_EXPLODE,
-        PSYS_PART_START_COLOR, <1.0, 0.6, 0.8>,
-        PSYS_PART_END_COLOR,   <0.85, 0.7, 1.0>,
-        PSYS_PART_START_SCALE, <0.15, 0.15, 0.0>,
-        PSYS_PART_END_SCALE,   <0.05, 0.05, 0.0>,
-        PSYS_PART_MAX_AGE, 2.5,
-        PSYS_SRC_BURST_RATE, 0.05,
-        PSYS_SRC_BURST_PART_COUNT, 12,
-        PSYS_SRC_BURST_SPEED_MIN, 0.2,
-        PSYS_SRC_BURST_SPEED_MAX, 0.6,
-        PSYS_SRC_MAX_AGE, 1.5,
-        PSYS_PART_START_ALPHA, 0.9,
-        PSYS_PART_END_ALPHA, 0.0
-    ]);
-    // No llSleep here. PSYS_SRC_MAX_AGE above already stops the emitter after
-    // 1.5s, and llSleep suspends the whole script — including the http_request
-    // handler this runs inside, so a pushed batch containing several hearts
-    // commands stalled the HUD for seconds at a time and could overflow the
-    // event queue. The burst ends itself.
-}
-
-// The screen's resolution. 1024×824 matches the in-world tablet face
-// (~0.51268m × 0.41277m, ratio 1.242:1). AUTO_SCALE is off so the page
-// fills the face without a second browser zoom.
-integer SCREEN_WIDTH  = 800;
-integer SCREEN_HEIGHT = 450;
-
-integer hudPrimCount()
-{
-    integer n = llList2Integer(llGetObjectDetails(llGetKey(), [OBJECT_PRIM_COUNT]), 0);
-    if (n < 1) n = MOAP_LINK;
-    if (llGetLinkNumber() == 0) n = 1;
-    return n;
-}
-
-integer moapLink()
-{
-    // Unlinked single prim: llGetLinkNumber is 0 and link 2 does not exist.
-    if (llGetLinkNumber() == 0) return LINK_THIS;
-    integer me = llGetLinkNumber();
-    if (me == MOAP_LINK) return LINK_THIS;
-    integer n = hudPrimCount();
-    if (MOAP_LINK >= 1 && MOAP_LINK <= n) return MOAP_LINK;
-    return LINK_THIS;
-}
-
-integer moapFace(integer link)
-{
-    integer sides = llGetLinkNumberOfSides(link);
-    if (MOAP_FACE >= 0 && MOAP_FACE < sides) return MOAP_FACE;
-    return 0;
-}
-
-prepMoapFace(integer link, integer face)
-{
-    llSetLinkPrimitiveParamsFast(link, [
-        PRIM_COLOR, face, <1.0, 1.0, 1.0>, 1.0,
-        PRIM_FULLBRIGHT, face, TRUE,
-        PRIM_GLOW, face, 0.0,
-        PRIM_TEXTURE, face, TEXTURE_BLANK, <1.0, 1.0, 0.0>, ZERO_VECTOR, 0.0
-    ]);
-}
-
-integer applyMoap(integer link, integer face, string url, string home)
-{
-    prepMoapFace(link, face);
-    // Clear first. llSetLinkMedia merges into the existing media entry, and on
-    // reattach that entry is the one saved in inventory — so a saved AUTO_SCALE
-    // of TRUE would survive the write below and the screen would scale again.
-    // Clearing forces a brand new entry built only from these parameters.
-    llClearLinkMedia(link, face);
-    return llSetLinkMedia(link, face, [
-        PRIM_MEDIA_CURRENT_URL, url,
-        PRIM_MEDIA_HOME_URL, home,
-        PRIM_MEDIA_AUTO_PLAY, TRUE,
-        PRIM_MEDIA_AUTO_SCALE, FALSE,
-        PRIM_MEDIA_AUTO_LOOP, FALSE,
-        PRIM_MEDIA_AUTO_ZOOM, FALSE,
-        PRIM_MEDIA_FIRST_CLICK_INTERACT, TRUE,
-        PRIM_MEDIA_WHITELIST_ENABLE, FALSE,
-        PRIM_MEDIA_WHITELIST, "",
-        PRIM_MEDIA_PERMS_INTERACT, PRIM_MEDIA_PERM_ANYONE,
-        PRIM_MEDIA_PERMS_CONTROL, PRIM_MEDIA_PERM_NONE,
-        PRIM_MEDIA_CONTROLS, PRIM_MEDIA_CONTROLS_MINI,
-        PRIM_MEDIA_WIDTH_PIXELS, SCREEN_WIDTH,
-        PRIM_MEDIA_HEIGHT_PIXELS, SCREEN_HEIGHT
-    ]);
-}
-
 setMoap(string url)
 {
     if (url == "") url = API_BASE + "/";
     gMoapUrl = url;
-
-    string nav = url;
-    if (llSubStringIndex(nav, "#") == -1) nav += "#n" + (string)llGetUnixTime();
-
-    integer link = moapLink();
-    integer face = moapFace(link);
-
-    if (!gMediaReady)
-    {
-        integer f;
-        integer sides = llGetLinkNumberOfSides(link);
-        for (f = 0; f < sides; ++f)
-        {
-            if (f != face) llClearLinkMedia(link, f);
-        }
-        gMediaReady = TRUE;
-    }
-
-    integer status = applyMoap(link, face, nav, url);
-    if (status != STATUS_OK && link != LINK_THIS)
-        status = applyMoap(LINK_THIS, face, nav, url);
-    if (status != STATUS_OK && face != 0)
-        status = applyMoap(link, 0, nav, url);
-}
-
-/**
- * Ask for the screen to be (re)applied shortly, and then again after that.
- *
- * Never call setMoap() straight from attach(): the object is not finished
- * attaching, so the viewer restores the media entry saved inside the inventory
- * copy *after* the script has written its own — which is how auto-scale comes
- * back every time the HUD is reattached. Writing from the timer, twice, lands
- * after the viewer has settled.
- */
-scheduleMoap(integer times)
-{
-    gMoapRetry = times;
-    llSetTimerEvent(1.0);
+    llMessageLinked(LINK_THIS, LM_MEDIA_URL, url, NULL_KEY);
 }
 
 list httpOpts(string method, integer withJson)
@@ -354,235 +126,6 @@ postAction(string action, string params)
     gActionReq = llHTTPRequest(API_BASE + "/api/hud/action", httpOpts("POST", TRUE), body);
 }
 
-rezChair()
-{
-    if (llGetInventoryType("nestoria_chair") != INVENTORY_OBJECT)
-    {
-        say("The comfy chair object is missing from the HUD - add \"nestoria_chair\" to its contents.");
-        return;
-    }
-    // A HUD's own pos/rot are screen coordinates — use the avatar's instead.
-    list details = llGetObjectDetails(llGetOwner(), [OBJECT_POS, OBJECT_ROT]);
-    vector ownerPos = llList2Vector(details, 0);
-    rotation ownerRot = llList2Rot(details, 1);
-    vector rezPos = ownerPos + <1.2, 0.0, 0.0> * ownerRot;
-    llRezObject("nestoria_chair", rezPos, ZERO_VECTOR, ownerRot, 0);
-    say("Your comfy chair is out - sit and relax for 2 minutes.");
-}
-
-talkWorld(string message)
-{
-    llRegionSay(comfortChannel(), message);
-}
-
-rezBed()
-{
-    if (llGetInventoryType("nestoria_hospital_bed") == INVENTORY_OBJECT)
-    {
-        list details = llGetObjectDetails(llGetOwner(), [OBJECT_POS, OBJECT_ROT]);
-        vector ownerPos = llList2Vector(details, 0);
-        rotation ownerRot = llList2Rot(details, 1);
-        vector rezPos = ownerPos + <1.5, 0.0, 0.0> * ownerRot;
-        llRezObject("nestoria_hospital_bed", rezPos, ZERO_VECTOR, ownerRot, 1);
-        say("Hospital bed is out — sit when you are ready.");
-    }
-    talkWorld("nestoria_labor_hospital");
-}
-
-vomitBurst()
-{
-    llParticleSystem([
-        PSYS_PART_FLAGS, PSYS_PART_EMISSIVE_MASK | PSYS_PART_INTERP_COLOR_MASK
-                       | PSYS_PART_INTERP_SCALE_MASK | PSYS_PART_FOLLOW_VELOCITY_MASK,
-        PSYS_SRC_PATTERN, PSYS_SRC_PATTERN_ANGLE_CONE,
-        PSYS_SRC_ANGLE_BEGIN, 0.0,
-        PSYS_SRC_ANGLE_END, 0.35,
-        PSYS_PART_START_COLOR, <0.75, 0.85, 0.65>,
-        PSYS_PART_END_COLOR,   <0.55, 0.65, 0.45>,
-        PSYS_PART_START_SCALE, <0.08, 0.08, 0.0>,
-        PSYS_PART_END_SCALE,   <0.03, 0.03, 0.0>,
-        PSYS_PART_MAX_AGE, 1.8,
-        PSYS_SRC_BURST_RATE, 0.04,
-        PSYS_SRC_BURST_PART_COUNT, 8,
-        PSYS_SRC_BURST_SPEED_MIN, 0.15,
-        PSYS_SRC_BURST_SPEED_MAX, 0.45,
-        PSYS_SRC_MAX_AGE, 1.2,
-        PSYS_PART_START_ALPHA, 0.7,
-        PSYS_PART_END_ALPHA, 0.0
-    ]);
-}
-
-// The server sends the choices with the event as "key|Short label" pairs
-// separated by ";". The buttons are therefore whatever THIS event actually
-// offers — a nausea popup gets ginger ale and medicine, a kick gets "talk to
-// baby" — instead of the one fixed set of five that used to be shown for
-// every single event no matter what it was.
-/**
- * Shrink the HUD to a small tab in place.
- *
- * Children are hidden AND parked at <0, 0, -5> — in HUD coordinates that is
- * behind the viewer, so they neither draw nor take clicks. The root keeps its
- * proportions and simply scales down, which leaves a recognisable little tab
- * to touch rather than an invisible hotspot the wearer has to hunt for.
- */
-minimizeHud()
-{
-    if (gMinimized) return;
-
-    gFullScale = llGetScale();
-    gSavedPos = [];
-
-    integer n = llGetNumberOfPrims();
-    integer i;
-    for (i = 2; i <= n; ++i)
-    {
-        vector p = (vector)llList2String(
-            llGetLinkPrimitiveParams(i, [PRIM_POS_LOCAL]), 0);
-        gSavedPos += [i, p];
-        llSetLinkAlpha(i, 0.0, ALL_SIDES);
-        llSetLinkPrimitiveParamsFast(i, [PRIM_POS_LOCAL, <0.0, 0.0, -5.0>]);
-    }
-
-    // Keep the aspect, just make it small enough to sit out of the way.
-    vector tab = gFullScale * 0.22;
-    if (tab.x < 0.02) tab.x = 0.02;
-    if (tab.y < 0.02) tab.y = 0.02;
-    if (tab.z < 0.02) tab.z = 0.02;
-    llSetScale(tab);
-
-    gMinimized = TRUE;
-    say("HUD tucked away - touch the little tab to bring it back.");
-}
-
-/** Put everything back, and resync on the way in. */
-restoreHud()
-{
-    if (!gMinimized) return;
-
-    integer count = llGetListLength(gSavedPos);
-    integer i;
-    for (i = 0; i < count; i += 2)
-    {
-        integer link = llList2Integer(gSavedPos, i);
-        vector p = llList2Vector(gSavedPos, i + 1);
-        llSetLinkPrimitiveParamsFast(link, [PRIM_POS_LOCAL, p]);
-        llSetLinkAlpha(link, 1.0, ALL_SIDES);
-    }
-    if (gFullScale != ZERO_VECTOR) llSetScale(gFullScale);
-
-    gSavedPos = [];
-    gMinimized = FALSE;
-
-    // The screen has been sitting behind the camera; re-apply the media and
-    // re-register so it comes back live rather than on whatever it last had.
-    gMediaReady = FALSE;
-    scheduleMoap(2);
-    registerWithServer();
-}
-
-/**
- * Rez the aftermath, if the object is there. `nestoria_mess` is expected to
- * clean itself up on a timer the way the comfort chair does — the HUD only
- * puts it on the floor in front of her.
- */
-rezMess()
-{
-    if (llGetInventoryType("nestoria_mess") != INVENTORY_OBJECT) return;
-    list details = llGetObjectDetails(llGetOwner(), [OBJECT_POS, OBJECT_ROT]);
-    vector ownerPos = llList2Vector(details, 0);
-    rotation ownerRot = llList2Rot(details, 1);
-    llRezObject("nestoria_mess", ownerPos + <0.7, 0.0, -0.9> * ownerRot,
-        ZERO_VECTOR, ownerRot, 1);
-}
-
-openEventDialog(string params)
-{
-    string title = llJsonGetValue(params, ["title"]);
-    string body = llJsonGetValue(params, ["body"]);
-    string choices = llJsonGetValue(params, ["choices"]);
-    gDialogKind = llJsonGetValue(params, ["kind"]);
-    gDialogEvent = llJsonGetValue(params, ["eventType"]);
-    gDialogId = llJsonGetValue(params, ["eventId"]);
-    if (title == JSON_INVALID) title = "Nestoria";
-    if (body == JSON_INVALID) body = "";
-    if (choices == JSON_INVALID) choices = "";
-    if (gDialogKind == JSON_INVALID) gDialogKind = "event";
-    if (gDialogEvent == JSON_INVALID) gDialogEvent = "";
-    if (gDialogId == JSON_INVALID) gDialogId = "";
-
-    gDialogKeys = [];
-    gDialogLabels = [];
-    list buttons = [];
-
-    integer i;
-    list pairs = llParseString2List(choices, [";"], []);
-    integer count = llGetListLength(pairs);
-    if (count > 11) count = 11;          // llDialog allows 12; keep one for Close
-    for (i = 0; i < count; ++i)
-    {
-        list kv = llParseString2List(llList2String(pairs, i), ["|"], []);
-        // NOT "key" — that is an LSL type name and will not compile.
-        string choiceKey = llList2String(kv, 0);
-        string choiceLabel = llList2String(kv, 1);
-        if (choiceKey != "")
-        {
-            if (choiceLabel == "") choiceLabel = choiceKey;
-            // llDialog truncates button text at 24 bytes.
-            if (llStringLength(choiceLabel) > 24)
-                choiceLabel = llGetSubString(choiceLabel, 0, 23);
-            gDialogKeys += [choiceKey];
-            gDialogLabels += [choiceLabel];
-            buttons += [choiceLabel];
-        }
-    }
-
-    // Fallback for an older server that has not been redeployed yet.
-    if (llGetListLength(buttons) == 0)
-    {
-        if (gDialogKind == "craving")
-        {
-            gDialogKeys = ["eat", "healthy", "ask_partner", "ignore", "journal"];
-            buttons = ["Eat it", "Healthy swap", "Ask partner", "Push through", "Journal it"];
-            gDialogLabels = buttons;
-        }
-        else
-        {
-            gDialogKeys = ["rub_belly", "water", "rest", "journal", "ask_partner"];
-            buttons = ["Rub belly", "Water", "Rest", "Journal it", "Ask partner"];
-            gDialogLabels = buttons;
-        }
-    }
-
-    gMenuChannel = -1 - (integer)llFrand(1000000.0);
-    llListenRemove(gListenHandle);
-    gListenHandle = llListen(gMenuChannel, "", llGetOwner(), "");
-
-    // llDialog caps the message at 512 bytes; trim the body, never the title.
-    string message = title + "\n\n" + body;
-    if (llStringLength(message) > 400) message = llGetSubString(message, 0, 399) + "...";
-
-    llDialog(llGetOwner(), message, buttons + ["Close"], gMenuChannel);
-}
-
-giveProp(string item)
-{
-    list allowed = ["nestoria_chocolate_fruit_toast", "nestoria_smoothie",
-        "nestoria_chocolate_bar", "nestoria_salmon_bagel", "nestoria_water", "nestoria_prenatals"];
-    if (llListFindList(allowed, [item]) == -1) return;
-    if (llGetInventoryType(item) != INVENTORY_OBJECT)
-    {
-        say("Missing prop: " + item + ". Put the prepared object in the HUD root contents. No care has been credited.");
-        return;
-    }
-    if (!(llGetInventoryPermMask(item, MASK_OWNER) & PERM_COPY))
-    {
-        say(item + " needs Copy permission for this wearer before the attached HUD can give it.");
-        return;
-    }
-    llGiveInventory(llGetOwner(), item);
-    say("Inventory offer sent for " + item + ". Accept, then Add it to enjoy your little care moment ♥");
-}
-
 creditProp(key sender, string prop, string useId)
 {
     if (gToken == "")
@@ -600,185 +143,21 @@ creditProp(key sender, string prop, string useId)
     gPropReq = llHTTPRequest(API_BASE + "/api/sl/action", httpOpts("POST", TRUE), body);
 }
 
-runCommand(string cmd, string params)
-{
-    if (cmd == "give_prop")
-    {
-        giveProp(llJsonGetValue(params, ["item"]));
-    }
-    else if (cmd == "say")
-    {
-        say(llJsonGetValue(params, ["text"]));
-    }
-    else if (cmd == "chime")
-    {
-        playSoundByName("nestoria_chime");
-    }
-    else if (cmd == "hearts")
-    {
-        heartsBurst();
-        playSoundByName("nestoria_chime");
-    }
-    else if (cmd == "heartbeat")
-    {
-        playSoundByName("nestoria_heartbeat");
-        say(llJsonGetValue(params, ["text"]));
-    }
-    else if (cmd == "drink")
-    {
-        playSoundByName("nestoria_sip");
-        startAnimByName("nestoria_drink");
-    }
-    else if (cmd == "rest")
-    {
-        startAnimByName("nestoria_rest");
-    }
-    else if (cmd == "vitamins")
-    {
-        startAnimByName("nestoria_vitamins");
-        playSoundByName("nestoria_chime");
-    }
-    else if (cmd == "belly_hold")
-    {
-        startAnimByName("nestoria_belly_hold");
-        playSoundByName("nestoria_chime");
-    }
-    else if (cmd == "im")
-    {
-        string target = llJsonGetValue(params, ["target"]);
-        string text = llJsonGetValue(params, ["text"]);
-        if (target != JSON_INVALID && text != JSON_INVALID)
-            llInstantMessage((key)target, text);
-    }
-    else if (cmd == "kick")
-    {
-        say("[Baby] " + llJsonGetValue(params, ["text"]));
-        playSoundByName("nestoria_chime");
-    }
-    else if (cmd == "refresh_moap")
-    {
-        setMoap(gMoapUrl);
-    }
-    else if (cmd == "rez_chair")
-    {
-        rezChair();
-        startAnimOr("nestoria_comfort", "");
-    }
-    else if (cmd == "stop_anim")
-    {
-        stopCurrentAnim();
-    }
-    else if (cmd == "minimize")
-    {
-        minimizeHud();
-    }
-    else if (cmd == "restore")
-    {
-        restoreHud();
-    }
-    else if (cmd == "bag_pack")
-    {
-        talkWorld("nestoria_bag_pack");
-        say("If the hospital bag is worn, it is opening to pack.");
-    }
-    else if (cmd == "rez_bed")
-    {
-        rezBed();
-    }
-    else if (cmd == "labor_water")
-    {
-        talkWorld("nestoria_labor_water");
-        say("Your water has broken.");
-        playSoundByName("nestoria_chime");
-    }
-    else if (cmd == "labor_contractions")
-    {
-        talkWorld("nestoria_labor_contractions");
-        startAnimOr("nestoria_contraction", "nestoria_rest");
-        say("A contraction. Breathe.");
-        playSoundByName("nestoria_heartbeat");
-    }
-    else if (cmd == "labor_birth")
-    {
-        talkWorld("nestoria_labor_birth");
-        heartsBurst();
-        playSoundByName("nestoria_chime");
-    }
-    else if (cmd == "sleep")
-    {
-        startAnimOr("nestoria_sleep", "nestoria_rest");
-        playSoundOr("nestoria_yawn", "");
-        say("You settle in to sleep.");
-    }
-    else if (cmd == "yawn")
-    {
-        startAnimOr("nestoria_yawn", "nestoria_rest");
-        playSoundOr("nestoria_yawn", "");
-        say("A yawn steals the end of the sentence.");
-    }
-    else if (cmd == "vomit")
-    {
-        vomitBurst();
-        startAnimOr("nestoria_vomit", "nestoria_rest");
-        playSoundOr("nestoria_vomit", "nestoria_chime");
-        rezMess();
-        say("A wave of sickness hits.");
-    }
-    else if (cmd == "cry")
-    {
-        startAnimOr("nestoria_cry", "");
-        playSoundOr("nestoria_cry", "");
-        say("Tears come. That's alright.");
-    }
-    else if (cmd == "bathroom")
-    {
-        if (llGetInventoryType("nestoria_toilet") == INVENTORY_OBJECT)
-        {
-            list details = llGetObjectDetails(llGetOwner(), [OBJECT_POS, OBJECT_ROT]);
-            vector ownerPos = llList2Vector(details, 0);
-            rotation ownerRot = llList2Rot(details, 1);
-            llRezObject("nestoria_toilet", ownerPos + <1.0, 0.4, 0.0> * ownerRot,
-                ZERO_VECTOR, ownerRot, 1);
-        }
-        talkWorld("nestoria_bathroom");
-        startAnimOr("nestoria_bathroom", "");
-        say("Bathroom break.");
-    }
-    else if (cmd == "water_break")
-    {
-        talkWorld("nestoria_labor_water");
-        say("Your water has broken.");
-        playSoundByName("nestoria_chime");
-    }
-    else if (cmd == "contractions")
-    {
-        talkWorld("nestoria_labor_contractions");
-        startAnimOr("nestoria_contraction", "nestoria_rest");
-        say("A contraction. Breathe.");
-        playSoundByName("nestoria_heartbeat");
-    }
-    else if (cmd == "birth")
-    {
-        talkWorld("nestoria_labor_birth");
-        heartsBurst();
-        playSoundByName("nestoria_chime");
-    }
-    else if (cmd == "dialog")
-    {
-        openEventDialog(params);
-    }
-}
-
-processCommands(string json)
+processCommands()
 {
     integer i = 0;
-    while (llJsonValueType(json, ["commands", i]) != JSON_INVALID)
+    while (llJsonValueType(gCommands, ["commands", i]) == JSON_OBJECT)
     {
-        string cmd = llJsonGetValue(json, ["commands", i, "command"]);
-        string params = llJsonGetValue(json, ["commands", i, "params"]);
-        runCommand(cmd, params);
-        i++;
+        string cmd = llJsonGetValue(gCommands, ["commands", i, "command"]);
+        string params = llJsonGetValue(gCommands, ["commands", i, "params"]);
+        if (cmd != JSON_INVALID && cmd != "")
+        {
+            if (llJsonValueType(params, []) != JSON_OBJECT) params = "{}";
+            llMessageLinked(LINK_THIS, LM_COMMAND, params, (key)cmd);
+        }
+        ++i;
     }
+    gCommands = "";
 }
 
 requestPushUrl()
@@ -792,7 +171,12 @@ default
 {
     state_entry()
     {
-        llRequestPermissions(llGetOwner(), PERMISSION_TRIGGER_ANIMATION);
+        if (llGetInventoryType("nestoria_hud_media") != INVENTORY_SCRIPT
+            && llGetInventoryType("nestoria_hud_media.lsl") != INVENTORY_SCRIPT)
+            say("Add nestoria_hud_media.lsl to this root prim and compile it with Mono.");
+        if (llGetInventoryType("nestoria_hud_effects") != INVENTORY_SCRIPT
+            && llGetInventoryType("nestoria_hud_effects.lsl") != INVENTORY_SCRIPT)
+            say("Add nestoria_hud_effects.lsl to this root prim and compile it with Mono.");
         gChairChannel = comfortChannel();
         gChairListen = llListen(gChairChannel, "", NULL_KEY, "");
         setMoap(API_BASE + "/");
@@ -803,31 +187,14 @@ default
 
     attach(key id)
     {
-        if (id != NULL_KEY)
-        {
-            llRequestPermissions(llGetOwner(), PERMISSION_TRIGGER_ANIMATION);
-            gMediaReady = FALSE;
-            // A HUD that came back still tucked away would just look broken.
-            if (gMinimized) restoreHud();
-            // Deliberately NOT setMoap() here — see scheduleMoap().
-            scheduleMoap(2);
-            requestPushUrl();
-        }
-        else
-        {
-            stopCurrentAnim();
-        }
+        if (id != NULL_KEY) requestPushUrl();
     }
 
     changed(integer change)
     {
-        if (change & (CHANGED_REGION | CHANGED_TELEPORT | CHANGED_REGION_START))
-        {
-            gMediaReady = FALSE;
-            scheduleMoap(2);
-            requestPushUrl();
-        }
         if (change & CHANGED_OWNER) llResetScript();
+        if (change & (CHANGED_REGION | CHANGED_TELEPORT | CHANGED_REGION_START))
+            requestPushUrl();
     }
 
     http_request(key id, string method, string body)
@@ -847,7 +214,11 @@ default
             // Push from the server: {"secret": "...", "commands":[...]}
             if (llJsonGetValue(body, ["secret"]) == API_SECRET)
             {
-                processCommands(body);
+                // Release the event's body before calling the dispatcher; the
+                // full response is never passed through nested command handlers.
+                gCommands = body;
+                body = "";
+                processCommands();
                 llHTTPResponse(id, 200, "ok");
             }
             else llHTTPResponse(id, 403, "forbidden");
@@ -899,7 +270,12 @@ default
                 gToken = "";
                 return;
             }
-            if (status == 200) processCommands(body);
+            if (status == 200)
+            {
+                gCommands = body;
+                body = "";
+                processCommands();
+            }
         }
         else if (id == gActionReq)
         {
@@ -910,40 +286,15 @@ default
 
     timer()
     {
-        // Media re-asserts come first and hold the fast timer; polling resumes
-        // once the screen has been written and confirmed.
-        if (gMoapRetry > 0)
-        {
-            --gMoapRetry;
-            if (gMoapUrl == "") setMoap(API_BASE + "/");
-            else setMoap(gMoapUrl);
-            if (gMoapRetry > 0) llSetTimerEvent(4.0);
-            else llSetTimerEvent(gPollWait);
-            return;
-        }
         pollServer();
     }
 
-    touch_start(integer n)
+    link_message(integer sender, integer num, string message, key data)
     {
-        if (llDetectedKey(0) != llGetOwner()) return;
-
-        // Touching the frame toggles the HUD away and back. The media face is
-        // interactive, so touching the screen itself goes to the web page and
-        // never gets here — only the frame does.
-        if (gMinimized)
-        {
-            restoreHud();
-            return;
-        }
-
-        // A touch on the frame while open means one of two things: tuck it
-        // away, or "the screen is stuck, fix it". Re-syncing first covers the
-        // second for free, then it minimises.
-        if (gMoapUrl == "") setMoap(API_BASE + "/");
-        else setMoap(gMoapUrl);
-        registerWithServer();
-        minimizeHud();
+        if (sender != llGetLinkNumber()) return;
+        if (num == LM_ACTION) postAction((string)data, message);
+        else if (num == LM_SYNC) registerWithServer();
+        else if (num == LM_MEDIA_READY) setMoap(gMoapUrl);
     }
 
     listen(integer channel, string name, key id, string message)
@@ -998,47 +349,7 @@ default
             return;
         }
 
-        llListenRemove(gListenHandle);
-        if (message == "Close")
-        {
-            // Only an RP event has a pending row on the server to close. A
-            // craving dialog is already recorded, so dismissing here would
-            // close whatever event happens to be open instead.
-            if (gDialogKind == "event") postAction("event_dismiss", "{}");
-            gDialogKind = "";
-            gDialogEvent = "";
-            gDialogId = "";
-            gDialogKeys = [];
-            gDialogLabels = [];
-            return;
-        }
-
-        // Button index -> the choice key the server sent alongside it.
-        integer idx = llListFindList(gDialogLabels, [message]);
-        string choice = "";
-        if (idx >= 0 && idx < llGetListLength(gDialogKeys))
-            choice = llList2String(gDialogKeys, idx);
-
-        if (choice != "")
-        {
-            if (gDialogKind == "craving")
-            {
-                postAction("craving_choice", llList2Json(JSON_OBJECT, ["choice", choice]));
-            }
-            else
-            {
-                postAction("random_event_choice", llList2Json(JSON_OBJECT,
-                    ["eventType", gDialogEvent, "eventId", gDialogId, "choice", choice]));
-            }
-        }
-
-        gDialogKind = "";
-        gDialogEvent = "";
-        gDialogId = "";
-        gDialogKeys = [];
-        gDialogLabels = [];
     }
-    run_time_permissions(integer perm) { }
 
     on_rez(integer start)
     {

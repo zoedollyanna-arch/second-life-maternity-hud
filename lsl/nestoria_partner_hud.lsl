@@ -2,8 +2,8 @@
 // NESTORIA — Partner HUD (MOAP only)
 // ----------------------------------------------------------------------------
 // Same web app as the Pregnancy HUD, different page: /partner?token=…
-// Touch to pair (first time) or refresh the screen. All support actions
-// live on that page — no in-world dialog menu.
+// Touch the outer frame for Sync, Pair, Tuck away, and Close. Sync renews
+// the wearer's session without changing the partner link. Support is on-screen.
 //
 // SETUP: API_BASE and API_SECRET must match the server .env.
 // Face 4 of link 2 is the media screen. Script goes in the ROOT prim.
@@ -23,6 +23,8 @@ string  gMoapUrl = "";
 string  gMomName = "";
 key     gHttpReq = NULL_KEY;
 key     gPollReq = NULL_KEY;
+string  gHttpKind = "";
+integer gNeedsRegister = TRUE;
 integer gListenHandle;
 integer gMenuChannel;
 integer gAwaitingCode = FALSE;
@@ -33,7 +35,7 @@ integer gMoapRetry = 0;
 // --- minimise ---------------------------------------------------------------
 // An invisible prim in a HUD still swallows clicks, so hiding is not enough:
 // the children are parked behind the camera plane too. See the same block in
-// nestoria_main_hud.lsl.
+// nestoria_hud_media.lsl.
 integer gMinimized = FALSE;
 vector  gFullScale;
 list    gSavedPos  = [];
@@ -81,16 +83,12 @@ prepMoapFace(integer link, integer face)
 integer applyMoap(integer link, integer face, string url, string home)
 {
     prepMoapFace(link, face);
-    // Clear first. llSetLinkMedia merges into the existing media entry, and on
-    // reattach that entry is the one saved in inventory — so a saved AUTO_SCALE
-    // of TRUE would survive the write below and the screen would scale again.
-    // Clearing forces a brand new entry built only from these parameters.
-    llClearLinkMedia(link, face);
+    // Update specified media fields in place; keep Auto Scale checked.
     return llSetLinkMedia(link, face, [
         PRIM_MEDIA_CURRENT_URL, url,
         PRIM_MEDIA_HOME_URL, home,
         PRIM_MEDIA_AUTO_PLAY, TRUE,
-        PRIM_MEDIA_AUTO_SCALE, FALSE,
+        PRIM_MEDIA_AUTO_SCALE, TRUE,
         PRIM_MEDIA_AUTO_LOOP, FALSE,
         PRIM_MEDIA_AUTO_ZOOM, FALSE,
         PRIM_MEDIA_FIRST_CLICK_INTERACT, TRUE,
@@ -110,7 +108,6 @@ setMoap(string url)
     gMoapUrl = url;
 
     string nav = url;
-    if (llSubStringIndex(nav, "#") == -1) nav += "#n" + (string)llGetUnixTime();
 
     integer link = moapLink();
     integer face = moapFace(link);
@@ -133,14 +130,8 @@ setMoap(string url)
         status = applyMoap(link, 0, nav, url);
 }
 
-/**
- * Ask for the screen to be (re)applied shortly, and then again after that.
- *
- * Never call setMoap() straight from attach(): the object is not finished
- * attaching, so the viewer restores the media entry saved inside the inventory
- * copy *after* the script has written its own — which is how auto-scale comes
- * back every time the HUD is reattached.
- */
+// Delayed attach/teleport media reassertions share the poll timer. HTTP
+// status updates keep its fast interval while reassertions are still owed.
 scheduleMoap(integer times)
 {
     gMoapRetry = times;
@@ -167,20 +158,23 @@ noteHttpStatus(integer status)
         gPollWait = 90.0 * (float)gFailStreak;
         if (gPollWait > 600.0) gPollWait = 600.0;
         gNextHttp = llGetTime() + gPollWait;
-        llSetTimerEvent(gPollWait);
+        if (gMoapRetry > 0) llSetTimerEvent(1.0);
+        else llSetTimerEvent(gPollWait);
     }
     else if (status == 429)
     {
         gPollWait = 90.0;
         gNextHttp = llGetTime() + gPollWait;
-        llSetTimerEvent(gPollWait);
+        if (gMoapRetry > 0) llSetTimerEvent(1.0);
+        else llSetTimerEvent(gPollWait);
     }
     else
     {
         gFailStreak = 0;
         gPollWait = (float)POLL_SECONDS;
         gNextHttp = 0.0;
-        llSetTimerEvent(gPollWait);
+        if (gMoapRetry > 0) llSetTimerEvent(1.0);
+        else llSetTimerEvent(gPollWait);
     }
 }
 
@@ -190,6 +184,20 @@ integer httpIdle()
     if (gPollReq != NULL_KEY) return FALSE;
     if (llGetTime() < gNextHttp) return FALSE;
     return TRUE;
+}
+
+registerWithServer()
+{
+    gNeedsRegister = TRUE;
+    if (!httpIdle()) return;
+    gHttpKind = "register";
+    gHttpReq = llHTTPRequest(API_BASE + "/api/sl/register", httpOpts("POST", TRUE),
+        llList2Json(JSON_OBJECT, [
+            "secret", API_SECRET,
+            "kind", "partner",
+            "object_key", (string)llGetKey(),
+            "region", llGetRegionName()
+        ]));
 }
 
 /** Shrink to a small tab in place. Touch the tab to bring it back. */
@@ -287,14 +295,27 @@ askForCode()
         gMenuChannel);
 }
 
+openMenu()
+{
+    gAwaitingCode = FALSE;
+    gMenuChannel = -1 - (integer)llFrand(1000000.0);
+    llListenRemove(gListenHandle);
+    gListenHandle = llListen(gMenuChannel, "", llGetOwner(), "");
+    llDialog(llGetOwner(),
+        "Nestoria Partner HUD\nSync reconnects your screen. Pair enters her code. Your current link is kept when you Sync.",
+        ["Sync", "Pair", "Tuck away", "Close"], gMenuChannel);
+}
+
 default
 {
     state_entry()
     {
         setMoap(API_BASE + "/partner");
-        say("Touch to pair. After pairing, this screen is the Partner HUD.");
+        say("Touch the outer frame for Sync or Pair. Sync reconnects without unlinking you.");
+        registerWithServer();
         gPollWait = 8.0;
-        llSetTimerEvent(gPollWait);
+        if (gMoapRetry > 0) llSetTimerEvent(1.0);
+        else llSetTimerEvent(gPollWait);
     }
 
     attach(key id)
@@ -304,42 +325,49 @@ default
         if (gMinimized) restoreHud();
         // Deliberately NOT setMoap() here — see scheduleMoap().
         scheduleMoap(2);
-        if (gToken == "") askForCode();
+        // Responses from before detach must not block the new registration.
+        gHttpReq = NULL_KEY;
+        gPollReq = NULL_KEY;
+        registerWithServer();
     }
 
     touch_start(integer n)
     {
         if (llDetectedKey(0) != llGetOwner()) return;
 
-        // The media face is interactive, so a touch that reaches this handler
-        // came from the frame, not the screen. Frame = tuck away / bring back.
+        // The media face handles page interactions. Touch the outer frame for
+        // the connection menu, or the minimized tab to restore the HUD.
         if (gMinimized)
         {
             restoreHud();
             return;
         }
 
-        if (gMoapUrl == "") setMoap(API_BASE + "/partner");
-        else setMoap(gMoapUrl);
-        // Not paired yet? Pairing matters more than tidying it away.
-        if (gToken == "")
-        {
-            askForCode();
-            return;
-        }
-        minimizeHud();
+        openMenu();
     }
 
     listen(integer channel, string name, key id, string message)
     {
+        if (channel != gMenuChannel || id != llGetOwner()) return;
         llListenRemove(gListenHandle);
-        if (!gAwaitingCode) return;
+        if (!gAwaitingCode)
+        {
+            if (message == "Sync")
+            {
+                say("Reconnecting your Partner HUD. Your link is kept.");
+                registerWithServer();
+            }
+            else if (message == "Pair") askForCode();
+            else if (message == "Tuck away") minimizeHud();
+            return;
+        }
         gAwaitingCode = FALSE;
         if (!httpIdle())
         {
-            say("Give it a minute — the server is catching up — then touch again.");
+            say("The server is still responding. Try Pair again in a moment.");
             return;
         }
+        gHttpKind = "pair";
         gHttpReq = llHTTPRequest(API_BASE + "/api/sl/partner-link", httpOpts("POST", TRUE),
             llList2Json(JSON_OBJECT, [
                 "secret", API_SECRET,
@@ -355,7 +383,7 @@ default
         {
             gPollReq = NULL_KEY;
             noteHttpStatus(status);
-            if (status == 401) { gToken = ""; return; }
+            if (status == 401) { gToken = ""; registerWithServer(); return; }
             if (status != 200) return;
             integer i = 0;
             while (llJsonValueType(body, ["commands", i]) != JSON_INVALID)
@@ -374,10 +402,19 @@ default
         if (id != gHttpReq) return;
         gHttpReq = NULL_KEY;
         noteHttpStatus(status);
-        if (status == 401) { gToken = ""; return; }
-        if (status != 200) return;
+        if (status == 401) { gToken = ""; registerWithServer(); return; }
+        if (status != 200)
+        {
+            string reason = llJsonGetValue(body, ["error"]);
+            if (reason != JSON_INVALID && reason != "") say(reason);
+            return;
+        }
         string token = llJsonGetValue(body, ["token"]);
-        if (token != JSON_INVALID && token != "") gToken = token;
+        if (token != JSON_INVALID && token != "")
+        {
+            gToken = token;
+            gNeedsRegister = FALSE;
+        }
         string moap = llJsonGetValue(body, ["moap_url"]);
         if (moap != JSON_INVALID && moap != "") setMoap(moap);
         else if (gToken != "") setMoap(API_BASE + "/partner?token=" + gToken);
@@ -385,6 +422,8 @@ default
         if (momName != JSON_INVALID) gMomName = momName;
         string msg = llJsonGetValue(body, ["message"]);
         if (msg != JSON_INVALID && msg != "") say(msg);
+        else if (gHttpKind == "register") say("Partner HUD connected. Enter her code on the screen if you are not linked yet.");
+        gHttpKind = "";
     }
 
     timer()
@@ -398,7 +437,11 @@ default
             else llSetTimerEvent(gPollWait);
             return;
         }
-        if (gToken == "") return;
+        if (gNeedsRegister || gToken == "")
+        {
+            registerWithServer();
+            return;
+        }
         if (!httpIdle()) return;
         gPollReq = llHTTPRequest(
             API_BASE + "/api/sl/poll?token=" + gToken + "&kind=partner",
@@ -411,7 +454,8 @@ default
         if (change & (CHANGED_REGION | CHANGED_TELEPORT | CHANGED_REGION_START))
         {
             gMediaReady = FALSE;
-            if (gMoapUrl != "") setMoap(gMoapUrl);
+            scheduleMoap(2);
+            registerWithServer();
         }
     }
 

@@ -19,7 +19,11 @@ import glob
 
 STR_RE = re.compile(r'"(?:\\.|[^"\\])*"')
 COMMENT_RE = re.compile(r'//[^\n]*')
-FDEF_RE = re.compile(r'^(?:[A-Za-z_]\w*\s+)?([a-zA-Z_]\w*)\s*\([^;{)]*\)\s*$', re.M)
+BLOCK_COMMENT_RE = re.compile(r'/\*[\s\S]*?\*/')
+FDEF_RE = re.compile(
+    r'^[ \t]*(?:(?:integer|float|string|key|vector|rotation|list)[ \t]+)?'
+    r'([A-Za-z_]\w*)[ \t]*\([^;{}()]*\)[ \t]*(?=\{|$)', re.M
+)
 
 TYPES = ["integer", "float", "string", "key", "vector", "rotation", "quaternion", "list"]
 
@@ -48,6 +52,8 @@ def fail(msg):
 def check(path):
     src = io.open(path, encoding="utf-8").read()
     nos = STR_RE.sub('""', src)
+    # Keep newlines for useful diagnostics, including braces in block comments.
+    nos = BLOCK_COMMENT_RE.sub(lambda m: "\n" * m.group().count("\n"), nos)
     nos = COMMENT_RE.sub("", nos)
 
     print("=== %s ===" % os.path.relpath(path))
@@ -78,8 +84,12 @@ def check(path):
     defs = {}
     for m in FDEF_RE.finditer(nos):
         name = m.group(1)
-        if name in KEYWORDS_NOT_FUNCS:
+        if name in KEYWORDS_NOT_FUNCS or name.startswith("ll"):
             continue
+        if not nos[m.end():].lstrip().startswith("{"):
+            fail("MISSING FUNCTION BODY: %s" % name)
+        if name in defs:
+            fail("DUPLICATE FUNCTION: %s" % name)
         defs.setdefault(name, m.start())
 
     problems = []
@@ -93,6 +103,15 @@ def check(path):
             fail("DEFINE-BEFORE-USE: " + p)
     else:
         print("  %d user functions, all defined before use" % len(defs))
+
+    # Extracted helpers must not retain calls to functions in another script.
+    # Built-ins start with ll; casts and flow-control keywords are not calls.
+    calls = set(re.findall(r"\b([A-Za-z_]\w*)\s*\(", nos))
+    unknown = sorted(name for name in calls
+                     if name not in defs and name not in KEYWORDS_NOT_FUNCS
+                     and name not in TYPES and not name.startswith("ll"))
+    for name in unknown:
+        fail("UNDEFINED FUNCTION: %s" % name)
 
     # --- globals referenced but never declared ----------------------------
     used = set(re.findall(r"\bg[A-Z]\w*", nos))

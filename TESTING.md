@@ -5,15 +5,19 @@ the RP event system, every partner interaction, and a full labor and birth.
 
 You need:
 
-- **Person A (Mom)** — wears the Main HUD (`nestoria_main_hud.lsl` in the root
-  prim), plus the Belly if you have it.
+- **Person A (Mom)** — wears the Main HUD (`nestoria_main_hud.lsl`,
+  `nestoria_hud_media.lsl`, and `nestoria_hud_effects.lsl` in the same root prim,
+  all compiled with Mono), plus the Belly if you have it.
 - **Person B (Partner)** — wears the Partner HUD (`nestoria_partner_hud.lsl`).
 - Both viewers: **Preferences → Sound & Media → Media → enabled**, and *Allow
   media to auto-play*. Without this the HUD screen stays blank.
 
 Both scripts point at `https://second-life-maternity-hud-t2b3.onrender.com`.
 If you have redeployed elsewhere, edit `API_BASE` and `API_SECRET` at the top of
-each script — `API_SECRET` must equal `SL_API_SECRET` in the server `.env`.
+each network script — `API_SECRET` must equal `SL_API_SECRET` in the server `.env`.
+The Main HUD helpers receive their commands and media URL from main and need
+no credentials. Run the [HUD upgrade checks](lsl/HUD-SCRIPTS.md) when replacing
+an older single-script Main HUD.
 
 > The server sleeps on Render's free tier. The first HUD touch after a quiet
 > period can take ~30 seconds while it wakes. Touch the HUD again if the screen
@@ -28,12 +32,31 @@ each script — `API_SECRET` must equal `SL_API_SECRET` in the server `.env`.
 | 1 | A | Wear the Main HUD, touch it | Dashboard loads on the screen face |
 | 2 | A | Complete the setup wizard (name, week, baby count, gender) | Home screen with meters |
 | 3 | A | **More → Partner** | A 6-character pairing code |
-| 4 | B | Wear the Partner HUD, touch it, enter A's code | "Request sent" |
+| 4 | B | Wear the updated Partner HUD and enter A's code on its screen, or touch the outer frame → Pair | "Request sent" |
 | 5 | A | Home shows a link approval card | Accept it |
 | 6 | B | Partner HUD reloads | Her week, mood and meters appear |
 
 **If step 6 shows nothing:** she has privacy set to *Only me*. Have her open
 **Settings → Privacy** and choose *Partner only*.
+
+### Partner session recovery
+
+- Touch the Partner HUD's **outer frame**, then choose **Sync** in the blue
+  menu. The menu also offers Pair, Tuck away, and Close. A minimized HUD's tab
+  restores it; touch its frame again to open the menu.
+- Confirm Sync opens `/partner` with a fresh session and keeps the existing
+  partner link. It must not ask Mom to remove or approve that link again.
+- Detach/reattach. Confirm the Partner HUD reconnects automatically. Expired
+  polling sessions should renew automatically too.
+- Expired or missing browser sessions show connection instructions; only a
+  valid wearer session with no active link shows code entry. A server outage
+  shows Try again rather than a pairing prompt.
+- On the old script, no Sync menu exists. Replace
+  `lsl/nestoria_partner_hud.lsl` in the Partner HUD root, preserving API settings,
+  and compile with Mono. Restore it to full size before replacing the script.
+  Deploy the web changes for the corrected session screens and pairing guard.
+- Locally run `node --test scripts/test-partner-hud.mjs` and
+  `npm exec -- vitest run src/lib/server/partner-pair.test.ts`.
 
 ---
 

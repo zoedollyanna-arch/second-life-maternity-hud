@@ -203,11 +203,25 @@ string API_SECRET = "<same value as SL_API_SECRET in .env>";
 
 Notes:
 
+- The **Main HUD needs three scripts**, all in the same root prim, compiled
+  with **Mono**: `nestoria_main_hud.lsl` (server communication),
+  `nestoria_hud_media.lsl` (screen and minimize/restore), and
+  `nestoria_hud_effects.lsl` (dialogs, animations, sounds, particles, and props).
+  This divides the work across separate script memory budgets to address
+  stack/heap collisions. Only main needs API credentials; edit `MOAP_LINK`,
+  `MOAP_FACE`, and screen dimensions in the media helper. Keep inventory assets
+  in that same root prim. The media helper keeps **Auto Scale checked** and
+  verifies the screen after reattachment and every 15 seconds. See
+  [HUD upgrade and checks](lsl/HUD-SCRIPTS.md).
 - **Sounds need no uploads** — the dashboard synthesizes chimes, water,
   heartbeat, kicks etc. with Web Audio and plays them through the MOAP media
   screen, so they're heard in-world. In-world sound clips are optional polish.
 - The **belly sensor** is an invisible prim worn on the stomach — it works
   inside any mesh belly add-on (Reborn, BORK, …) and never changes shape.
+- The **Partner HUD** registers its wearer automatically. Touch its outer frame
+  for **Sync** (renew the session while keeping the partner link), **Pair**
+  (enter her code), **Tuck away**, or **Close**. An older script with no Sync menu
+  needs to be replaced with `lsl/nestoria_partner_hud.lsl`, compiled with Mono.
 - The **Comfort action rezzes a chair** (`nestoria_chair`, containing
   `nestoria_comfort_chair.lsl`, stored inside the Main HUD). Sitting on it for
   2 minutes grants the comfort boost, then it cleans itself up.

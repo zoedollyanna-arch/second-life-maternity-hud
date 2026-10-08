@@ -3,9 +3,6 @@ import { json, readJson, sessionFromRequest } from "@/lib/server/http";
 import { db } from "@/lib/server/db";
 import { requestLink } from "@/lib/server/partner";
 
-import { randomUUID } from "node:crypto";
-import { getOrCreateUser, createSession } from "@/lib/server/game";
-
 /**
  * Redeem a pairing code from the Partner HUD *screen*.
  *
@@ -23,12 +20,18 @@ export const Route = createFileRoute("/api/hud/pair")({
     handlers: {
       POST: async ({ request }) => {
         const body = await readJson(request);
-        let user = await sessionFromRequest(request, body);
-        let createdToken: string | null = null;
+        const user = await sessionFromRequest(request, body);
         if (!user) {
-          user = await getOrCreateUser(randomUUID(), "Partner Resident", "partner");
-          createdToken = await createSession(user.id);
+          return json(
+            {
+              error:
+                "Your session expired. Touch the Partner HUD frame and choose Sync, then try again.",
+            },
+            401,
+          );
         }
+        if (user.role !== "partner")
+          return json({ error: "Enter this code on your partner's Partner HUD." }, 403);
 
         const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
         if (!/^[A-Z0-9]{6}$/.test(code)) {
@@ -62,7 +65,6 @@ export const Route = createFileRoute("/api/hud/pair")({
             ok: true,
             status: link.status,
             momName: preg.mom_name,
-            token: createdToken ?? undefined,
             message:
               link.status === "active"
                 ? `Paired with ${preg.mom_name}. Your screen is live.`

@@ -13,8 +13,10 @@ animations are always skipped gracefully by the scripts.
 
 | Item                                        | Notes                                                                                                                                                                                                                                                                                                                                                                     |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tablet/screen mesh or prim                  | A flat panel worn as a HUD (Center or Top attachment). **Face 4** is the media screen (`MOAP_FACE = 4` in `nestoria_main_hud.lsl` — a plain box prim's front face; verify with Develop → Show Info → Show Face Info). Keep the screen face close to 4:3 — the dashboard renders at 1024×768. A decorative frame can be added around it later without touching the script. |
+| Tablet/screen mesh or prim                  | A flat panel worn as a HUD (Center or Top attachment). **Face 4** is the media screen (`MOAP_FACE = 4` in `nestoria_hud_media.lsl`; verify with Develop → Show Info → Show Face Info). Set the media helper's screen dimensions to match the screen face. |
 | `nestoria_main_hud.lsl`                     | Included in this folder — goes in the root prim.                                                                                                                                                                                                                                                                                                                          |
+| `nestoria_hud_media.lsl`                    | Required in the same root prim. Handles the media screen and minimize/restore, keeps Auto Scale checked, and verifies screen settings after reattachment. Compile with Mono. |
+| `nestoria_hud_effects.lsl`                  | Required in the same root prim. Handles dialogs, animations, particles, sounds, and prop inventory. Compile with Mono. |
 | **Comfort chair object** (`nestoria_chair`) | REQUIRED for the Comfort action. Any chair/armchair prim or mesh with `nestoria_comfort_chair.lsl` inside, taken to inventory named exactly `nestoria_chair`, then dropped into the Main HUD's contents. The HUD rezzes it when Comfort is pressed; the wearer sits 2 minutes for the comfort boost, then it cleans itself up.                                            |
 | Logo texture                                | Optional, for the HUD frame/back. Export `src/assets/nestoria-logo.png`.                                                                                                                                                                                                                                                                                                  |
 
@@ -70,12 +72,18 @@ Sounds (optional): `nestoria_kick`, `nestoria_heartbeat`
 
 | Item                            | Notes                                                                                                                    |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Tablet/screen mesh or prim      | Worn as a HUD. **Face 4** loads `/partner?token=…`. Touch pairs or refreshes the screen. Support actions are on the page only. |
+| Tablet/screen mesh or prim      | Worn as a HUD. **Face 4** loads `/partner?token=…`. Touch the outer frame for **Sync**, **Pair**, **Tuck away**, or **Close**. Sync renews the session while keeping the partner link. Support actions are on the page. |
 | `nestoria_partner_hud.lsl`      | Included — goes in the root prim.                                                                                        |
 
 Pairing is now two-sided: entering her code sends her a request, and the
 screen stays on "Not linked yet" until she accepts on her own HUD. It unlocks
 by itself when she does — no need to touch the HUD again.
+
+The script registers the wearer automatically on startup and reattachment.
+If a session expires, **Sync** reconnects the same avatar without entering her
+code again. An older Partner script has no Sync menu; replace it with the current
+`nestoria_partner_hud.lsl`, preserve the deployment's API settings, and compile
+with Mono. The three Main HUD scripts belong to the Pregnancy HUD, not this object.
 
 Optional animations (full perm, dropped into the Partner HUD, named exactly).
 Missing ones are skipped silently:
@@ -214,6 +222,8 @@ Put these inside the main HUD root prim:
 Required:
 
 - `nestoria_main_hud.lsl`
+- `nestoria_hud_media.lsl` (same root prim, Mono)
+- `nestoria_hud_effects.lsl` (same root prim, Mono)
 - `nestoria_chair` object (chair with `nestoria_comfort_chair.lsl` inside)
 
 Optional objects, rezzed when present:

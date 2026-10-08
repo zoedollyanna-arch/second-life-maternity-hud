@@ -316,10 +316,17 @@ function Index() {
         <HudFrame {...hudZoom}>
           <div className="flex h-full min-h-0 flex-1 items-center justify-center px-6">
             <Panel className="w-full max-w-[920px] text-center">
-              <PanelHeader eyebrow="Session" title="Your session has expired" />
+              <PanelHeader
+                eyebrow="Connection"
+                title={state.error?.message === "unauthorized" ? "Your session has expired" : "Your HUD could not connect"}
+              />
               <p className="text-base text-muted-foreground">
-                Touch your Nestoria HUD in Second Life and choose <b>Sync</b> — it will refresh this
-                screen with a new session.
+                For the Pregnancy HUD, touch the outer frame, then touch the small tab to bring it
+                back and reconnect. For the Partner HUD, touch its outer frame and choose <b>Sync</b>.
+              </p>
+              <p className="mt-3 text-sm text-muted-foreground">
+                If your Partner HUD has no Sync option, ask your HUD provider for the updated script.
+                You do not need to remove your partner link.
               </p>
             </Panel>
           </div>
